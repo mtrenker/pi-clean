@@ -3,3 +3,13 @@ node_modules/
 *.js.map
 *.d.ts
 !extensions/**/*.js
+!.github/scripts/**/*.js
+
+# Supply chain security CI artifacts
+security-report.json
+security-report.md
+dependency-changes.json
+typosquatting-report.json
+lockfile-verification-report.json
+install-scripts-report.json
+all-packages.txt

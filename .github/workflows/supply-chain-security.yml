@@ -1,0 +1,703 @@
+name: Supply Chain Security
+
+on:
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'yarn.lock'
+      - 'pnpm-lock.yaml'
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'yarn.lock'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
+
+jobs:
+  detect-dependency-changes:
+    name: Detect Dependency Changes
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch full history for comparisons
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Determine base commit
+        id: base-commit
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BASE_COMMIT="${{ github.event.pull_request.base.sha }}"
+          else
+            # For push events, compare with previous commit
+            BASE_COMMIT="HEAD^"
+          fi
+          echo "base=$BASE_COMMIT" >> $GITHUB_OUTPUT
+          echo "Base commit: $BASE_COMMIT"
+      
+      - name: Detect dependency changes
+        id: detect-changes
+        run: |
+          BASE_COMMIT="${{ steps.base-commit.outputs.base }}"
+          HEAD_COMMIT="${{ github.sha }}"
+          
+          echo "Comparing $BASE_COMMIT to $HEAD_COMMIT"
+          
+          # Run the detection script
+          node .github/scripts/detect-dependency-changes.js "$BASE_COMMIT" "$HEAD_COMMIT" > dependency-changes.json
+          
+          # Output the results
+          echo "Dependency changes detected:"
+          cat dependency-changes.json
+          
+          # Store as output for other jobs
+          echo "changes<<EOF" >> $GITHUB_OUTPUT
+          cat dependency-changes.json >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: Upload dependency changes artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-changes
+          path: dependency-changes.json
+          retention-days: 30
+      
+      - name: Comment on PR (if applicable)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const changes = JSON.parse(fs.readFileSync('dependency-changes.json', 'utf8'));
+            
+            // Count changes
+            const addedCount = changes.added.length;
+            const removedCount = changes.removed.length;
+            const modifiedCount = changes.modified.length;
+            const totalChanges = addedCount + removedCount + modifiedCount;
+            
+            if (totalChanges === 0) {
+              console.log('No dependency changes detected');
+              return;
+            }
+            
+            // Build comment
+            let comment = '## 📦 Dependency Changes Detected\n\n';
+            comment += `**Summary:** ${addedCount} added, ${removedCount} removed, ${modifiedCount} modified\n\n`;
+            
+            if (changes.added.length > 0) {
+              comment += '### ✅ Added Dependencies\n\n';
+              comment += '| Package | Version | Type |\n';
+              comment += '|---------|---------|------|\n';
+              changes.added.forEach(dep => {
+                comment += `| ${dep.name} | ${dep.version} | ${dep.type} |\n`;
+              });
+              comment += '\n';
+            }
+            
+            if (changes.removed.length > 0) {
+              comment += '### ❌ Removed Dependencies\n\n';
+              comment += '| Package | Version | Type |\n';
+              comment += '|---------|---------|------|\n';
+              changes.removed.forEach(dep => {
+                comment += `| ${dep.name} | ${dep.version} | ${dep.type} |\n`;
+              });
+              comment += '\n';
+            }
+            
+            if (changes.modified.length > 0) {
+              comment += '### 🔄 Modified Dependencies\n\n';
+              comment += '| Package | Old Version | New Version | Type |\n';
+              comment += '|---------|-------------|-------------|------|\n';
+              changes.modified.forEach(dep => {
+                comment += `| ${dep.name} | ${dep.oldVersion} | ${dep.newVersion} | ${dep.type} |\n`;
+              });
+              comment += '\n';
+            }
+            
+            // Post comment
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+  typosquatting-detection:
+    name: Detect Typosquatting
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Extract package names
+        id: extract
+        run: |
+          # Extract all dependencies from package.json
+          if [ -f "package.json" ]; then
+            PACKAGES=$(node -e "
+              const pkg = require('./package.json');
+              const deps = [
+                ...Object.keys(pkg.dependencies || {}),
+                ...Object.keys(pkg.devDependencies || {}),
+                ...Object.keys(pkg.peerDependencies || {}),
+                ...Object.keys(pkg.optionalDependencies || {})
+              ];
+              console.log(deps.join('\n'));
+            ")
+            echo "$PACKAGES" > all-packages.txt
+            echo "packages_file=all-packages.txt" >> $GITHUB_OUTPUT
+            
+            # Count packages
+            PACKAGE_COUNT=$(echo "$PACKAGES" | wc -l)
+            echo "package_count=$PACKAGE_COUNT" >> $GITHUB_OUTPUT
+          else
+            echo "No package.json found"
+            exit 1
+          fi
+      
+      - name: Run typosquatting detection
+        id: detect
+        run: |
+          # Make script executable
+          chmod +x .github/scripts/detect-typosquatting.js
+          
+          # Run detection
+          cat all-packages.txt | .github/scripts/detect-typosquatting.js - > typosquatting-report.json || true
+          
+          # Check if any packages were flagged
+          FLAGGED=$(node -e "
+            const report = require('./typosquatting-report.json');
+            console.log(report.flaggedPackages);
+          ")
+          
+          echo "flagged_count=$FLAGGED" >> $GITHUB_OUTPUT
+          
+          # Display summary
+          echo "### Typosquatting Detection Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Total packages analyzed: ${{ steps.extract.outputs.package_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Flagged packages: $FLAGGED" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "$FLAGGED" -gt 0 ]; then
+            echo "⚠️ **Warning: Potential typosquatting detected!**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Display flagged packages
+            node -e "
+              const report = require('./typosquatting-report.json');
+              const flagged = report.results.filter(r => r.risks.length > 0);
+              
+              flagged.forEach(pkg => {
+                console.log('#### ' + pkg.package + ' (' + pkg.overallRisk + ' risk)');
+                console.log('');
+                pkg.risks.forEach(risk => {
+                  console.log('- **' + risk.type + '** (' + risk.risk + '): ' + risk.reason);
+                });
+                console.log('');
+              });
+            " >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ No typosquatting patterns detected" >> $GITHUB_STEP_SUMMARY
+          fi
+      
+      - name: Upload typosquatting report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: typosquatting-report
+          path: typosquatting-report.json
+          retention-days: 30
+      
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && steps.detect.outputs.flagged_count > 0
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('typosquatting-report.json', 'utf8'));
+            const flagged = report.results.filter(r => r.risks.length > 0);
+            
+            let comment = '## ⚠️ Typosquatting Detection Alert\n\n';
+            comment += `Found ${flagged.length} potentially suspicious package(s):\n\n`;
+            
+            flagged.forEach(pkg => {
+              comment += `### 📦 \`${pkg.package}\` - ${pkg.overallRisk.toUpperCase()} RISK\n\n`;
+              pkg.risks.forEach(risk => {
+                const emoji = risk.risk === 'high' ? '🔴' : '🟡';
+                comment += `${emoji} **${risk.type}**: ${risk.reason}\n`;
+              });
+              comment += '\n';
+            });
+            
+            comment += '\n---\n';
+            comment += '**Please review these packages carefully before merging.**\n';
+            comment += 'Typosquatting is a common attack vector where malicious packages use names similar to popular packages.';
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+      
+      - name: Fail on high-risk packages
+        if: steps.detect.outputs.flagged_count > 0
+        run: |
+          # Check if any high-risk packages were found
+          HIGH_RISK=$(node -e "
+            const report = require('./typosquatting-report.json');
+            const highRisk = report.results.filter(r => r.overallRisk === 'high');
+            console.log(highRisk.length);
+          ")
+          
+          if [ "$HIGH_RISK" -gt 0 ]; then
+            echo "❌ Found $HIGH_RISK high-risk package(s). Please review before proceeding."
+            exit 1
+          fi
+
+  lockfile-integrity:
+    name: Verify Lockfile Integrity
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history for git-based checks
+          fetch-depth: 0
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Verify lockfile integrity
+        id: verify
+        run: |
+          echo "::group::Lockfile Integrity Verification"
+          node .github/scripts/verify-lockfile-integrity.js
+          echo "::endgroup::"
+        continue-on-error: true
+      
+      - name: Upload verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lockfile-verification-report
+          path: lockfile-verification-report.json
+          retention-days: 30
+      
+      - name: Display report summary
+        if: always()
+        run: |
+          if [ -f lockfile-verification-report.json ]; then
+            echo "## Lockfile Integrity Report" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Extract status
+            STATUS=$(jq -r '.status' lockfile-verification-report.json)
+            
+            if [ "$STATUS" = "pass" ]; then
+              echo "✅ **Status**: PASSED" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "❌ **Status**: FAILED" >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Checks" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Display each check
+            jq -r '.checks | to_entries[] | "- **\(.key)**: \(if .value.passed then "✅" else "❌" end) \(.value.message)"' lockfile-verification-report.json >> $GITHUB_STEP_SUMMARY
+            
+            # Display errors if any
+            ERROR_COUNT=$(jq '.errors | length' lockfile-verification-report.json)
+            if [ "$ERROR_COUNT" -gt 0 ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### ❌ Errors" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              jq -r '.errors[] | "- **\(.check)**: \(.message)"' lockfile-verification-report.json >> $GITHUB_STEP_SUMMARY
+            fi
+            
+            # Display warnings if any
+            WARNING_COUNT=$(jq '.warnings | length' lockfile-verification-report.json)
+            if [ "$WARNING_COUNT" -gt 0 ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### ⚠️ Warnings" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              jq -r '.warnings[] | "- **\(.check)**: \(.message)"' lockfile-verification-report.json >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+      
+      - name: Fail if verification failed
+        if: steps.verify.outcome == 'failure'
+        run: |
+          echo "::error::Lockfile integrity verification failed. Please review the report above."
+          exit 1
+      
+      - name: Comment on PR (if verification failed)
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            if (!fs.existsSync('lockfile-verification-report.json')) {
+              return;
+            }
+            
+            const report = JSON.parse(fs.readFileSync('lockfile-verification-report.json', 'utf8'));
+            
+            let comment = '## ❌ Lockfile Integrity Verification Failed\n\n';
+            comment += '### Errors\n\n';
+            
+            report.errors.forEach(error => {
+              comment += `- **${error.check}**: ${error.message}\n`;
+            });
+            
+            if (report.warnings.length > 0) {
+              comment += '\n### ⚠️ Warnings\n\n';
+              report.warnings.forEach(warning => {
+                comment += `- **${warning.check}**: ${warning.message}\n`;
+              });
+            }
+            
+            comment += '\n### Recommendations\n\n';
+            
+            if (report.errors.some(e => e.check === 'npm_ci_dry_run')) {
+              comment += '- Run `npm install` to synchronize package-lock.json with package.json\n';
+            }
+            
+            if (report.errors.some(e => e.check === 'lockfile_version')) {
+              comment += '- Upgrade to npm 7+ and regenerate lockfile with `rm package-lock.json && npm install`\n';
+            }
+            
+            if (report.errors.some(e => e.check === 'integrity_checksums')) {
+              comment += '- Regenerate lockfile with `rm package-lock.json && npm install` to ensure all packages have integrity checksums\n';
+            }
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+  install-scripts-detection:
+    name: Detect Install Scripts
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Detect install scripts
+        id: detect
+        run: |
+          echo "::group::Install Scripts Detection"
+          node .github/scripts/detect-install-scripts.js > install-scripts-report.json
+          echo "::endgroup::"
+        continue-on-error: true
+      
+      - name: Upload install scripts report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-scripts-report
+          path: install-scripts-report.json
+          retention-days: 30
+      
+      - name: Display report summary
+        if: always()
+        run: |
+          if [ -f install-scripts-report.json ]; then
+            echo "## Install Scripts Detection Report" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Extract counts
+            TOTAL_PACKAGES=$(jq -r '.totalPackages' install-scripts-report.json)
+            PACKAGES_WITH_SCRIPTS=$(jq -r '.packagesWithScripts' install-scripts-report.json)
+            FLAGGED_PACKAGES=$(jq -r '.flaggedPackages' install-scripts-report.json)
+            
+            echo "- **Total packages**: $TOTAL_PACKAGES" >> $GITHUB_STEP_SUMMARY
+            echo "- **Packages with install scripts**: $PACKAGES_WITH_SCRIPTS" >> $GITHUB_STEP_SUMMARY
+            echo "- **Flagged packages**: $FLAGGED_PACKAGES" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            if [ "$FLAGGED_PACKAGES" -gt 0 ]; then
+              echo "### ⚠️ Flagged Packages" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              
+              # Display flagged packages
+              node -e "
+                const report = require('./install-scripts-report.json');
+                const flagged = report.packages.filter(p => p.flagged);
+                
+                flagged.forEach(pkg => {
+                  const riskEmoji = {
+                    critical: '🔴',
+                    high: '🟠',
+                    medium: '🟡',
+                    low: '🟢'
+                  }[pkg.riskLevel] || '⚪';
+                  
+                  console.log('#### ' + riskEmoji + ' ' + pkg.name + '@' + pkg.version + ' (' + pkg.riskLevel.toUpperCase() + ' risk)');
+                  console.log('');
+                  console.log('**Install Scripts:**');
+                  console.log('');
+                  Object.entries(pkg.scripts).forEach(([scriptName, scriptContent]) => {
+                    console.log('- **' + scriptName + '**: \\`' + scriptContent + '\\`');
+                  });
+                  console.log('');
+                  console.log('**Findings:**');
+                  console.log('');
+                  pkg.findings.forEach(finding => {
+                    const findingRisk = finding.risk.toUpperCase();
+                    console.log('- **' + finding.pattern + '** (' + findingRisk + '): ' + finding.description);
+                    if (finding.snippet) {
+                      console.log('  - Snippet: \\`' + finding.snippet + '\\`');
+                    }
+                  });
+                  console.log('');
+                });
+              " >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ No suspicious install scripts detected" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+      
+      - name: Comment on PR (if packages flagged)
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            if (!fs.existsSync('install-scripts-report.json')) {
+              return;
+            }
+            
+            const report = JSON.parse(fs.readFileSync('install-scripts-report.json', 'utf8'));
+            const flagged = report.packages.filter(p => p.flagged);
+            
+            if (flagged.length === 0) {
+              console.log('No flagged packages to report');
+              return;
+            }
+            
+            const riskEmojis = {
+              critical: '🔴',
+              high: '🟠',
+              medium: '🟡',
+              low: '🟢'
+            };
+            
+            let comment = '## ⚠️ Install Scripts Detection Alert\n\n';
+            comment += `Found **${flagged.length}** package(s) with suspicious install scripts:\n\n`;
+            
+            flagged.forEach(pkg => {
+              const emoji = riskEmojis[pkg.riskLevel] || '⚪';
+              comment += `### ${emoji} \`${pkg.name}@${pkg.version}\` - ${pkg.riskLevel.toUpperCase()} RISK\n\n`;
+              
+              comment += '**Install Scripts:**\n';
+              Object.entries(pkg.scripts).forEach(([scriptName, scriptContent]) => {
+                comment += `- **${scriptName}**: \`${scriptContent}\`\n`;
+              });
+              comment += '\n';
+              
+              comment += '**Suspicious Patterns Found:**\n';
+              pkg.findings.forEach(finding => {
+                comment += `- ${finding.risk === 'critical' ? '🔴' : finding.risk === 'high' ? '🟠' : '🟡'} **${finding.description}** (${finding.pattern})\n`;
+                if (finding.snippet) {
+                  comment += `  \`${finding.snippet}\`\n`;
+                }
+              });
+              comment += '\n';
+            });
+            
+            comment += '\n---\n';
+            comment += '**⚠️ WARNING:** Install scripts execute arbitrary code during \`npm install\` and are a common supply chain attack vector.\n\n';
+            comment += 'Please review these packages carefully. Consider:\n';
+            comment += '- Examining the package source code on npm/GitHub\n';
+            comment += '- Checking the package maintainer reputation\n';
+            comment += '- Looking for similar legitimate packages without install scripts\n';
+            comment += '- Adding to whitelist if the scripts are legitimate (e.g., native module compilation)\n';
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+      
+      - name: Fail on critical/high-risk packages
+        if: always()
+        run: |
+          if [ ! -f install-scripts-report.json ]; then
+            exit 0
+          fi
+          
+          # Check for critical or high-risk packages
+          CRITICAL_HIGH=$(node -e "
+            const report = require('./install-scripts-report.json');
+            const critical = report.packages.filter(p => p.flagged && (p.riskLevel === 'critical' || p.riskLevel === 'high'));
+            console.log(critical.length);
+          ")
+          
+          if [ "$CRITICAL_HIGH" -gt 0 ]; then
+            echo "❌ Found $CRITICAL_HIGH critical/high-risk package(s) with suspicious install scripts."
+            echo "Please review the report and either:"
+            echo "  1. Remove the suspicious packages"
+            echo "  2. Add them to the whitelist if they are legitimate"
+            exit 1
+          fi
+
+  security-report:
+    name: Generate Security Report
+    runs-on: ubuntu-latest
+    needs: [detect-dependency-changes, typosquatting-detection, lockfile-integrity, install-scripts-detection]
+    if: always()  # Run even if previous jobs fail
+    permissions:
+      contents: read
+      pull-requests: write  # For posting PR comments
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      
+      - name: Prepare reports
+        run: |
+          # Move artifacts to root directory for easier access
+          if [ -d "artifacts/dependency-changes" ]; then
+            cp artifacts/dependency-changes/dependency-changes.json . || true
+          fi
+          
+          if [ -d "artifacts/typosquatting-report" ]; then
+            cp artifacts/typosquatting-report/typosquatting-report.json . || true
+          fi
+          
+          if [ -d "artifacts/lockfile-verification-report" ]; then
+            cp artifacts/lockfile-verification-report/lockfile-verification-report.json . || true
+          fi
+          
+          if [ -d "artifacts/install-scripts-report" ]; then
+            cp artifacts/install-scripts-report/install-scripts-report.json . || true
+          fi
+          
+          if [ -d "artifacts/audit-report" ]; then
+            cp artifacts/audit-report/audit-report.json . || true
+          fi
+          
+          # List available reports
+          echo "Available reports:"
+          ls -la *.json || echo "No JSON reports found"
+      
+      - name: Make script executable
+        run: chmod +x .github/scripts/generate-security-report.js
+      
+      - name: Generate security report
+        id: report
+        run: |
+          # Run the report generator
+          # It will exit with non-zero if critical issues are found
+          node .github/scripts/generate-security-report.js
+        continue-on-error: true
+      
+      - name: Upload security report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-report
+          path: |
+            security-report.json
+            security-report.md
+          retention-days: 90
+      
+      - name: Post PR comment
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            // Check if report was generated
+            if (!fs.existsSync('security-report.md')) {
+              console.log('No security report found, skipping PR comment');
+              return;
+            }
+            
+            const reportMarkdown = fs.readFileSync('security-report.md', 'utf8');
+            
+            // Find existing security report comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('Supply Chain Security Report')
+            );
+            
+            // Update or create comment
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: reportMarkdown
+              });
+              console.log('Updated existing PR comment');
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: reportMarkdown
+              });
+              console.log('Created new PR comment');
+            }
+      
+      - name: Fail if critical issues found
+        if: steps.report.outcome == 'failure'
+        run: |
+          echo "::error::Critical security issues found. Please review the security report."
+          exit 1
