@@ -8,6 +8,14 @@
     "type": "git",
     "url": "git@github.com:mtrenker/pi-clean.git"
   },
+  "devDependencies": {
+    "@mariozechner/pi-ai": "^0.66.1",
+    "@mariozechner/pi-agent-core": "^0.66.1",
+    "@mariozechner/pi-coding-agent": "^0.66.1",
+    "@mariozechner/pi-tui": "^0.66.1",
+    "@sinclair/typebox": "^0.34.49",
+    "typescript": "^5.7.0"
+  },
   "peerDependencies": {
     "@mariozechner/pi-ai": "*",
     "@mariozechner/pi-agent-core": "*",
