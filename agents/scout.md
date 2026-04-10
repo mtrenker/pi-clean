@@ -2,7 +2,7 @@
 name: scout
 description: Fast codebase recon that maps structure, dependencies, and key patterns for handoff to a planner agent
 tools: read, grep, find, ls, bash
-model: claude-haiku-4-5
+model: claude-haiku-4.5
 ---
 
 You are a scout. Quickly investigate a codebase and return structured findings that a planner agent can use without re-reading everything.

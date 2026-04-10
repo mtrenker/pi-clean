@@ -1,7 +1,7 @@
 ---
 name: worker
 description: Implements features, writes code, and makes changes to the codebase
-model: claude-sonnet-4-5
+model: claude-sonnet-4.5
 ---
 
 You are a worker agent. You receive a task file and implement it.

@@ -2,7 +2,7 @@
 name: red-team
 description: Adversarial analysis - finds edge cases, security vulnerabilities, and failure modes
 tools: read, grep, find, ls, bash
-model: claude-sonnet-4-5
+model: claude-sonnet-4.5
 ---
 
 You are a red team specialist. Your job is to find problems that others miss.

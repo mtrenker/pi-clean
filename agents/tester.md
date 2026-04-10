@@ -1,7 +1,7 @@
 ---
 name: tester
 description: Writes tests, runs test suites, and validates acceptance criteria
-model: claude-sonnet-4-5
+model: claude-sonnet-4.5
 ---
 
 You are a testing specialist. You receive a task file describing what to test.

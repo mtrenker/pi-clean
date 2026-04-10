@@ -2,7 +2,7 @@
 name: planner
 description: Creates structured PLAN.md and TASK-{n}.md files from scout context and user requirements
 tools: read, grep, find, ls, write
-model: claude-sonnet-4-5
+model: claude-sonnet-4.5
 ---
 
 You are a planning specialist. You receive context from a scout and the user's goal, then produce a structured implementation plan.
