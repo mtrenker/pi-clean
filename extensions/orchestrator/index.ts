@@ -19,6 +19,7 @@ import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
 import { getMarkdownTheme } from "@mariozechner/pi-coding-agent";
+import { Key } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
 import { type AgentConfig, discoverAgents, specialistToAgent } from "./agents.js";
 import {
@@ -34,6 +35,8 @@ import {
 import { type PlanDef, type TaskDef, parsePlan } from "./tasks.js";
 
 const MAX_CONCURRENCY = 4;
+const COMPACT_LINES = 3;
+const EXPANDED_LINES = 15;
 
 type TaskStatus = "pending" | "running" | "done" | "failed" | "skipped";
 
@@ -57,6 +60,15 @@ interface OrchestratorDetails {
 	plannerResult?: TaskResult;
 }
 
+// Live streaming state for the widget (not serialized into tool result)
+interface LiveAgentState {
+	label: string;
+	status: TaskStatus;
+	lastLines: string[];
+	lastToolCall?: string;
+	model?: string;
+}
+
 function statusIcon(status: TaskStatus, fg: (c: any, t: string) => string): string {
 	switch (status) {
 		case "pending":
@@ -72,61 +84,190 @@ function statusIcon(status: TaskStatus, fg: (c: any, t: string) => string): stri
 	}
 }
 
+/** Extract the last N non-empty lines from text */
+function lastLines(text: string, n: number): string[] {
+	return text
+		.split("\n")
+		.map((l) => l.trim())
+		.filter((l) => l.length > 0)
+		.slice(-n);
+}
+
+/** Get the last tool call description from a TaskResult */
+function lastToolCallFromResult(
+	result: TaskResult,
+	fg: (c: any, t: string) => string,
+): string | undefined {
+	const items = getDisplayItems(result.messages);
+	for (let i = items.length - 1; i >= 0; i--) {
+		if (items[i].type === "toolCall") {
+			const tc = items[i] as DisplayItem & { type: "toolCall" };
+			return formatToolCall(tc.name, tc.args, fg);
+		}
+	}
+	return undefined;
+}
+
 export default function orchestratorExtension(pi: ExtensionAPI): void {
 	const extensionDir = __dirname;
 
-	// Progress widget state
+	// Widget state
 	let currentDetails: OrchestratorDetails | null = null;
+	let liveAgents: Map<string, LiveAgentState> = new Map();
+	let widgetExpanded = false;
+	let cachedCtx: ExtensionContext | null = null;
 
 	function updateWidget(ctx: ExtensionContext) {
-		if (!currentDetails) {
+		cachedCtx = ctx;
+
+		if (!currentDetails && liveAgents.size === 0) {
 			ctx.ui.setWidget("orchestrator", undefined);
 			ctx.ui.setStatus("orchestrator", undefined);
 			return;
 		}
 
 		const theme = ctx.ui.theme;
+		const fg = theme.fg.bind(theme);
 		const d = currentDetails;
+		const maxLines = widgetExpanded ? EXPANDED_LINES : COMPACT_LINES;
 
-		// Status bar
-		if (d.phase === "scout") {
-			ctx.ui.setStatus("orchestrator", theme.fg("warning", "🔍 Scouting..."));
-		} else if (d.phase === "plan") {
-			ctx.ui.setStatus("orchestrator", theme.fg("warning", "📋 Planning..."));
-		} else if (d.phase === "execute") {
-			const done = d.taskStates.filter((t) => t.status === "done").length;
-			const failed = d.taskStates.filter((t) => t.status === "failed").length;
-			const total = d.taskStates.length;
-			const running = d.taskStates.filter((t) => t.status === "running").length;
-			let status = `⚡ ${done}/${total}`;
-			if (failed > 0) status += theme.fg("error", ` ${failed} failed`);
-			if (running > 0) status += theme.fg("warning", ` ${running} running`);
-			ctx.ui.setStatus("orchestrator", status);
-		} else if (d.phase === "done") {
-			const failed = d.taskStates.filter((t) => t.status === "failed").length;
-			if (failed > 0) {
-				ctx.ui.setStatus("orchestrator", theme.fg("error", `✗ ${failed} failed`));
-			} else {
-				ctx.ui.setStatus("orchestrator", theme.fg("success", "✓ Complete"));
+		// ─── Status bar ───
+		if (d) {
+			if (d.phase === "scout") {
+				ctx.ui.setStatus("orchestrator", fg("warning", "🔍 Scouting..."));
+			} else if (d.phase === "plan") {
+				ctx.ui.setStatus("orchestrator", fg("warning", "📋 Planning..."));
+			} else if (d.phase === "execute") {
+				const done = d.taskStates.filter((t) => t.status === "done").length;
+				const failed = d.taskStates.filter((t) => t.status === "failed").length;
+				const total = d.taskStates.length;
+				const running = d.taskStates.filter((t) => t.status === "running").length;
+				let status = `⚡ ${done}/${total}`;
+				if (failed > 0) status += fg("error", ` ${failed}✗`);
+				if (running > 0) status += fg("warning", ` ${running}⏳`);
+				ctx.ui.setStatus("orchestrator", status);
+			} else if (d.phase === "done") {
+				const failed = d.taskStates.filter((t) => t.status === "failed").length;
+				ctx.ui.setStatus(
+					"orchestrator",
+					failed > 0 ? fg("error", `✗ ${failed} failed`) : fg("success", "✓ Done"),
+				);
 			}
 		}
 
-		// Widget showing task progress
-		if (d.taskStates.length > 0) {
-			const lines: string[] = [theme.bold(theme.fg("accent", `📋 ${d.goal}`))];
-			for (const t of d.taskStates) {
-				const icon = statusIcon(t.status, theme.fg.bind(theme));
-				const specialist = theme.fg("muted", `[${t.specialist}]`);
-				let line = `  ${icon} TASK-${t.id}: ${t.title} ${specialist}`;
-				if (t.result) {
-					const usage = formatUsage(t.result.usage, t.result.model);
-					if (usage) line += ` ${theme.fg("dim", usage)}`;
+		// ─── Widget ───
+		const lines: string[] = [];
+
+		// Header with goal
+		if (d) {
+			const expandHint = widgetExpanded ? "Ctrl+Alt+O: compact" : "Ctrl+Alt+O: expand";
+			lines.push(
+				`${fg("accent", theme.bold(`📋 ${d.goal}`))}  ${fg("dim", expandHint)}`,
+			);
+		}
+
+		// Task list (always visible when we have tasks)
+		if (d && d.taskStates.length > 0) {
+			for (const ts of d.taskStates) {
+				const icon = statusIcon(ts.status, fg);
+				const specialist = fg("muted", `[${ts.specialist}]`);
+				let line = `  ${icon} TASK-${ts.id}: ${ts.title} ${specialist}`;
+				if (ts.result) {
+					const usage = formatUsage(ts.result.usage, ts.result.model);
+					if (usage) line += ` ${fg("dim", usage)}`;
 				}
 				lines.push(line);
 			}
+		}
+
+		// Live agent output (the key improvement)
+		if (liveAgents.size > 0) {
+			lines.push(""); // separator
+
+			for (const [key, agent] of liveAgents) {
+				const icon = statusIcon(agent.status, fg);
+				let header = `${icon} ${fg("toolTitle", theme.bold(agent.label))}`;
+				if (agent.model) header += ` ${fg("dim", agent.model)}`;
+				lines.push(header);
+
+				// Show last tool call
+				if (agent.lastToolCall) {
+					lines.push(`  ${fg("muted", "→")} ${agent.lastToolCall}`);
+				}
+
+				// Show last N lines of output
+				const outputLines = agent.lastLines.slice(-maxLines);
+				if (outputLines.length > 0) {
+					for (const ol of outputLines) {
+						const truncated = ol.length > 120 ? ol.slice(0, 117) + "..." : ol;
+						lines.push(`  ${fg("dim", truncated)}`);
+					}
+					if (!widgetExpanded && agent.lastLines.length > maxLines) {
+						lines.push(`  ${fg("muted", `... ${agent.lastLines.length - maxLines} more lines`)}`);
+					}
+				}
+			}
+		}
+
+		if (lines.length > 0) {
 			ctx.ui.setWidget("orchestrator", lines);
+		} else {
+			ctx.ui.setWidget("orchestrator", undefined);
 		}
 	}
+
+	/** Create a live agent tracker that updates the widget on each subagent event */
+	function trackAgent(
+		key: string,
+		label: string,
+		ctx: ExtensionContext,
+	): OnTaskUpdate {
+		const fg = ctx.ui.theme.fg.bind(ctx.ui.theme);
+
+		liveAgents.set(key, {
+			label,
+			status: "running",
+			lastLines: [],
+		});
+		updateWidget(ctx);
+
+		return (result: TaskResult) => {
+			const agent = liveAgents.get(key);
+			if (!agent) return;
+
+			agent.model = result.model;
+			agent.lastToolCall = lastToolCallFromResult(result, fg);
+
+			// Accumulate output lines
+			if (result.output) {
+				agent.lastLines = lastLines(result.output, EXPANDED_LINES);
+			}
+
+			updateWidget(ctx);
+		};
+	}
+
+	function finishAgent(key: string, status: TaskStatus, ctx: ExtensionContext) {
+		const agent = liveAgents.get(key);
+		if (agent) {
+			agent.status = status;
+			updateWidget(ctx);
+		}
+	}
+
+	function removeAgent(key: string, ctx: ExtensionContext) {
+		liveAgents.delete(key);
+		updateWidget(ctx);
+	}
+
+	// Toggle widget expanded/compact
+	pi.registerShortcut(Key.ctrlAlt("o"), {
+		description: "Toggle orchestrator widget detail",
+		handler: async (ctx) => {
+			widgetExpanded = !widgetExpanded;
+			updateWidget(ctx);
+		},
+	});
 
 	pi.registerTool({
 		name: "orchestrate",
@@ -153,6 +294,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 			const cwd = ctx.cwd;
 			const { goal, scoutHints } = params;
 
+			liveAgents.clear();
 			currentDetails = {
 				phase: "scout",
 				goal,
@@ -170,29 +312,39 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 			if (!scoutAgent) {
 				currentDetails = null;
 				updateWidget(ctx);
-				return makeToolResult("Error: scout agent not found. Available: " + agents.map((a) => a.name).join(", "));
+				return makeToolResult(
+					"Error: scout agent not found. Available: " + agents.map((a) => a.name).join(", "),
+				);
 			}
 
 			let scoutPrompt = `Investigate the codebase for this goal: ${goal}`;
 			if (scoutHints) scoutPrompt += `\n\nHints: ${scoutHints}`;
 
+			const scoutTracker = trackAgent("scout", "🔍 Scout", ctx);
 			const scoutResult = await runSubagent(cwd, scoutAgent, 0, scoutPrompt, signal, (r) => {
 				currentDetails!.scoutResult = r;
+				scoutTracker(r);
 				onUpdate?.(makeToolResult(`Scouting: ${r.output.slice(0, 200) || "(running...)"}`));
 			});
 			currentDetails.scoutResult = scoutResult;
 
-			if (scoutResult.exitCode !== 0 || scoutResult.stopReason === "error") {
+			const scoutFailed = scoutResult.exitCode !== 0 || scoutResult.stopReason === "error";
+			finishAgent("scout", scoutFailed ? "failed" : "done", ctx);
+
+			if (scoutFailed) {
 				currentDetails.phase = "done";
 				updateWidget(ctx);
 				return {
-					...makeToolResult(`Scout failed: ${scoutResult.errorMessage || scoutResult.stderr || scoutResult.output}`),
+					...makeToolResult(
+						`Scout failed: ${scoutResult.errorMessage || scoutResult.stderr || scoutResult.output}`,
+					),
 					isError: true,
 				};
 			}
 
 			// ─── Phase 2: Planner ───
 			currentDetails.phase = "plan";
+			removeAgent("scout", ctx); // clear scout from live view
 			updateWidget(ctx);
 
 			const plannerAgent = agentMap.get("planner");
@@ -202,40 +354,60 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 				return makeToolResult("Error: planner agent not found.");
 			}
 
-			const plannerPrompt = [
-				`Goal: ${goal}`,
-				"",
-				"Scout findings:",
-				scoutResult.output,
-			].join("\n");
+			const plannerPrompt = [`Goal: ${goal}`, "", "Scout findings:", scoutResult.output].join(
+				"\n",
+			);
 
-			const plannerResult = await runSubagent(cwd, plannerAgent, 0, plannerPrompt, signal, (r) => {
-				currentDetails!.plannerResult = r;
-				onUpdate?.(makeToolResult(`Planning: ${r.output.slice(0, 200) || "(running...)"}`));
-			});
+			const plannerTracker = trackAgent("planner", "📋 Planner", ctx);
+			const plannerResult = await runSubagent(
+				cwd,
+				plannerAgent,
+				0,
+				plannerPrompt,
+				signal,
+				(r) => {
+					currentDetails!.plannerResult = r;
+					plannerTracker(r);
+					onUpdate?.(
+						makeToolResult(`Planning: ${r.output.slice(0, 200) || "(running...)"}`),
+					);
+				},
+			);
 			currentDetails.plannerResult = plannerResult;
 
-			if (plannerResult.exitCode !== 0 || plannerResult.stopReason === "error") {
+			const plannerFailed =
+				plannerResult.exitCode !== 0 || plannerResult.stopReason === "error";
+			finishAgent("planner", plannerFailed ? "failed" : "done", ctx);
+
+			if (plannerFailed) {
 				currentDetails.phase = "done";
 				updateWidget(ctx);
 				return {
-					...makeToolResult(`Planner failed: ${plannerResult.errorMessage || plannerResult.stderr || plannerResult.output}`),
+					...makeToolResult(
+						`Planner failed: ${plannerResult.errorMessage || plannerResult.stderr || plannerResult.output}`,
+					),
 					isError: true,
 				};
 			}
 
 			// ─── Phase 3: Parse plan and execute tasks ───
+			removeAgent("planner", ctx);
+
 			const plan = parsePlan(cwd);
 			if (!plan || plan.tasks.length === 0) {
 				currentDetails.phase = "done";
 				updateWidget(ctx);
 				return makeToolResult(
-					"Planner did not create valid PLAN.md/TASK files. Planner output:\n\n" + plannerResult.output,
+					"Planner did not create valid PLAN.md/TASK files. Planner output:\n\n" +
+						plannerResult.output,
 				);
 			}
 
 			currentDetails.phase = "execute";
-			const taskStates: TaskState[] = plan.tasks.map((def) => ({ def, status: "pending" }));
+			const taskStates: TaskState[] = plan.tasks.map((def) => ({
+				def,
+				status: "pending",
+			}));
 			currentDetails.taskStates = taskStates.map((ts) => ({
 				id: ts.def.id,
 				title: ts.def.title,
@@ -249,7 +421,6 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 			const results: TaskResult[] = [];
 
 			while (completed.size < taskStates.length) {
-				// Find runnable tasks: pending + all deps satisfied
 				const runnable = taskStates.filter(
 					(ts) =>
 						ts.status === "pending" &&
@@ -257,23 +428,24 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 				);
 
 				if (runnable.length === 0) {
-					// Check for deadlock - skip remaining pending tasks
 					for (const ts of taskStates) {
 						if (ts.status === "pending") {
 							ts.status = "skipped";
-							const idx = currentDetails.taskStates.findIndex((t) => t.id === ts.def.id);
+							const idx = currentDetails.taskStates.findIndex(
+								(t) => t.id === ts.def.id,
+							);
 							if (idx >= 0) currentDetails.taskStates[idx].status = "skipped";
 						}
 					}
 					break;
 				}
 
-				// Run batch (up to MAX_CONCURRENCY)
 				const batch = runnable.slice(0, MAX_CONCURRENCY);
 				for (const ts of batch) ts.status = "running";
-				// Update widget
 				for (const ts of batch) {
-					const idx = currentDetails.taskStates.findIndex((t) => t.id === ts.def.id);
+					const idx = currentDetails.taskStates.findIndex(
+						(t) => t.id === ts.def.id,
+					);
 					if (idx >= 0) currentDetails.taskStates[idx].status = "running";
 				}
 				updateWidget(ctx);
@@ -281,6 +453,8 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 				const batchPromises = batch.map(async (ts) => {
 					const agentName = specialistToAgent(ts.def.specialist);
 					const agent = agentMap.get(agentName);
+					const taskKey = `task-${ts.def.id}`;
+
 					if (!agent) {
 						ts.status = "failed";
 						const failResult: TaskResult = {
@@ -290,25 +464,51 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 							exitCode: 1,
 							messages: [],
 							stderr: `Unknown agent: ${agentName}`,
-							usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+							usage: {
+								input: 0,
+								output: 0,
+								cacheRead: 0,
+								cacheWrite: 0,
+								cost: 0,
+								contextTokens: 0,
+								turns: 0,
+							},
 							output: `Agent "${agentName}" not found`,
 						};
 						ts.result = failResult;
 						return failResult;
 					}
 
-					const taskPrompt = `Execute this task:\n\n${ts.def.content}`;
-					const result = await runSubagent(cwd, agent, ts.def.id, taskPrompt, signal, (r) => {
-						ts.result = r;
-						const idx = currentDetails!.taskStates.findIndex((t) => t.id === ts.def.id);
-						if (idx >= 0) currentDetails!.taskStates[idx].result = r;
-						onUpdate?.(makeToolResult(`Executing TASK-${ts.def.id}: ${r.output.slice(0, 200) || "(running...)"}`));
-						updateWidget(ctx);
-					});
+					const taskLabel = `TASK-${ts.def.id} [${ts.def.specialist}]`;
+					const taskTracker = trackAgent(taskKey, taskLabel, ctx);
 
-					const isError = result.exitCode !== 0 || result.stopReason === "error";
+					const taskPrompt = `Execute this task:\n\n${ts.def.content}`;
+					const result = await runSubagent(
+						cwd,
+						agent,
+						ts.def.id,
+						taskPrompt,
+						signal,
+						(r) => {
+							ts.result = r;
+							const idx = currentDetails!.taskStates.findIndex(
+								(t) => t.id === ts.def.id,
+							);
+							if (idx >= 0) currentDetails!.taskStates[idx].result = r;
+							taskTracker(r);
+							onUpdate?.(
+								makeToolResult(
+									`TASK-${ts.def.id}: ${r.output.slice(0, 200) || "(running...)"}`,
+								),
+							);
+						},
+					);
+
+					const isError =
+						result.exitCode !== 0 || result.stopReason === "error";
 					ts.status = isError ? "failed" : "done";
 					ts.result = result;
+					finishAgent(taskKey, ts.status, ctx);
 					return result;
 				});
 
@@ -316,11 +516,15 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 
 				for (const ts of batch) {
 					completed.add(ts.def.id);
-					const idx = currentDetails.taskStates.findIndex((t) => t.id === ts.def.id);
+					const idx = currentDetails.taskStates.findIndex(
+						(t) => t.id === ts.def.id,
+					);
 					if (idx >= 0) {
 						currentDetails.taskStates[idx].status = ts.status;
 						currentDetails.taskStates[idx].result = ts.result;
 					}
+					// Remove finished task from live view
+					removeAgent(`task-${ts.def.id}`, ctx);
 				}
 				results.push(...batchResults);
 				updateWidget(ctx);
@@ -328,6 +532,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 
 			// ─── Done ───
 			currentDetails.phase = "done";
+			liveAgents.clear();
 			updateWidget(ctx);
 
 			const succeeded = taskStates.filter((ts) => ts.status === "done").length;
@@ -343,8 +548,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 			];
 
 			for (const ts of taskStates) {
-				const icon = ts.status === "done" ? "✓" : ts.status === "failed" ? "✗" : "⊘";
-				summary.push(`${icon} **TASK-${ts.def.id}**: ${ts.def.title} [${ts.def.specialist}]`);
+				const icon =
+					ts.status === "done" ? "✓" : ts.status === "failed" ? "✗" : "⊘";
+				summary.push(
+					`${icon} **TASK-${ts.def.id}**: ${ts.def.title} [${ts.def.specialist}]`,
+				);
 				if (ts.result?.output) {
 					const preview = ts.result.output.split("\n").slice(0, 3).join("\n");
 					summary.push(`  ${preview}`);
@@ -374,7 +582,11 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 			const details = result.details as OrchestratorDetails | undefined;
 			if (!details) {
 				const text = result.content[0];
-				return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);
+				return new Text(
+					text?.type === "text" ? text.text : "(no output)",
+					0,
+					0,
+				);
 			}
 
 			const fg = theme.fg.bind(theme);
@@ -424,7 +636,14 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 			if (details.scoutResult) {
 				container.addChild(new Spacer(1));
 				container.addChild(new Text(fg("muted", "─── Scout ───"), 0, 0));
-				const usage = formatUsage(details.scoutResult.usage, details.scoutResult.model);
+				if (details.scoutResult.output) {
+					const preview = details.scoutResult.output.split("\n").slice(0, 10).join("\n");
+					container.addChild(new Text(fg("dim", preview), 0, 0));
+				}
+				const usage = formatUsage(
+					details.scoutResult.usage,
+					details.scoutResult.model,
+				);
 				if (usage) container.addChild(new Text(fg("dim", usage), 0, 0));
 			}
 
@@ -432,7 +651,14 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 			if (details.plannerResult) {
 				container.addChild(new Spacer(1));
 				container.addChild(new Text(fg("muted", "─── Planner ───"), 0, 0));
-				const usage = formatUsage(details.plannerResult.usage, details.plannerResult.model);
+				if (details.plannerResult.output) {
+					const preview = details.plannerResult.output.split("\n").slice(0, 10).join("\n");
+					container.addChild(new Text(fg("dim", preview), 0, 0));
+				}
+				const usage = formatUsage(
+					details.plannerResult.usage,
+					details.plannerResult.model,
+				);
 				if (usage) container.addChild(new Text(fg("dim", usage), 0, 0));
 			}
 
@@ -449,7 +675,6 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 				);
 
 				if (ts.result) {
-					// Show tool calls
 					const items = getDisplayItems(ts.result.messages);
 					for (const item of items) {
 						if (item.type === "toolCall") {
@@ -463,20 +688,30 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 						}
 					}
 
-					// Show output as markdown
 					if (ts.result.output) {
 						container.addChild(new Spacer(1));
-						container.addChild(new Markdown(ts.result.output.trim(), 0, 0, mdTheme));
+						container.addChild(
+							new Markdown(ts.result.output.trim(), 0, 0, mdTheme),
+						);
 					}
 
 					const usage = formatUsage(ts.result.usage, ts.result.model);
-					if (usage) container.addChild(new Text(fg("dim", usage), 0, 0));
+					if (usage)
+						container.addChild(new Text(fg("dim", usage), 0, 0));
 				}
 			}
 
 			// Total usage
 			if (details.taskStates.length > 0) {
-				const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 };
+				const total = {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					cost: 0,
+					contextTokens: 0,
+					turns: 0,
+				};
 				const allResults = [
 					details.scoutResult,
 					details.plannerResult,
@@ -491,7 +726,9 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 					total.turns += r.usage.turns;
 				}
 				container.addChild(new Spacer(1));
-				container.addChild(new Text(fg("dim", `Total: ${formatUsage(total)}`), 0, 0));
+				container.addChild(
+					new Text(fg("dim", `Total: ${formatUsage(total)}`), 0, 0),
+				);
 			}
 
 			return container;
@@ -526,7 +763,9 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 			for (const t of plan.tasks) {
 				lines.push(`  TASK-${t.id}: ${t.title} [${t.specialist}]`);
 				if (t.dependsOn.length > 0) {
-					lines.push(`    depends on: ${t.dependsOn.map((d) => `TASK-${d}`).join(", ")}`);
+					lines.push(
+						`    depends on: ${t.dependsOn.map((d) => `TASK-${d}`).join(", ")}`,
+					);
 				}
 			}
 			ctx.ui.notify(lines.join("\n"), "info");
@@ -536,6 +775,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 	// Clean up widget on shutdown
 	pi.on("session_shutdown", async (_event, ctx) => {
 		currentDetails = null;
+		liveAgents.clear();
 		updateWidget(ctx);
 	});
 }
