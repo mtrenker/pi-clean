@@ -22,7 +22,7 @@ One sentence summary.
 ## Tasks
 
 ### TASK-1: <title>
-- **Specialist**: worker | reviewer | tester | red-team
+- **Specialist**: worker | frontend | backend | database | devops | security | performance | reviewer | tester | red-team
 - **Description**: What needs to be done
 - **Files**: list of files involved
 - **Depends on**: none | TASK-n
@@ -42,9 +42,7 @@ For each task, write a `TASK-{n}.md` file:
 # TASK-{n}: <title>
 
 ## Specialist
-worker | reviewer | tester | red-team
-
-## Objective
+worker | frontend | backend | database | devops | security | performance | reviewer | tester | red-team
 Clear description of what this task must accomplish.
 
 ## Context
@@ -62,9 +60,15 @@ Relevant code snippets, file paths, and architectural notes.
 - Tasks should be **horizontal slices** — each task is independently completable
 - Minimize dependencies between tasks
 - Choose the right specialist for each task:
-  - **worker**: implements features, writes code
-  - **reviewer**: reviews code for quality, security, maintainability
-  - **tester**: writes and runs tests
-  - **red-team**: adversarial analysis, finds edge cases and security issues
+  - **worker**: general-purpose implementation, writes code (use when no domain specialist fits)
+  - **frontend**: HTML/CSS/JS, React/Vue/Svelte, responsive design, accessibility, browser APIs
+  - **backend**: REST/GraphQL APIs, routing, middleware, authentication, server-side logic
+  - **database**: schema design, migrations, queries, indexing, ORMs, data modeling
+  - **devops**: Docker, CI/CD, deployment configs, infrastructure, environment setup
+  - **security**: auth flows, input sanitization, CORS, CSP, vulnerability fixing, hardening
+  - **performance**: bundling, caching, lazy loading, query optimization, profiling
+  - **reviewer**: reviews code for quality, security, maintainability (read-only)
+  - **tester**: writes and runs tests, validates acceptance criteria
+  - **red-team**: adversarial analysis, finds edge cases and security issues (read-only)
 - Keep tasks small and focused (one concern per task)
 - Include enough context in each TASK file that a specialist can work without reading the entire codebase

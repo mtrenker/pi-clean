@@ -66,12 +66,39 @@ export function discoverAgents(extensionDir: string): AgentConfig[] {
 /** Map specialist type from TASK files to agent name */
 export function specialistToAgent(specialist: string): string {
 	const mapping: Record<string, string> = {
+		// Core specialists
 		worker: "worker",
 		reviewer: "reviewer",
 		tester: "tester",
 		"red-team": "red-team",
 		redteam: "red-team",
 		"red team": "red-team",
+		// Domain specialists
+		frontend: "frontend",
+		front: "frontend",
+		ui: "frontend",
+		css: "frontend",
+		backend: "backend",
+		api: "backend",
+		server: "backend",
+		database: "database",
+		db: "database",
+		schema: "database",
+		migration: "database",
+		devops: "devops",
+		infra: "devops",
+		infrastructure: "devops",
+		ci: "devops",
+		cicd: "devops",
+		"ci/cd": "devops",
+		docker: "devops",
+		deployment: "devops",
+		security: "security",
+		sec: "security",
+		auth: "security",
+		performance: "performance",
+		perf: "performance",
+		optimization: "performance",
 	};
 	return mapping[specialist.toLowerCase()] ?? "worker";
 }

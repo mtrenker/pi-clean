@@ -513,7 +513,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 		description: [
 			"Multi-agent orchestration: scout → planner → specialist subagents.",
 			"Give it a goal and it will: 1) scout the codebase, 2) create PLAN.md + TASK-{n}.md files,",
-			"3) execute tasks with specialist agents (worker, reviewer, tester, red-team).",
+			"3) execute tasks with specialist agents (worker, frontend, backend, database, devops, security, performance, reviewer, tester, red-team).",
 			"Tasks run in dependency order with parallelism where possible.",
 		].join(" "),
 		promptSnippet: "Orchestrate multi-agent workflows: scout, plan, then execute tasks with specialists",
