@@ -31,7 +31,10 @@ export interface TaskResult {
 	model?: string;
 	stopReason?: string;
 	errorMessage?: string;
+	errorCode?: string; // ECONNREFUSED, ETIMEDOUT, HTTP_429, etc.
 	output: string;
+	retryCount?: number; // Number of retries attempted
+	retryable?: boolean; // Whether error is retryable
 }
 
 function getFinalOutput(messages: Message[]): string {
@@ -99,6 +102,7 @@ export async function runSubagent(
 	taskPrompt: string,
 	signal: AbortSignal | undefined,
 	onUpdate?: OnTaskUpdate,
+	timeout?: number,
 ): Promise<TaskResult> {
 	const args: string[] = ["--mode", "json", "-p", "--no-session"];
 	if (agent.model) args.push("--model", agent.model);
@@ -106,6 +110,30 @@ export async function runSubagent(
 
 	let tmpPromptDir: string | null = null;
 	let tmpPromptPath: string | null = null;
+	let timeoutController: AbortController | null = null;
+	let timeoutId: NodeJS.Timeout | null = null;
+	let combinedSignal: AbortSignal | undefined = signal;
+
+	// Create timeout-triggered AbortController if timeout is specified
+	if (timeout) {
+		timeoutController = new AbortController();
+		timeoutId = setTimeout(() => {
+			console.log(`[orchestrator] Task ${taskId} (${agent.name}) timed out after ${timeout}ms`);
+			timeoutController!.abort();
+		}, timeout);
+
+		// Chain user signal with timeout signal
+		if (signal) {
+			// If either signal aborts, we abort
+			const ac = new AbortController();
+			const abortBoth = () => ac.abort();
+			signal.addEventListener("abort", abortBoth, { once: true });
+			timeoutController.signal.addEventListener("abort", abortBoth, { once: true });
+			combinedSignal = ac.signal;
+		} else {
+			combinedSignal = timeoutController.signal;
+		}
+	}
 
 	const result: TaskResult = {
 		taskId,
@@ -131,6 +159,7 @@ export async function runSubagent(
 
 		args.push(`Task: ${taskPrompt}`);
 		let wasAborted = false;
+		let wasTimeout = false;
 
 		const exitCode = await new Promise<number>((resolve) => {
 			const invocation = getPiInvocation(args);
@@ -196,24 +225,44 @@ export async function runSubagent(
 
 			proc.on("error", () => resolve(1));
 
-			if (signal) {
+			if (combinedSignal) {
 				const killProc = () => {
 					wasAborted = true;
+					// Check if it was a timeout that triggered the abort
+					if (timeoutController && timeoutController.signal.aborted) {
+						wasTimeout = true;
+					}
 					proc.kill("SIGTERM");
 					setTimeout(() => {
 						if (!proc.killed) proc.kill("SIGKILL");
 					}, 5000);
 				};
-				if (signal.aborted) killProc();
-				else signal.addEventListener("abort", killProc, { once: true });
+				if (combinedSignal.aborted) killProc();
+				else combinedSignal.addEventListener("abort", killProc, { once: true });
 			}
 		});
 
 		result.exitCode = exitCode;
 		result.output = getFinalOutput(result.messages);
+		
+		if (wasTimeout) {
+			result.stopReason = "timeout";
+			result.errorMessage = `Task timed out after ${timeout}ms`;
+			const timeoutMinutes = Math.floor(timeout! / 60000);
+			const timeoutSeconds = Math.floor((timeout! % 60000) / 1000);
+			let timeStr = "";
+			if (timeoutMinutes > 0) timeStr += `${timeoutMinutes}m`;
+			if (timeoutSeconds > 0) timeStr += `${timeoutSeconds}s`;
+			throw new Error(`Task timed out after ${timeStr}`);
+		}
+		
 		if (wasAborted) throw new Error("Subagent was aborted");
 		return result;
 	} finally {
+		// Cleanup timeout
+		if (timeoutId) clearTimeout(timeoutId);
+		
+		// Cleanup temp files
 		if (tmpPromptPath) try { fs.unlinkSync(tmpPromptPath); } catch { /* ignore */ }
 		if (tmpPromptDir) try { fs.rmdirSync(tmpPromptDir); } catch { /* ignore */ }
 	}

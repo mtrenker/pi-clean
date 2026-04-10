@@ -33,10 +33,23 @@ import {
 	formatTokens,
 } from "./runner.js";
 import { type PlanDef, type TaskDef, parsePlan } from "./tasks.js";
+import {
+	type CheckpointData,
+	type CheckpointPhase,
+	type TaskCheckpoint,
+	createCheckpoint,
+	deleteCheckpoint,
+	loadCheckpoint,
+	saveCheckpoint,
+} from "./checkpoint.js";
 
 const MAX_CONCURRENCY = 4;
 const COMPACT_LINES = 3;
 const EXPANDED_LINES = 15;
+
+// Retry configuration
+const MAX_RETRIES = 3;
+const BASE_RETRY_DELAY = 1000; // 1 second base delay
 
 type TaskStatus = "pending" | "running" | "done" | "failed" | "skipped";
 
@@ -260,6 +273,231 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 		updateWidget(ctx);
 	}
 
+	/**
+	 * Determine if a task result represents a retryable error.
+	 * Retryable errors include:
+	 * - Network errors (ECONNREFUSED, ETIMEDOUT, ENOTFOUND)
+	 * - API rate limits (HTTP 429)
+	 * - Temporary service unavailability (HTTP 502, 503)
+	 * - Process spawn failures (EAGAIN)
+	 * - Timeout errors (if not due to task complexity)
+	 * 
+	 * Non-retryable errors:
+	 * - Agent produced invalid output
+	 * - Tool exceptions (file not found, etc.)
+	 * - Stop reason: "abort" or "user_cancel"
+	 * - Explicit error stop reasons from the agent
+	 */
+	function isRetryableError(result: TaskResult): boolean {
+		// Success is not retryable
+		if (result.exitCode === 0 && result.stopReason !== "error" && result.stopReason !== "timeout") {
+			return false;
+		}
+
+		// User cancellation is not retryable
+		if (result.stopReason === "abort" || result.stopReason === "user_cancel") {
+			return false;
+		}
+
+		// Check error code for retryable network/system errors
+		if (result.errorCode) {
+			const retryableCodes = [
+				"ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "ECONNRESET",
+				"EAGAIN", "EBUSY", "HTTP_429", "HTTP_502", "HTTP_503"
+			];
+			if (retryableCodes.includes(result.errorCode)) {
+				return true;
+			}
+		}
+
+		// Check error message for common transient error patterns
+		const errorText = (result.errorMessage || result.stderr || "").toLowerCase();
+		const transientPatterns = [
+			"network", "timeout", "timed out", "connection refused",
+			"rate limit", "429", "502", "503", "temporary", "unavailable",
+			"econnrefused", "etimedout", "enotfound"
+		];
+
+		for (const pattern of transientPatterns) {
+			if (errorText.includes(pattern)) {
+				return true;
+			}
+		}
+
+		// Timeout errors are generally retryable unless it's a consistent timeout
+		// indicating the task is too complex
+		if (result.stopReason === "timeout") {
+			// If this is already a retry (retryCount > 0) and it timed out again,
+			// it's likely not a transient issue
+			if ((result.retryCount || 0) >= 1) {
+				return false;
+			}
+			return true;
+		}
+
+		// Default: errors are not retryable unless explicitly identified
+		return false;
+	}
+
+	/**
+	 * Sleep for a specified duration
+	 */
+	function sleep(ms: number): Promise<void> {
+		return new Promise(resolve => setTimeout(resolve, ms));
+	}
+
+	/**
+	 * Execute a task with retry logic and exponential backoff.
+	 * Handles transient failures gracefully without failing the entire orchestration.
+	 */
+	async function executeTaskWithRetry(
+		ts: TaskState,
+		agent: AgentConfig,
+		agentMap: Map<string, AgentConfig>,
+		cwd: string,
+		signal: AbortSignal | undefined,
+		ctx: ExtensionContext,
+		onUpdate: ((result: AgentToolResult<OrchestratorDetails>) => void) | undefined,
+	): Promise<TaskResult> {
+		const taskKey = `task-${ts.def.id}`;
+		const taskLabel = `TASK-${ts.def.id} [${ts.def.specialist}]`;
+		const taskPrompt = `Execute this task:\n\n${ts.def.content}`;
+
+		let lastResult: TaskResult | null = null;
+
+		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+			const isRetry = attempt > 0;
+
+			// Update status to show retry attempt
+			const agentState = liveAgents.get(taskKey);
+			if (agentState && isRetry) {
+				agentState.label = `${taskLabel} (retry ${attempt}/${MAX_RETRIES})`;
+				updateWidget(ctx);
+			}
+
+			if (isRetry) {
+				const delay = BASE_RETRY_DELAY * Math.pow(2, attempt - 1);
+				console.log(
+					`[orchestrator] Retrying TASK-${ts.def.id} (attempt ${attempt + 1}/${MAX_RETRIES + 1}) ` +
+					`after ${delay}ms delay. Reason: ${lastResult?.errorMessage || "transient error"}`
+				);
+				await sleep(delay);
+
+				// Check if aborted during sleep
+				if (signal?.aborted) {
+					throw new Error("Task was aborted during retry delay");
+				}
+			}
+
+			const taskTracker = trackAgent(taskKey, isRetry ? `${taskLabel} (retry ${attempt}/${MAX_RETRIES})` : taskLabel, ctx);
+
+			try {
+				const result = await runSubagent(
+					cwd,
+					agent,
+					ts.def.id,
+					taskPrompt,
+					signal,
+					(r) => {
+						ts.result = r;
+						const idx = currentDetails!.taskStates.findIndex((t) => t.id === ts.def.id);
+						if (idx >= 0) currentDetails!.taskStates[idx].result = r;
+						taskTracker(r);
+						onUpdate?.({
+							content: [{ type: "text", text: `TASK-${ts.def.id}: ${r.output.slice(0, 200) || "(running...)"}` }],
+							details: currentDetails!,
+						});
+					},
+				);
+
+				result.retryCount = attempt;
+				result.retryable = isRetryableError(result);
+
+				const isError = result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "timeout";
+
+				// If successful or non-retryable error, return immediately
+				if (!isError || !result.retryable || attempt === MAX_RETRIES) {
+					const finalStatus = isError ? "failed" : "done";
+					ts.status = finalStatus;
+					ts.result = result;
+					finishAgent(taskKey, finalStatus, ctx);
+					return result;
+				}
+
+				// Store result for retry logging
+				lastResult = result;
+				// Continue to next retry attempt
+			} catch (err) {
+				// Handle timeout or other exceptions
+				const errorMessage = err instanceof Error ? err.message : String(err);
+				const errorResult: TaskResult = {
+					taskId: ts.def.id,
+					agent: agent.name,
+					task: ts.def.content,
+					exitCode: 1,
+					messages: [],
+					stderr: errorMessage,
+					usage: {
+						input: 0,
+						output: 0,
+						cacheRead: 0,
+						cacheWrite: 0,
+						cost: 0,
+						contextTokens: 0,
+						turns: 0,
+					},
+					output: errorMessage,
+					stopReason: errorMessage.includes("timed out") ? "timeout" : 
+					           errorMessage.includes("aborted") ? "abort" : "error",
+					errorMessage,
+					retryCount: attempt,
+				};
+
+				errorResult.retryable = isRetryableError(errorResult);
+
+				// If non-retryable or max retries, fail immediately
+				if (!errorResult.retryable || attempt === MAX_RETRIES) {
+					ts.status = "failed";
+					ts.result = errorResult;
+					finishAgent(taskKey, "failed", ctx);
+					return errorResult;
+				}
+
+				// Store result for retry logging
+				lastResult = errorResult;
+				// Continue to next retry attempt
+			}
+		}
+
+		// Should never reach here, but return last result if we do
+		if (lastResult) {
+			ts.status = "failed";
+			ts.result = lastResult;
+			finishAgent(taskKey, "failed", ctx);
+			return lastResult;
+		}
+
+		// Fallback error
+		const fallbackResult: TaskResult = {
+			taskId: ts.def.id,
+			agent: agent.name,
+			task: ts.def.content,
+			exitCode: 1,
+			messages: [],
+			stderr: "Unknown error in retry logic",
+			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+			output: "Unknown error in retry logic",
+			stopReason: "error",
+			errorMessage: "Unknown error in retry logic",
+			retryCount: MAX_RETRIES,
+			retryable: false,
+		};
+		ts.status = "failed";
+		ts.result = fallbackResult;
+		finishAgent(taskKey, "failed", ctx);
+		return fallbackResult;
+	}
+
 	// Toggle widget expanded/compact
 	pi.registerShortcut(Key.ctrlAlt("o"), {
 		description: "Toggle orchestrator widget detail",
@@ -284,6 +522,9 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 			scoutHints: Type.Optional(
 				Type.String({ description: "Additional hints for the scout about where to look" }),
 			),
+			fresh: Type.Optional(
+				Type.Boolean({ description: "Ignore any existing checkpoint and start fresh" }),
+			),
 		}),
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
@@ -292,7 +533,27 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 			for (const a of agents) agentMap.set(a.name, a);
 
 			const cwd = ctx.cwd;
-			const { goal, scoutHints } = params;
+			const { goal, scoutHints, fresh } = params;
+
+			// Check for existing checkpoint
+			let checkpoint: CheckpointData | null = null;
+			if (!fresh) {
+				checkpoint = await loadCheckpoint(cwd);
+				if (checkpoint) {
+					if (checkpoint.goal !== goal) {
+						ctx.ui.notify(
+							"Found checkpoint for different goal, starting fresh",
+							"warning",
+						);
+						checkpoint = null;
+					} else {
+						ctx.ui.notify(
+							`Resuming from checkpoint (phase: ${checkpoint.phase})`,
+							"info",
+						);
+					}
+				}
+			}
 
 			liveAgents.clear();
 			currentDetails = {
@@ -300,6 +561,28 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 				goal,
 				taskStates: [],
 			};
+
+			// Restore state from checkpoint if resuming
+			let scoutResult: TaskResult | undefined;
+			let plannerResult: TaskResult | undefined;
+			let skipScout = false;
+			let skipPlanner = false;
+
+			if (checkpoint) {
+				if (checkpoint.phase === "planner" || checkpoint.phase === "execute") {
+					skipScout = true;
+					scoutResult = checkpoint.scoutResult;
+					currentDetails.scoutResult = scoutResult;
+				}
+				if (checkpoint.phase === "execute") {
+					skipPlanner = true;
+					plannerResult = checkpoint.plannerResult;
+					currentDetails.plannerResult = plannerResult;
+					currentDetails.phase = "execute";
+					currentDetails.taskStates = checkpoint.taskStates;
+				}
+			}
+
 			updateWidget(ctx);
 
 			const makeToolResult = (text: string): AgentToolResult<OrchestratorDetails> => ({
@@ -308,6 +591,7 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 			});
 
 			// ─── Phase 1: Scout ───
+			if (!skipScout) {
 			const scoutAgent = agentMap.get("scout");
 			if (!scoutAgent) {
 				currentDetails = null;
@@ -342,9 +626,25 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 				};
 			}
 
+
+				// Save checkpoint after scout
+				await saveCheckpoint(
+					createCheckpoint(goal, cwd, "planner", {
+						scoutHints,
+						scoutResult,
+					}),
+					cwd,
+				);
+			} else {
+				ctx.ui.notify("Skipping scout phase (resuming from checkpoint)", "info");
+			}
+
 			// ─── Phase 2: Planner ───
+			if (!skipPlanner) {
 			currentDetails.phase = "plan";
-			removeAgent("scout", ctx); // clear scout from live view
+			if (!skipScout) {
+				removeAgent("scout", ctx); // clear scout from live view
+			}
 			updateWidget(ctx);
 
 			const plannerAgent = agentMap.get("planner");
@@ -388,6 +688,39 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 					),
 					isError: true,
 				};
+			}
+
+				// Save checkpoint after planner
+				await saveCheckpoint(
+					createCheckpoint(goal, cwd, "execute", {
+						scoutHints,
+						scoutResult,
+						plannerResult,
+						planPath: plan.planPath,
+						taskStates: currentDetails.taskStates,
+					}),
+					cwd,
+				);
+			} else {
+				// Resuming from checkpoint - restore task states
+				const plan = parsePlan(cwd);
+				if (!plan || plan.tasks.length === 0) {
+					currentDetails.phase = "done";
+					updateWidget(ctx);
+					return makeToolResult(
+						"Cannot resume: PLAN.md/TASK files not found or invalid",
+					);
+				}
+
+				// Merge checkpoint task states with plan definitions
+				const taskStates: TaskState[] = plan.tasks.map((def) => {
+					const checkpointTask = checkpoint!.taskStates.find((ct) => ct.id === def.id);
+					return {
+						def,
+						status: checkpointTask?.status || "pending",
+						result: checkpointTask?.result,
+					};
+				});
 			}
 
 			// ─── Phase 3: Parse plan and execute tasks ───
@@ -474,46 +807,20 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 								turns: 0,
 							},
 							output: `Agent "${agentName}" not found`,
+						retryable: false,
+						retryCount: 0,
 						};
 						ts.result = failResult;
 						return failResult;
 					}
 
-					const taskLabel = `TASK-${ts.def.id} [${ts.def.specialist}]`;
-					const taskTracker = trackAgent(taskKey, taskLabel, ctx);
 
-					const taskPrompt = `Execute this task:\n\n${ts.def.content}`;
-					const result = await runSubagent(
-						cwd,
-						agent,
-						ts.def.id,
-						taskPrompt,
-						signal,
-						(r) => {
-							ts.result = r;
-							const idx = currentDetails!.taskStates.findIndex(
-								(t) => t.id === ts.def.id,
-							);
-							if (idx >= 0) currentDetails!.taskStates[idx].result = r;
-							taskTracker(r);
-							onUpdate?.(
-								makeToolResult(
-									`TASK-${ts.def.id}: ${r.output.slice(0, 200) || "(running...)"}`,
-								),
-							);
-						},
-					);
-
-					const isError =
-						result.exitCode !== 0 || result.stopReason === "error";
-					ts.status = isError ? "failed" : "done";
-					ts.result = result;
-					finishAgent(taskKey, ts.status, ctx);
-					return result;
+					// Use retry wrapper for task execution
+					return await executeTaskWithRetry(ts, agent, agentMap, cwd, signal, ctx, onUpdate);
 				});
 
-				const batchResults = await Promise.all(batchPromises);
 
+				const batchResults = await Promise.all(batchPromises);
 				for (const ts of batch) {
 					completed.add(ts.def.id);
 					const idx = currentDetails.taskStates.findIndex(
@@ -559,6 +866,9 @@ export default function orchestratorExtension(pi: ExtensionAPI): void {
 				}
 				summary.push("");
 			}
+
+			// Delete checkpoint on completion
+			await deleteCheckpoint(cwd);
 
 			return {
 				content: [{ type: "text", text: summary.join("\n") }],
