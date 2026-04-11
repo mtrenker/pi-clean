@@ -1,6 +1,6 @@
 # TP-004: Mission Briefing Gate (briefing.ts + briefing.html) — Status
 
-**Current Step:** Step 2: Build Briefing HTML Template
+**Current Step:** Step 3: Implement showBriefing Function
 **Status:** 🟡 In Progress
 **Last Updated:** 2026-04-11
 **Review Level:** 0
@@ -43,12 +43,12 @@
 ---
 
 ### Step 3: Implement showBriefing Function
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 
-- [ ] Implement `showBriefing(page, mission)` → `Promise<"approved" | "rejected">`
-- [ ] Load template via `page.setContent()` with `{{placeholder}}` token replacement
-- [ ] Wait for user decision via `page.waitForFunction()` on `window.__piBriefingResult`
-- [ ] Handle "Always trust" checkbox — call `trustDomain()` with `persistent: true` if checked
+- [x] Implement `showBriefing(page, mission)` → `Promise<"approved" | "rejected">`
+- [x] Load template via `page.setContent()` with `{{placeholder}}` token replacement
+- [x] Wait for user decision via `page.waitForFunction()` on `window.__piBriefingResult`
+- [x] Handle "Always trust" checkbox — call `trustDomain()` with `persistent: true` if checked
 
 ---
 
