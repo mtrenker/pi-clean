@@ -44,13 +44,13 @@
 ---
 
 ### Step 3: Integrate Overlay and Briefing Gate
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 
-- [ ] Detect headed mode (check if browser launched with `headless: false`)
-- [ ] In headed mode: inject overlay on every new page load, call highlight/showAction before each action
-- [ ] Integrate mission briefing: on `browser_navigate`, check `shouldShowBriefing()`, show briefing if needed, handle approve/reject
-- [ ] Track current domain, auto-approve same-domain navigations after initial approval
-- [ ] Detect autonomous mode (subagent or headless) to skip briefing
+- [x] Detect headed mode (check if browser launched with `headless: false`)
+- [x] In headed mode: inject overlay on every new page load, call highlight/showAction before each action
+- [x] Integrate mission briefing: on `browser_navigate`, check `shouldShowBriefing()`, show briefing if needed, handle approve/reject
+- [x] Track current domain, auto-approve same-domain navigations after initial approval
+- [x] Detect autonomous mode (subagent or headless) to skip briefing
 
 ---
 
