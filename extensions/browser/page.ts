@@ -2,8 +2,8 @@
 // High-level bridge between tool handlers and browser/extraction layers
 
 import type { BrowserContext, Page } from "playwright";
-import { extractPageContent, type ExtractResult } from "./extract.ts";
-import { getCurrentPage, setCurrentPage } from "./browser.ts";
+import { extractPageContent, type ExtractResult } from "./extract.js";
+import { getCurrentPage, setCurrentPage } from "./browser.js";
 
 // ── Types ──────────────────────────────────────────────────────────
 
