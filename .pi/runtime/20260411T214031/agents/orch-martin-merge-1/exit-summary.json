@@ -1,0 +1,22 @@
+{
+  "exitCode": null,
+  "exitSignal": "SIGTERM",
+  "tokens": {
+    "input": 13246,
+    "output": 1359,
+    "cacheRead": 4239,
+    "cacheWrite": 13559
+  },
+  "cost": null,
+  "toolCalls": 12,
+  "retries": 0,
+  "compactions": 0,
+  "durationSec": 34,
+  "lastToolCall": "write: /home/martin/dev/pi-clean/.pi/merge-result-w5-lane1-martin-20260411T214031.json",
+  "error": null,
+  "contextUsage": {
+    "tokens": 4343,
+    "contextWindow": 1000000,
+    "percent": 0.43429999999999996
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "batchId": "20260411T214031",
+  "mergeNumber": 1,
+  "sessionName": "orch-martin-merge-1",
+  "waveIndex": 5,
+  "status": "failed",
+  "agent": {
+    "agentId": "orch-martin-merge-1",
+    "status": "crashed",
+    "elapsedMs": 34053,
+    "toolCalls": 12,
+    "contextPct": 0.43429999999999996,
+    "costUsd": 0,
+    "lastTool": "write: /home/martin/dev/pi-clean/.pi/merge-result-w5-lane1-martin-20260411T214031.json",
+    "inputTokens": 13246,
+    "outputTokens": 1359,
+    "cacheReadTokens": 4239,
+    "cacheWriteTokens": 13559
+  },
+  "updatedAt": 1775936666263
+}

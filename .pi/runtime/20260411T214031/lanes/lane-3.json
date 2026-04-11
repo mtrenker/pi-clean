@@ -1,0 +1,31 @@
+{
+  "batchId": "20260411T214031",
+  "laneNumber": 3,
+  "laneId": "lane-3",
+  "repoId": "default",
+  "taskId": "TP-004",
+  "segmentId": "TP-004::default",
+  "status": "complete",
+  "worker": {
+    "agentId": "orch-martin-lane-3-worker",
+    "status": "exited",
+    "elapsedMs": 0,
+    "toolCalls": 0,
+    "contextPct": 0,
+    "costUsd": 0,
+    "lastTool": "",
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "cacheReadTokens": 0,
+    "cacheWriteTokens": 0
+  },
+  "reviewer": null,
+  "progress": {
+    "currentStep": "Not Started",
+    "checked": 0,
+    "total": 0,
+    "iteration": 0,
+    "reviews": 0
+  },
+  "updatedAt": 1775936471359
+}

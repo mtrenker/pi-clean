@@ -1,4 +1,4 @@
-# Task: TP-004 - Mission Briefing Gate (briefing.ts)
+# Task: TP-004 - Mission Briefing Gate (briefing.ts + briefing.html)
 
 ## Dependencies
 
@@ -8,84 +8,49 @@
 
 Implement the mission briefing gate — in interactive/paired mode, the first navigation to a new domain shows an approval page before proceeding.
 
-## Requirements
-
-### Core API
-
-1. **`showBriefing(page, mission)`** — Display the briefing page and wait for user decision
-   - `mission.url`: target URL
-   - `mission.purpose`: why the agent wants to navigate (from LLM context)
-   - `mission.agent`: agent identifier (e.g., "pi browser session")
-   - Returns: `Promise<"approved" | "rejected">`
-
-2. **`isDomainTrusted(domain)`** — Check if a domain is in the trust list
-   - Checks in-memory session trust list first
-   - Then checks `~/.pi/browser/trusted-domains.txt`
-   - Supports wildcards: `*.github.com` matches `api.github.com`
-   - Supports comments: lines starting with `#` are ignored
-
-3. **`trustDomain(domain, persistent?)`** — Add a domain to the trust list
-   - `persistent: false` (default) → in-memory only (session trust)
-   - `persistent: true` → appends to `~/.pi/browser/trusted-domains.txt`
-
-4. **`shouldShowBriefing(mode, domain)`** — Decision logic
-   - Returns `false` if mode is `"autonomous"` (headless/subagent)
-   - Returns `false` if domain is already trusted
-   - Returns `true` otherwise
-
-### Briefing Page (`briefing.html`)
-
-A self-contained HTML template with embedded CSS and JS. Loaded via `page.setContent()`.
-
-**Design:**
-- Clean, minimal dark theme matching pi's aesthetic
-- Content:
-  - 🎯 **Mission:** `{purpose}`
-  - 🌐 **Target:** `{url}`
-  - 🤖 **Agent:** `{agent}`
-  - 🕐 **Requested at:** `{timestamp}`
-- Two prominent buttons: **✅ Approve** and **❌ Reject**
-- Checkbox: "Always trust this domain" (controls persistent trust)
-- Shows list of already-trusted domains in the current session
-- Keyboard shortcuts: `Enter` to approve, `Escape` to reject
-
-**Implementation:**
-- Template is stored as a string constant in `briefing.ts` (or read from `briefing.html` at build time)
-- Template uses `{{placeholder}}` tokens replaced at runtime
-- Button clicks set a value on `window.__piBriefingResult` that the extension polls via `page.evaluate()`
-- Or use `page.waitForFunction()` to wait for the result
-
-### Trust List File Format
-
-`~/.pi/browser/trusted-domains.txt`:
-```
-# Trusted domains for pi browser agent
-# Added automatically when user clicks "Always trust"
-github.com
-*.github.com
-stackoverflow.com
-```
-
-- One domain per line
-- Lines starting with `#` are comments
-- `*.example.com` matches any subdomain of `example.com`
-- Empty lines are ignored
-- File is created on first persistent trust, not eagerly
-
 ## Context
 
 - Part of pi extension at `extensions/browser/`.
 - TypeScript, ES2022, strict mode.
-- This is used by `index.ts` (TP-007) to gate navigation in interactive mode.
-- The briefing is ONLY shown in headed + interactive mode. Headless and subagent modes skip it entirely.
+- Used by `index.ts` (TP-007) to gate navigation in interactive mode.
+- Briefing is ONLY shown in headed + interactive mode. Headless and subagent modes skip entirely.
 
-## Acceptance Criteria
+## Context to Read First
 
-- [ ] Briefing page renders with mission details and approve/reject buttons
-- [ ] `showBriefing()` resolves with `"approved"` or `"rejected"` based on user action
-- [ ] Domain trust list works with in-memory and persistent modes
-- [ ] Wildcard matching works for `*.domain.com` patterns
-- [ ] `trusted-domains.txt` is parsed correctly (comments, empty lines, wildcards)
-- [ ] Keyboard shortcuts work (Enter = approve, Escape = reject)
-- [ ] Dark theme, clean design
-- [ ] All functions properly typed and exported
+`extensions/browser/briefing.ts`
+`extensions/browser/index.ts`
+
+### Step 0: Preflight
+
+- [ ] Read existing `extensions/browser/briefing.ts` stub
+- [ ] Plan the briefing page HTML template design
+
+### Step 1: Implement Domain Trust Management
+
+- [ ] Implement `isDomainTrusted(domain)` — checks in-memory session trust list, then `~/.pi/browser/trusted-domains.txt`
+- [ ] Support wildcards: `*.github.com` matches `api.github.com`
+- [ ] Parse `trusted-domains.txt` correctly (comments with `#`, empty lines, wildcards)
+- [ ] Implement `trustDomain(domain, persistent?)` — in-memory only (default) or appends to `trusted-domains.txt`
+- [ ] Implement `shouldShowBriefing(mode, domain)` — returns false for autonomous mode or trusted domains
+
+### Step 2: Build Briefing HTML Template
+
+- [ ] Create self-contained HTML template with embedded CSS and JS in `briefing.html`
+- [ ] Dark theme, clean minimal design matching pi aesthetic
+- [ ] Show: 🎯 Mission, 🌐 Target URL, 🤖 Agent, 🕐 Timestamp
+- [ ] Two prominent buttons: ✅ Approve and ❌ Reject
+- [ ] Checkbox: "Always trust this domain" (controls persistent trust)
+- [ ] Keyboard shortcuts: Enter to approve, Escape to reject
+- [ ] Show list of already-trusted domains in current session
+
+### Step 3: Implement showBriefing Function
+
+- [ ] Implement `showBriefing(page, mission)` → `Promise<"approved" | "rejected">`
+- [ ] Load template via `page.setContent()` with `{{placeholder}}` token replacement
+- [ ] Wait for user decision via `page.waitForFunction()` on `window.__piBriefingResult`
+- [ ] Handle "Always trust" checkbox — call `trustDomain()` with `persistent: true` if checked
+
+### Step 4: Verify
+
+- [ ] Ensure all functions are properly typed and exported
+- [ ] Run `npm run build` to verify TypeScript compilation passes
