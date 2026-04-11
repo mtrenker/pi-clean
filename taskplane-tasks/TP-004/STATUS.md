@@ -1,6 +1,6 @@
 # TP-004: Mission Briefing Gate (briefing.ts + briefing.html) — Status
 
-**Current Step:** Step 0: Preflight
+**Current Step:** Step 1: Implement Domain Trust Management
 **Status:** 🟡 In Progress
 **Last Updated:** 2026-04-11
 **Review Level:** 0
@@ -19,13 +19,13 @@
 ---
 
 ### Step 1: Implement Domain Trust Management
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 
-- [ ] Implement `isDomainTrusted(domain)` — checks in-memory session trust list, then `~/.pi/browser/trusted-domains.txt`
-- [ ] Support wildcards: `*.github.com` matches `api.github.com`
-- [ ] Parse `trusted-domains.txt` correctly (comments with `#`, empty lines, wildcards)
-- [ ] Implement `trustDomain(domain, persistent?)` — in-memory only (default) or appends to `trusted-domains.txt`
-- [ ] Implement `shouldShowBriefing(mode, domain)` — returns false for autonomous mode or trusted domains
+- [x] Implement `isDomainTrusted(domain)` — checks in-memory session trust list, then `~/.pi/browser/trusted-domains.txt`
+- [x] Support wildcards: `*.github.com` matches `api.github.com`
+- [x] Parse `trusted-domains.txt` correctly (comments with `#`, empty lines, wildcards)
+- [x] Implement `trustDomain(domain, persistent?)` — in-memory only (default) or appends to `trusted-domains.txt`
+- [x] Implement `shouldShowBriefing(mode, domain)` — returns false for autonomous mode or trusted domains
 
 ---
 
