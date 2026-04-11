@@ -19,12 +19,12 @@
 ---
 
 ### Step 1: Implement Navigation and Content Operations
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 
-- [ ] Implement `navigate(page, url, waitUntil?)` — navigate, wait for ready, return `extractPageContent()` result
-- [ ] Implement `goBack(page)` / `goForward(page)` — history navigation, return fresh page snapshot
-- [ ] Implement `screenshot(page, options?)` — capture as PNG Buffer, support `fullPage` and `selector` options
-- [ ] Implement `evaluate(page, expression)` — run JS via `page.evaluate()`, serialize result, handle non-serializable values
+- [x] Implement `navigate(page, url, waitUntil?)` — navigate, wait for ready, return `extractPageContent()` result
+- [x] Implement `goBack(page)` / `goForward(page)` — history navigation, return fresh page snapshot
+- [x] Implement `screenshot(page, options?)` — capture as PNG Buffer, support `fullPage` and `selector` options
+- [x] Implement `evaluate(page, expression)` — run JS via `page.evaluate()`, serialize result, handle non-serializable values
 
 ---
 
