@@ -1,6 +1,6 @@
 # TP-008: Documentation & Testing — Status
 
-**Current Step:** Step 0: Preflight
+**Current Step:** Step 1: Write Comprehensive README.md
 **Status:** 🟡 In Progress
 **Last Updated:** 2026-04-11
 **Review Level:** 0
@@ -19,17 +19,17 @@
 ---
 
 ### Step 1: Write Comprehensive README.md
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 
-- [ ] Write Overview section — what the extension does, "agent as a person" concept
-- [ ] Write Setup section — `npx playwright install chromium`, persistent profile location `~/.pi/browser/`
-- [ ] Document all tools: `browser_navigate`, `browser_click`, `browser_type`, `browser_screenshot`, `browser_evaluate`, `browser_back`, `browser_forward`, `browser_tabs`, `browser_close`, `browser_set_viewport` — each with description, params, example
-- [ ] Write Browser Choice section — chromium/firefox/webkit trade-offs
-- [ ] Write Headed vs Headless Mode section — visual overlay, how to enable/disable
-- [ ] Write Mission Briefing Gate section — how it works, domain trust, `trusted-domains.txt` format
-- [ ] Write Persistent Profile section — what's stored, how sessions carry, how to reset
-- [ ] Write `/browser` Command section — all subcommands
-- [ ] Write Troubleshooting section — browser not installed, zombie processes, profile corruption
+- [x] Write Overview section — what the extension does, "agent as a person" concept
+- [x] Write Setup section — `npx playwright install chromium`, persistent profile location `~/.pi/browser/`
+- [x] Document all tools: `browser_navigate`, `browser_click`, `browser_type`, `browser_screenshot`, `browser_evaluate`, `browser_back`, `browser_forward`, `browser_tabs`, `browser_close`, `browser_set_viewport` — each with description, params, example
+- [x] Write Browser Choice section — chromium/firefox/webkit trade-offs
+- [x] Write Headed vs Headless Mode section — visual overlay, how to enable/disable
+- [x] Write Mission Briefing Gate section — how it works, domain trust, `trusted-domains.txt` format
+- [x] Write Persistent Profile section — what's stored, how sessions carry, how to reset
+- [x] Write `/browser` Command section — all subcommands
+- [x] Write Troubleshooting section — browser not installed, zombie processes, profile corruption
 
 ---
 
