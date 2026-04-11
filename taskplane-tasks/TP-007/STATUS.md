@@ -1,7 +1,7 @@
 # TP-007: Extension Integration (index.ts) — Status
 
-**Current Step:** Step 0: Preflight
-**Status:** 🟡 In Progress
+**Current Step:** Step 4: Register /browser Command and Verify
+**Status:** ✅ Complete
 **Last Updated:** 2026-04-11
 **Review Level:** 0
 **Review Counter:** 0
@@ -55,12 +55,12 @@
 ---
 
 ### Step 4: Register /browser Command and Verify
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 
-- [ ] Register `/browser` command with subcommands: `status`, `close`, `switch <type>`
-- [ ] Handle "browser not installed" error with helpful message
-- [ ] Implement configurable timeout (default 30s) with partial state return on timeout
-- [ ] Run `npm run build` to verify TypeScript compilation passes
+- [x] Register `/browser` command with subcommands: `status`, `close`, `switch <type>`
+- [x] Handle "browser not installed" error with helpful message
+- [x] Implement configurable timeout (default 30s) with partial state return on timeout
+- [x] Run `npm run build` to verify TypeScript compilation passes
 
 ---
 
