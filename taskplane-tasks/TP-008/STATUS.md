@@ -1,6 +1,6 @@
 # TP-008: Documentation & Testing — Status
 
-**Current Step:** Step 1: Write Comprehensive README.md
+**Current Step:** Step 2: Create Test Script
 **Status:** 🟡 In Progress
 **Last Updated:** 2026-04-11
 **Review Level:** 0
@@ -34,18 +34,18 @@
 ---
 
 ### Step 2: Create Test Script
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 
-- [ ] Create `extensions/browser/test-browser.ts` exercising all tools
-- [ ] Test navigation to `https://example.com` and verify extraction returns text + interactive elements
-- [ ] Test clicking a link by index
-- [ ] Test typing into an input field
-- [ ] Test screenshot capture
-- [ ] Test evaluate with a simple JS expression
-- [ ] Test back/forward navigation
-- [ ] Test tab management (open, switch, list, close)
-- [ ] Test viewport resize
-- [ ] Add clear pass/fail output, cleanup (close browser), runnable with `npx tsx extensions/browser/test-browser.ts`
+- [x] Create `extensions/browser/test-browser.ts` exercising all tools
+- [x] Test navigation to `https://example.com` and verify extraction returns text + interactive elements
+- [x] Test clicking a link by index
+- [x] Test typing into an input field
+- [x] Test screenshot capture
+- [x] Test evaluate with a simple JS expression
+- [x] Test back/forward navigation
+- [x] Test tab management (open, switch, list, close)
+- [x] Test viewport resize
+- [x] Add clear pass/fail output, cleanup (close browser), runnable with `npx tsx extensions/browser/test-browser.ts`
 
 ---
 
