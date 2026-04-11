@@ -1,11 +1,309 @@
-<!-- Briefing panel template — will be populated in TP-004 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Browser Briefing</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🛡️ Mission Briefing — pi</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --accent-green: #3fb950;
+      --accent-green-hover: #2ea043;
+      --accent-red: #f85149;
+      --accent-red-hover: #da3633;
+      --accent-blue: #58a6ff;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    .briefing-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      max-width: 560px;
+      width: 100%;
+      padding: 2rem;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .header h1 {
+      font-size: 1.4rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .header .subtitle {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 1rem 0;
+    }
+
+    .field {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      padding: 0.6rem 0;
+    }
+
+    .field .icon {
+      font-size: 1.1rem;
+      flex-shrink: 0;
+      width: 1.5rem;
+      text-align: center;
+    }
+
+    .field .label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 0.15rem;
+    }
+
+    .field .value {
+      font-size: 0.95rem;
+      color: var(--text);
+      word-break: break-all;
+    }
+
+    .field .value a {
+      color: var(--accent-blue);
+      text-decoration: none;
+    }
+
+    .trust-section {
+      margin-top: 1rem;
+      padding: 0.75rem;
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .trust-section summary {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .trust-section ul {
+      list-style: none;
+      padding: 0.5rem 0 0 0;
+    }
+
+    .trust-section li {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      padding: 0.15rem 0;
+      font-family: 'SFMono-Regular', Consolas, monospace;
+    }
+
+    .trust-section li.empty {
+      font-style: italic;
+      font-family: inherit;
+    }
+
+    .controls {
+      margin-top: 1.5rem;
+    }
+
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .checkbox-row input[type="checkbox"] {
+      width: 1rem;
+      height: 1rem;
+      accent-color: var(--accent-blue);
+      cursor: pointer;
+    }
+
+    .checkbox-row label {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 0.75rem;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 0.75rem 1.5rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+
+    .btn-approve {
+      background: var(--accent-green);
+      color: #fff;
+    }
+
+    .btn-approve:hover, .btn-approve:focus {
+      background: var(--accent-green-hover);
+      outline: none;
+    }
+
+    .btn-reject {
+      background: var(--accent-red);
+      color: #fff;
+    }
+
+    .btn-reject:hover, .btn-reject:focus {
+      background: var(--accent-red-hover);
+      outline: none;
+    }
+
+    .hint {
+      text-align: center;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.75rem;
+    }
+
+    kbd {
+      background: var(--border);
+      border-radius: 3px;
+      padding: 0.1rem 0.35rem;
+      font-size: 0.7rem;
+      font-family: inherit;
+    }
+  </style>
 </head>
 <body>
-  <!-- TP-004 will populate this template with page summary content -->
+  <div class="briefing-card">
+    <div class="header">
+      <h1>🛡️ Mission Briefing</h1>
+      <div class="subtitle">Review and approve before proceeding</div>
+    </div>
+
+    <hr class="divider">
+
+    <div class="field">
+      <span class="icon">🎯</span>
+      <div>
+        <div class="label">Mission</div>
+        <div class="value">{{mission}}</div>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="icon">🌐</span>
+      <div>
+        <div class="label">Target URL</div>
+        <div class="value"><a href="{{url}}" target="_blank">{{url}}</a></div>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="icon">🤖</span>
+      <div>
+        <div class="label">Agent</div>
+        <div class="value">{{agent}}</div>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="icon">🕐</span>
+      <div>
+        <div class="label">Timestamp</div>
+        <div class="value">{{timestamp}}</div>
+      </div>
+    </div>
+
+    <div class="trust-section">
+      <details>
+        <summary>Trusted domains this session</summary>
+        <ul id="trusted-list">{{trustedDomains}}</ul>
+      </details>
+    </div>
+
+    <div class="controls">
+      <div class="checkbox-row">
+        <input type="checkbox" id="persist-trust">
+        <label for="persist-trust">Always trust <strong>{{domain}}</strong></label>
+      </div>
+
+      <div class="buttons">
+        <button class="btn btn-approve" id="btn-approve">✅ Approve</button>
+        <button class="btn btn-reject" id="btn-reject">❌ Reject</button>
+      </div>
+
+      <div class="hint">
+        <kbd>Enter</kbd> to approve · <kbd>Esc</kbd> to reject
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const approveBtn = document.getElementById('btn-approve');
+      const rejectBtn = document.getElementById('btn-reject');
+      const persistBox = document.getElementById('persist-trust');
+
+      function decide(result) {
+        window.__piBriefingResult = {
+          result: result,
+          persistTrust: persistBox.checked
+        };
+      }
+
+      approveBtn.addEventListener('click', () => decide('approved'));
+      rejectBtn.addEventListener('click', () => decide('rejected'));
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          decide('approved');
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          decide('rejected');
+        }
+      });
+
+      // Focus approve button for accessibility
+      approveBtn.focus();
+    })();
+  </script>
 </body>
 </html>

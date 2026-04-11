@@ -1,6 +1,6 @@
 # TP-004: Mission Briefing Gate (briefing.ts + briefing.html) — Status
 
-**Current Step:** Step 1: Implement Domain Trust Management
+**Current Step:** Step 2: Build Briefing HTML Template
 **Status:** 🟡 In Progress
 **Last Updated:** 2026-04-11
 **Review Level:** 0
@@ -30,15 +30,15 @@
 ---
 
 ### Step 2: Build Briefing HTML Template
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 
-- [ ] Create self-contained HTML template with embedded CSS and JS in `briefing.html`
-- [ ] Dark theme, clean minimal design matching pi aesthetic
-- [ ] Show: 🎯 Mission, 🌐 Target URL, 🤖 Agent, 🕐 Timestamp
-- [ ] Two prominent buttons: ✅ Approve and ❌ Reject
-- [ ] Checkbox: "Always trust this domain" (controls persistent trust)
-- [ ] Keyboard shortcuts: Enter to approve, Escape to reject
-- [ ] Show list of already-trusted domains in current session
+- [x] Create self-contained HTML template with embedded CSS and JS in `briefing.html`
+- [x] Dark theme, clean minimal design matching pi aesthetic
+- [x] Show: 🎯 Mission, 🌐 Target URL, 🤖 Agent, 🕐 Timestamp
+- [x] Two prominent buttons: ✅ Approve and ❌ Reject
+- [x] Checkbox: "Always trust this domain" (controls persistent trust)
+- [x] Keyboard shortcuts: Enter to approve, Escape to reject
+- [x] Show list of already-trusted domains in current session
 
 ---
 
