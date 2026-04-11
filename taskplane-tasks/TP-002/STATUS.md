@@ -1,6 +1,6 @@
 # TP-002: Browser Manager (browser.ts) — Status
 
-**Current Step:** Step 1: Implement Browser Launch and Singleton Management
+**Current Step:** Step 2: Implement Page and Context Management
 **Status:** 🟡 In Progress
 **Last Updated:** 2026-04-11
 **Review Level:** 0
@@ -28,11 +28,11 @@
 ---
 
 ### Step 2: Implement Page and Context Management
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 
-- [ ] Implement `getBrowser()` — returns current browser context, or `null` if not launched
-- [ ] Implement `getCurrentPage()` — returns the active page (tab), creates one if context has no pages
-- [ ] Implement `setCurrentPage(page)` — switches the "active" page for tab management
+- [x] Implement `getBrowser()` — returns current browser context, or `null` if not launched
+- [x] Implement `getCurrentPage()` — returns the active page (tab), creates one if context has no pages
+- [x] Implement `setCurrentPage(page)` — switches the "active" page for tab management
 
 ---
 
