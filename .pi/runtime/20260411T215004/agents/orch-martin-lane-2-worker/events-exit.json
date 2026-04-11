@@ -1,0 +1,22 @@
+{
+  "exitCode": 0,
+  "exitSignal": null,
+  "tokens": {
+    "input": 31,
+    "output": 7883,
+    "cacheRead": 414608,
+    "cacheWrite": 19720
+  },
+  "cost": null,
+  "toolCalls": 31,
+  "retries": 0,
+  "compactions": 0,
+  "durationSec": 175,
+  "lastToolCall": "bash: cd /home/martin/dev/pi-clean/.worktrees/martin-20260411T215004/lane-2 && git status",
+  "error": null,
+  "contextUsage": {
+    "tokens": 19113,
+    "contextWindow": 1000000,
+    "percent": 1.9113000000000002
+  }
+}

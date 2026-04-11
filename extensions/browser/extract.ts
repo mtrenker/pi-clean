@@ -47,6 +47,10 @@ export async function extractPageContent(
   const title = await page.title();
   const url = page.url();
 
+  // Polyfill __name for tsx/esbuild compatibility — esbuild wraps function
+  // expressions with __name() which doesn't exist in the browser context
+  await page.evaluate('if(typeof globalThis.__name==="undefined"){globalThis.__name=function(fn){return fn}}');
+
   // --- Text content extraction ---
   const rawText: string = await page.evaluate(() => {
     // Remove hidden elements before extracting text
@@ -105,7 +109,7 @@ export async function extractPageContent(
     selector: string;
   }> = await page.evaluate((max: number) => {
     /** Generate a stable CSS selector for an element */
-    function stableSelector(el: Element): string {
+    const stableSelector = (el: Element): string => {
       // Prefer data-testid
       const testId = el.getAttribute('data-testid');
       if (testId) return `[data-testid="${CSS.escape(testId)}"]`;
@@ -148,7 +152,7 @@ export async function extractPageContent(
     }
 
     /** Check if an element is visible */
-    function isVisible(el: Element): boolean {
+    const isVisible = (el: Element): boolean => {
       const style = window.getComputedStyle(el);
       if (style.display === 'none' || style.visibility === 'hidden') return false;
       if (el.getAttribute('aria-hidden') === 'true') return false;

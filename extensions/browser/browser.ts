@@ -62,6 +62,10 @@ export async function launchBrowser(
         headless,
       });
 
+      // Inject __name polyfill so tsx/esbuild compiled functions work inside page.evaluate()
+      // esbuild's keepNames injects __name() calls that don't exist in the browser context
+      await context.addInitScript('if(typeof globalThis.__name==="undefined"){globalThis.__name=(fn)=>fn}');
+
       currentContext = context;
       registerCleanup();
       return context;

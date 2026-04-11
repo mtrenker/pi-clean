@@ -1,0 +1,14 @@
+{
+  "batchId": "20260411T215004",
+  "agentId": "orch-martin-merge-1",
+  "role": "merger",
+  "laneNumber": null,
+  "taskId": null,
+  "repoId": "default",
+  "pid": 73892,
+  "parentPid": 67031,
+  "startedAt": 1775938465502,
+  "status": "killed",
+  "cwd": "/home/martin/dev/pi-clean/.worktrees/martin-20260411T215004/merge",
+  "packet": null
+}

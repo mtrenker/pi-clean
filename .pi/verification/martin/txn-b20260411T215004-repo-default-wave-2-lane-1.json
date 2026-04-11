@@ -1,0 +1,16 @@
+{
+  "opId": "martin",
+  "batchId": "20260411T215004",
+  "waveIndex": 2,
+  "laneNumber": 1,
+  "repoId": null,
+  "baseHEAD": "749a064a26027799a85f38404847a5637bc62d1e",
+  "laneHEAD": "bd095d5c3c33f714182f34610edcb05c0d1ea76b",
+  "mergedHEAD": "978798007bff6b51d5596f7d0802c1f97b6d187c",
+  "status": "committed",
+  "rollbackAttempted": false,
+  "rollbackResult": null,
+  "recoveryCommands": [],
+  "startedAt": "2026-04-11T19:58:05.220Z",
+  "completedAt": "2026-04-11T19:58:39.266Z"
+}

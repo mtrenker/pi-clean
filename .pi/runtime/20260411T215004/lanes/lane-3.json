@@ -1,0 +1,31 @@
+{
+  "batchId": "20260411T215004",
+  "laneNumber": 3,
+  "laneId": "lane-3",
+  "repoId": "default",
+  "taskId": "TP-004",
+  "segmentId": "TP-004::default",
+  "status": "complete",
+  "worker": {
+    "agentId": "orch-martin-lane-3-worker",
+    "status": "exited",
+    "elapsedMs": 231403,
+    "toolCalls": 45,
+    "contextPct": 2.3585,
+    "costUsd": 0,
+    "lastTool": "read: /home/martin/dev/pi-clean/.worktrees/martin-20260411T215004/lane-3/taskplane-tasks/TP-004/STATUS.md",
+    "inputTokens": 43,
+    "outputTokens": 11101,
+    "cacheReadTokens": 661192,
+    "cacheWriteTokens": 23694
+  },
+  "reviewer": null,
+  "progress": {
+    "currentStep": "Step 4: Verify",
+    "checked": 20,
+    "total": 20,
+    "iteration": 1,
+    "reviews": 0
+  },
+  "updatedAt": 1775937398079
+}

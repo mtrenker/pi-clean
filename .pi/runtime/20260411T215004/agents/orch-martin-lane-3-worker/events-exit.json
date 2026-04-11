@@ -1,0 +1,22 @@
+{
+  "exitCode": 0,
+  "exitSignal": null,
+  "tokens": {
+    "input": 43,
+    "output": 11101,
+    "cacheRead": 661192,
+    "cacheWrite": 23694
+  },
+  "cost": null,
+  "toolCalls": 45,
+  "retries": 0,
+  "compactions": 0,
+  "durationSec": 231,
+  "lastToolCall": "read: /home/martin/dev/pi-clean/.worktrees/martin-20260411T215004/lane-3/taskplane-tasks/TP-004/STATUS.md",
+  "error": null,
+  "contextUsage": {
+    "tokens": 23585,
+    "contextWindow": 1000000,
+    "percent": 2.3585
+  }
+}

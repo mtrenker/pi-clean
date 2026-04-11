@@ -1,0 +1,22 @@
+{
+  "exitCode": 0,
+  "exitSignal": null,
+  "tokens": {
+    "input": 29,
+    "output": 10181,
+    "cacheRead": 799659,
+    "cacheWrite": 38403
+  },
+  "cost": null,
+  "toolCalls": 32,
+  "retries": 0,
+  "compactions": 0,
+  "durationSec": 238,
+  "lastToolCall": "bash: cd /home/martin/dev/pi-clean/.worktrees/martin-20260411T215004/lane-1 && git add -A && git commit -m \"feat(TP-008): task complete\" --allow-empty",
+  "error": null,
+  "contextUsage": {
+    "tokens": 38212,
+    "contextWindow": 1000000,
+    "percent": 3.8212
+  }
+}
