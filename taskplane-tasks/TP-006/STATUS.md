@@ -39,11 +39,11 @@
 ---
 
 ### Step 3: Implement Tab and Viewport Management
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 
-- [ ] Implement `manageTabs(context, action, tabIndex?)` — list/switch/new/close tabs via `context.pages()`
-- [ ] Update "current page" in browser.ts via `setCurrentPage()` on tab switch
-- [ ] Implement `setViewport(page, width, height)` — set viewport size, return confirmation
+- [x] Implement `manageTabs(context, action, tabIndex?)` — list/switch/new/close tabs via `context.pages()`
+- [x] Update "current page" in browser.ts via `setCurrentPage()` on tab switch
+- [x] Implement `setViewport(page, width, height)` — set viewport size, return confirmation
 
 ---
 
