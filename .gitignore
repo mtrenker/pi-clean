@@ -13,3 +13,19 @@ typosquatting-report.json
 lockfile-verification-report.json
 install-scripts-report.json
 all-packages.txt
+
+# Taskplane runtime artifacts (machine-specific, do not commit)
+.pi/batch-state.json
+.pi/batch-history.json
+.pi/lane-state-*
+.pi/merge-result-*
+.pi/merge-request-*
+.pi/worker-conversation-*
+.pi/orch-logs/
+.pi/orch-abort-signal
+.pi/settings.json
+.worktrees/
+.taskplane-tasks/
+
+# Pi project-local packages (if using pi install -l)
+.pi/npm/
