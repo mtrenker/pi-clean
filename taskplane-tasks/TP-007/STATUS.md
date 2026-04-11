@@ -19,17 +19,17 @@
 ---
 
 ### Step 1: Register Browser Tools with Typebox Schemas
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 
-- [ ] Register `browser_navigate` — `{ url: string, waitUntil?: string }`, integrates briefing gate for interactive mode
-- [ ] Register `browser_click` — `{ index?: number, selector?: string }`, integrates overlay highlight before click
-- [ ] Register `browser_type` — `{ index?: number, selector?: string, text: string, pressEnter?: boolean, clear?: boolean }`
-- [ ] Register `browser_screenshot` — `{ fullPage?: boolean, selector?: string }`, returns image attachment
-- [ ] Register `browser_evaluate` — `{ expression: string }`
-- [ ] Register `browser_back` and `browser_forward` — no params
-- [ ] Register `browser_tabs` — `{ action: "list" | "switch" | "new" | "close", tabIndex?: number }`
-- [ ] Register `browser_close` — no params
-- [ ] Register `browser_set_viewport` — `{ width: number, height: number }`
+- [x] Register `browser_navigate` — `{ url: string, waitUntil?: string }`, integrates briefing gate for interactive mode
+- [x] Register `browser_click` — `{ index?: number, selector?: string }`, integrates overlay highlight before click
+- [x] Register `browser_type` — `{ index?: number, selector?: string, text: string, pressEnter?: boolean, clear?: boolean }`
+- [x] Register `browser_screenshot` — `{ fullPage?: boolean, selector?: string }`, returns image attachment
+- [x] Register `browser_evaluate` — `{ expression: string }`
+- [x] Register `browser_back` and `browser_forward` — no params
+- [x] Register `browser_tabs` — `{ action: "list" | "switch" | "new" | "close", tabIndex?: number }`
+- [x] Register `browser_close` — no params
+- [x] Register `browser_set_viewport` — `{ width: number, height: number }`
 
 ---
 
