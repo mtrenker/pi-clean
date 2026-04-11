@@ -128,6 +128,8 @@ function textResult(text: string): AgentToolResult<unknown> {
 // ── Extension factory ──────────────────────────────────────────────
 
 const browserExtension: ExtensionFactory = (pi) => {
+  // browserMode is detected per-tool-call via detectBrowserMode(ctx)
+
   // ── browser_navigate ───────────────────────────────────────────
 
   pi.registerTool({
@@ -531,6 +533,7 @@ const browserExtension: ExtensionFactory = (pi) => {
             currentDomain = "";
           }
           headlessMode = false;
+          browserMode = "interactive";
           ctx.ui.notify("Headed mode enabled. Browser will show UI on next action.");
           break;
         }
@@ -547,6 +550,7 @@ const browserExtension: ExtensionFactory = (pi) => {
             currentDomain = "";
           }
           headlessMode = true;
+          browserMode = "autonomous";
           ctx.ui.notify("Headless mode enabled. Browser will run in background.");
           break;
         }
