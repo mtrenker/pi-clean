@@ -486,7 +486,7 @@ const browserExtension: ExtensionFactory = (pi) => {
   // ── /browser command ───────────────────────────────────────────
 
   pi.registerCommand("browser", {
-    description: "Browser management: status, close, switch <chromium|firefox|webkit>",
+    description: "Browser management: status, close, switch <type>, show, hide",
     async handler(args, ctx) {
       const parts = args.trim().split(/\s+/);
       const subcommand = parts[0] || "status";
@@ -519,6 +519,38 @@ const browserExtension: ExtensionFactory = (pi) => {
           break;
         }
 
+        case "show": {
+          // Relaunch in headed mode
+          if (!headlessMode && getBrowser()) {
+            ctx.ui.notify("Browser is already in headed mode.");
+            break;
+          }
+          if (getBrowser()) {
+            await closeBrowser();
+            currentElementMap = new Map();
+            currentDomain = "";
+          }
+          headlessMode = false;
+          ctx.ui.notify("Headed mode enabled. Browser will show UI on next action.");
+          break;
+        }
+
+        case "hide": {
+          // Relaunch in headless mode
+          if (headlessMode && getBrowser()) {
+            ctx.ui.notify("Browser is already in headless mode.");
+            break;
+          }
+          if (getBrowser()) {
+            await closeBrowser();
+            currentElementMap = new Map();
+            currentDomain = "";
+          }
+          headlessMode = true;
+          ctx.ui.notify("Headless mode enabled. Browser will run in background.");
+          break;
+        }
+
         case "switch": {
           const type = parts[1] as BrowserType | undefined;
           if (!type || !["chromium", "firefox", "webkit"].includes(type)) {
@@ -538,7 +570,7 @@ const browserExtension: ExtensionFactory = (pi) => {
 
         default:
           ctx.ui.notify(
-            "Unknown subcommand. Usage: /browser <status|close|switch <type>>",
+            "Unknown subcommand. Usage: /browser <status|close|switch <type>|show|hide>",
           );
       }
     },
