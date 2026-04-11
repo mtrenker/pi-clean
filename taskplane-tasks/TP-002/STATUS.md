@@ -1,6 +1,6 @@
 # TP-002: Browser Manager (browser.ts) — Status
 
-**Current Step:** Step 0: Preflight
+**Current Step:** Step 1: Implement Browser Launch and Singleton Management
 **Status:** 🟡 In Progress
 **Last Updated:** 2026-04-11
 **Review Level:** 0
@@ -19,11 +19,11 @@
 ---
 
 ### Step 1: Implement Browser Launch and Singleton Management
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 
-- [ ] Implement `launchBrowser(options?)` — launches with persistent context at `~/.pi/browser/<browserType>/`
-- [ ] Implement concurrent launch safety (use a launch lock/promise to prevent racing)
-- [ ] Create profile directories using `fs.mkdirSync` with `recursive: true`, resolve `~` via `os.homedir()`
+- [x] Implement `launchBrowser(options?)` — launches with persistent context at `~/.pi/browser/<browserType>/`
+- [x] Implement concurrent launch safety (use a launch lock/promise to prevent racing)
+- [x] Create profile directories using `fs.mkdirSync` with `recursive: true`, resolve `~` via `os.homedir()`
 
 ---
 
