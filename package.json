@@ -8,6 +8,9 @@
     "type": "git",
     "url": "git@github.com:mtrenker/pi-clean.git"
   },
+  "dependencies": {
+    "playwright": "^1.52.0"
+  },
   "devDependencies": {
     "@mariozechner/pi-ai": "^0.66.1",
     "@mariozechner/pi-agent-core": "^0.66.1",
