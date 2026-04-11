@@ -1,6 +1,6 @@
 # TP-003: Content Extraction (extract.ts) — Status
 
-**Current Step:** Step 1: Implement Text Content Extraction
+**Current Step:** Step 4: Verify
 **Status:** 🟡 In Progress
 **Last Updated:** 2026-04-11
 **Review Level:** 0
@@ -19,33 +19,33 @@
 ---
 
 ### Step 1: Implement Text Content Extraction
-**Status:** 🟨 In Progress
+**Status:** ✅ Complete
 
-- [ ] Implement main `extractPageContent(page, options?)` function signature
-- [ ] Extract `innerText` from the page body via `page.evaluate()`
-- [ ] Collapse excessive whitespace (multiple newlines → max 2, multiple spaces → 1)
-- [ ] Strip content from hidden elements (`display:none`, `visibility:hidden`, `aria-hidden="true"`)
-- [ ] Smart truncation: if content exceeds `maxLength`, keep beginning + `\n...[truncated]...\n` + end (~500 chars)
+- [x] Implement main `extractPageContent(page, options?)` function signature
+- [x] Extract `innerText` from the page body via `page.evaluate()`
+- [x] Collapse excessive whitespace (multiple newlines → max 2, multiple spaces → 1)
+- [x] Strip content from hidden elements (`display:none`, `visibility:hidden`, `aria-hidden="true"`)
+- [x] Smart truncation: if content exceeds `maxLength`, keep beginning + `\n...[truncated]...\n` + end (~500 chars)
 
 ---
 
 ### Step 2: Implement Interactive Elements Indexing
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 
-- [ ] Scan page for interactive elements and build indexed list via `page.evaluate()`
-- [ ] Index element types: links (`a[href]`), buttons, text inputs, textareas, selects, checkboxes/radios
-- [ ] Format each element as: `[0] link "Documentation" → https://docs.example.com` etc.
-- [ ] Only index visible elements (not hidden, not zero-size)
-- [ ] Cap at ~100 interactive elements (with note if more exist)
+- [x] Scan page for interactive elements and build indexed list via `page.evaluate()`
+- [x] Index element types: links (`a[href]`), buttons, text inputs, textareas, selects, checkboxes/radios
+- [x] Format each element as: `[0] link "Documentation" → https://docs.example.com` etc.
+- [x] Only index visible elements (not hidden, not zero-size)
+- [x] Cap at ~100 interactive elements (with note if more exist)
 
 ---
 
 ### Step 3: Implement Element Locator Mapping
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 
-- [ ] Return a `Map<number, string>` mapping index → CSS selector or stable locator
-- [ ] Generate stable selectors: prefer `[data-testid]`, `#id`, `[name]`, fall back to nth-of-type paths
-- [ ] Handle iframes: extract from main frame only, note iframe presence
+- [x] Return a `Map<number, string>` mapping index → CSS selector or stable locator
+- [x] Generate stable selectors: prefer `[data-testid]`, `#id`, `[name]`, fall back to nth-of-type paths
+- [x] Handle iframes: extract from main frame only, note iframe presence
 
 ---
 
