@@ -29,12 +29,12 @@
 ---
 
 ### Step 2: Implement Click and Type Operations
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 
-- [ ] Implement `click(page, target, elementMap)` — resolve index via elementMap or use selector directly, click, wait for navigation/stability, return fresh snapshot
-- [ ] Implement `type(page, target, text, options, elementMap)` — resolve element, optionally clear (triple-click or `fill()`), type with ~50ms delay, optionally press Enter, return snapshot
-- [ ] Handle element not found: return clear error `"Element [index] not found. Available elements: 0-N"`
-- [ ] Handle stale elements: if element detached between extraction and click, re-extract and retry once
+- [x] Implement `click(page, target, elementMap)` — resolve index via elementMap or use selector directly, click, wait for navigation/stability, return fresh snapshot
+- [x] Implement `type(page, target, text, options, elementMap)` — resolve element, optionally clear (triple-click or `fill()`), type with ~50ms delay, optionally press Enter, return snapshot
+- [x] Handle element not found: return clear error `"Element [index] not found. Available elements: 0-N"`
+- [x] Handle stale elements: if element detached between extraction and click, re-extract and retry once
 
 ---
 
