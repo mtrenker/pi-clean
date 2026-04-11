@@ -1,6 +1,6 @@
 # TP-002: Browser Manager (browser.ts) — Status
 
-**Current Step:** Step 2: Implement Page and Context Management
+**Current Step:** Step 3: Implement Shutdown and Cleanup
 **Status:** 🟡 In Progress
 **Last Updated:** 2026-04-11
 **Review Level:** 0
@@ -37,12 +37,12 @@
 ---
 
 ### Step 3: Implement Shutdown and Cleanup
-**Status:** ⬜ Not Started
+**Status:** ✅ Complete
 
-- [ ] Implement `closeBrowser()` — graceful shutdown (close pages, context, browser) WITHOUT deleting the persistent profile
-- [ ] Handle already-closed state gracefully
-- [ ] Register cleanup on `process.exit`, `SIGINT`, `SIGTERM` to prevent zombie processes
-- [ ] Catch missing browser binaries error and return helpful message: `"Browser not installed. Run: npx playwright install chromium"`
+- [x] Implement `closeBrowser()` — graceful shutdown (close pages, context, browser) WITHOUT deleting the persistent profile
+- [x] Handle already-closed state gracefully
+- [x] Register cleanup on `process.exit`, `SIGINT`, `SIGTERM` to prevent zombie processes
+- [x] Catch missing browser binaries error and return helpful message: `"Browser not installed. Run: npx playwright install chromium"`
 
 ---
 
