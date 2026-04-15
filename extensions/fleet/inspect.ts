@@ -94,7 +94,7 @@ export async function openFleetInspector(
     };
   },
 ): Promise<void> {
-  const tasks = await listTasks(root);
+  let tasks = await listTasks(root);
   if (tasks.length === 0) {
     ctx.ui.notify("No tasks found to inspect", "info");
     return;
@@ -105,12 +105,32 @@ export async function openFleetInspector(
   let screenIndex = 0;
   let bodyCache = "Loading...";
   let loading = false;
+  let closed = false;
+  let lastUpdatedAt = "-";
 
   const refresh = async (requestRender: () => void) => {
-    if (loading) return;
+    if (loading || closed) return;
     loading = true;
     try {
-      bodyCache = await loadScreen(root, tasks[selected]!, SCREENS[screenIndex]!);
+      const currentTaskId = tasks[selected]?.id;
+      const nextTasks = await listTasks(root);
+      if (nextTasks.length > 0) {
+        tasks = nextTasks;
+        if (currentTaskId) {
+          const nextSelected = tasks.findIndex((t) => t.id === currentTaskId);
+          selected = nextSelected >= 0 ? nextSelected : Math.min(selected, tasks.length - 1);
+        } else {
+          selected = Math.min(selected, tasks.length - 1);
+        }
+      }
+
+      const task = tasks[selected];
+      if (!task) {
+        bodyCache = "(task disappeared)";
+      } else {
+        bodyCache = await loadScreen(root, task, SCREENS[screenIndex]!);
+      }
+      lastUpdatedAt = new Date().toLocaleTimeString();
     } finally {
       loading = false;
       requestRender();
@@ -119,44 +139,58 @@ export async function openFleetInspector(
 
   await ctx.ui.custom<void>(
     (tui: any, _theme: any, _kb: any, done: (value: void) => void) => {
-      void refresh(() => tui.requestRender());
+      const requestRefresh = () => void refresh(() => tui.requestRender());
+      const interval = setInterval(requestRefresh, 1500);
+      requestRefresh();
+
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        clearInterval(interval);
+        done(undefined);
+      };
 
       return {
         handleInput(data: string) {
           if (matchesKey(data, Key.escape)) {
-            done(undefined);
+            close();
             return;
           }
           if (matchesKey(data, Key.up)) {
             selected = (selected - 1 + tasks.length) % tasks.length;
-            void refresh(() => tui.requestRender());
+            requestRefresh();
             return;
           }
           if (matchesKey(data, Key.down)) {
             selected = (selected + 1) % tasks.length;
-            void refresh(() => tui.requestRender());
+            requestRefresh();
             return;
           }
           if (matchesKey(data, Key.left)) {
             screenIndex = (screenIndex - 1 + SCREENS.length) % SCREENS.length;
-            void refresh(() => tui.requestRender());
+            requestRefresh();
             return;
           }
           if (matchesKey(data, Key.right)) {
             screenIndex = (screenIndex + 1) % SCREENS.length;
-            void refresh(() => tui.requestRender());
+            requestRefresh();
             return;
           }
         },
         render(width: number): string[] {
-          const task = tasks[selected]!;
+          const task = tasks[selected];
           const screen = SCREENS[screenIndex]!;
-          const title = `Fleet Inspect — ${task.id}-${task.name}  [${screen}]`;
-          const footer = `↑/↓ task  ←/→ screen  esc close   screens: ${SCREENS.join(" • ")}`;
+          const taskLabel = task ? `${task.id}-${task.name}` : "(missing task)";
+          const liveState = loading ? "refreshing…" : `auto 1.5s • updated ${lastUpdatedAt}`;
+          const title = `Fleet Inspect — ${taskLabel}  [${screen}]`;
+          const footer = `↑/↓ task  ←/→ screen  esc close  ${liveState}   screens: ${SCREENS.join(" • ")}`;
           const usable = Math.min(width - 4, 140);
           return boxLines(usable, title, bodyCache, footer);
         },
-        invalidate() {},
+        invalidate() {
+          closed = true;
+          clearInterval(interval);
+        },
       };
     },
     { overlay: true, overlayOptions: { anchor: "center", width: "85%", maxHeight: "85%", margin: 1 } },
