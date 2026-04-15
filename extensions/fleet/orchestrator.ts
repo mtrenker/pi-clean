@@ -21,7 +21,7 @@ import {
   writeAggregateState,
   type AggregateState,
 } from "./state.js";
-import { createEngineAdapter } from "./engines/index.js";
+import { createEngineAdapter, createSimulateAdapter } from "./engines/index.js";
 import type { EngineProcess } from "./engines/index.js";
 import { handleFailure } from "./recovery.js";
 
@@ -95,6 +95,7 @@ export class Orchestrator extends EventEmitter {
     private readonly cwd: string,
     private readonly config: FleetConfig,
     private readonly onNotify: (message: string) => void = () => {},
+    private readonly simulate: boolean = false,
   ) {
     super();
   }
@@ -295,7 +296,10 @@ export class Orchestrator extends EventEmitter {
     const model = task.model || this.config.defaults.model;
 
     // Create adapter and spawn process
-    const adapter = createEngineAdapter(engineName, engineConfig);
+    // In simulate mode, always use the simulate adapter regardless of task engine
+    const adapter = this.simulate
+      ? createSimulateAdapter(this.config.simulate)
+      : createEngineAdapter(engineName, engineConfig);
     const process = adapter.spawn({
       taskPrompt,
       agentPrompt,

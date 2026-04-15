@@ -5,10 +5,13 @@ import type { EngineConfig } from "../config.js";
 import { ClaudeEngineAdapter } from "./claude.js";
 import { PiEngineAdapter } from "./pi.js";
 import { CodexEngineAdapter } from "./codex.js";
+import { SimulateEngineAdapter } from "./simulate.js";
+import type { SimulateConfig } from "../config.js";
 
 export { ClaudeEngineAdapter } from "./claude.js";
 export { PiEngineAdapter } from "./pi.js";
 export { CodexEngineAdapter } from "./codex.js";
+export { SimulateEngineAdapter } from "./simulate.js";
 export type { Usage, EngineResult, EngineProcess, EngineAdapter } from "./types.js";
 
 // ── Factory ───────────────────────────────────────────────────────────────────
@@ -31,9 +34,19 @@ export function createEngineAdapter(
       return new PiEngineAdapter(engineConfig);
     case "codex":
       return new CodexEngineAdapter(engineConfig);
+    case "simulate":
+      return new SimulateEngineAdapter();
     default:
       throw new Error(
-        `Unknown engine "${engineName}". Supported engines: claude, pi, codex.`,
+        `Unknown engine "${engineName}". Supported engines: claude, pi, codex, simulate.`,
       );
   }
+}
+
+/**
+ * Create a SimulateEngineAdapter with the given simulation config.
+ * Used by the orchestrator when simulate mode is active.
+ */
+export function createSimulateAdapter(cfg?: SimulateConfig): SimulateEngineAdapter {
+  return new SimulateEngineAdapter(cfg);
 }

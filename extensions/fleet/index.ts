@@ -273,6 +273,53 @@ const fleetExtension: ExtensionFactory = (pi) => {
     },
   });
 
+  // ── /fleet:simulate ────────────────────────────────────────────────────────
+
+  pi.registerCommand("fleet:simulate", {
+    description: "Run fleet in simulation mode — fires all events without spending tokens",
+    async handler(args, ctx) {
+      try {
+        const config = await loadConfig(ctx.cwd);
+
+        // Always create a fresh orchestrator in simulate mode
+        widget?.detach();
+        await orchestrator?.stop();
+
+        orchestrator = new Orchestrator(
+          ctx.cwd,
+          config,
+          (msg) => ctx.ui.notify(msg, "warning"),
+          true, // simulate = true
+        );
+
+        orchestrator.on("fleet:done", (event) => {
+          const s = event.summary;
+          ctx.ui.notify(
+            `Simulation done — ✓ ${s.done} done  ✗ ${s.failed} failed  total: ${((s.totalInputTokens + s.totalOutputTokens) / 1000).toFixed(1)}k tokens (simulated)`,
+            "info",
+          );
+        });
+
+        widget = new FleetWidget(
+          orchestrator,
+          (id, lines) => ctx.ui.setWidget(id, lines),
+          (id) => ctx.ui.setWidget(id, undefined),
+        );
+        widget.attach();
+
+        await orchestrator.start(args ? [args] : undefined);
+
+        const tasks = await listTasks(ctx.cwd);
+        ctx.ui.notify(
+          `Simulation started (${tasks.length} tasks, no real agents spawned)`,
+          "info",
+        );
+      } catch (error) {
+        ctx.ui.notify((error as Error).message, "error");
+      }
+    },
+  });
+
   // ── /fleet:reset ──────────────────────────────────────────────────────────
 
   pi.registerCommand("fleet:reset", {

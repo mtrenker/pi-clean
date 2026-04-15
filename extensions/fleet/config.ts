@@ -13,6 +13,15 @@ export interface EngineConfig {
   args: string[];
 }
 
+export interface SimulateConfig {
+  /** [min, max] milliseconds a simulated task runs before completing. Default [4000, 10000] */
+  taskDurationMs?: [number, number];
+  /** Milliseconds between fake progress events. Default 1200 */
+  progressIntervalMs?: number;
+  /** Probability (0–1) a simulated task fails. Default 0.2 */
+  failureRate?: number;
+}
+
 export interface FleetConfig {
   concurrency: number;
   planPath: string;       // relative to cwd, default "PLAN.md"
@@ -24,11 +33,18 @@ export interface FleetConfig {
   };
   engines: Record<string, EngineConfig>;
   agents: Record<string, AgentConfig>;
+  /** Simulation settings used by /fleet:simulate */
+  simulate?: SimulateConfig;
 }
 
 // ── Hardcoded defaults ────────────────────────────────────────────────────────
 
 const DEFAULT_CONFIG: FleetConfig = {
+  simulate: {
+    taskDurationMs: [4000, 10000],
+    progressIntervalMs: 1200,
+    failureRate: 0.2,
+  },
   concurrency: 2,
   planPath: "PLAN.md",
   tasksDir: ".pi/tasks",
