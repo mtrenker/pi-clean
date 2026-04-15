@@ -131,7 +131,7 @@ export async function readStatus(cwd: string, id: string, name: string): Promise
  */
 export async function writeStatus(cwd: string, state: TaskState): Promise<void> {
   const target = statusPath(cwd, state.id, state.name);
-  const tmp = `${target}.tmp`;
+  const tmp = `${target}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
   await writeFile(tmp, JSON.stringify(state, null, 2), "utf-8");
   await rename(tmp, target);
 }

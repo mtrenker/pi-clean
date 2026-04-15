@@ -109,7 +109,7 @@ export function buildAggregateState(
  */
 export async function writeAggregateState(cwd: string, state: AggregateState): Promise<void> {
   const target = statePath(cwd);
-  const tmp = `${target}.tmp`;
+  const tmp = `${target}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
   await writeFile(tmp, JSON.stringify(state, null, 2), "utf-8");
   await rename(tmp, target);
 }
