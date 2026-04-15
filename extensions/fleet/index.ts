@@ -18,11 +18,13 @@ import { createTaskFolder, listTasks, writeStatus, taskDir } from "./task.js";
 import { Orchestrator } from "./orchestrator.js";
 import { handleFailure } from "./recovery.js";
 import { FleetWidget } from "./widget.js";
+import { createDemoRoot, cleanupDemoRoot, presetConfig, type DemoPreset } from "./demo.js";
 
 // ── Module-level singletons ───────────────────────────────────────────────────
 
 let orchestrator: Orchestrator | null = null;
 let widget: FleetWidget | null = null;
+let demoRoot: string | null = null;
 
 // ── Extension factory ─────────────────────────────────────────────────────────
 
@@ -32,6 +34,8 @@ const fleetExtension: ExtensionFactory = (pi) => {
   pi.on("session_shutdown", async () => {
     widget?.detach();
     await orchestrator?.stop();
+    await cleanupDemoRoot(demoRoot);
+    demoRoot = null;
   });
 
   // ── fleet_status tool ──────────────────────────────────────────────────────
@@ -312,6 +316,63 @@ const fleetExtension: ExtensionFactory = (pi) => {
         const tasks = await listTasks(ctx.cwd);
         ctx.ui.notify(
           `Simulation started (${tasks.length} tasks, no real agents spawned)`,
+          "info",
+        );
+      } catch (error) {
+        ctx.ui.notify((error as Error).message, "error");
+      }
+    },
+  });
+
+  // ── /fleet:demo ────────────────────────────────────────────────────────────
+
+  pi.registerCommand("fleet:demo", {
+    description: "Run a mock fleet with fake tasks + simulated engines for TUI development",
+    async handler(args, ctx) {
+      try {
+        const preset = ((args || "parallel").trim() || "parallel") as DemoPreset;
+        const allowed: DemoPreset[] = ["happy", "failure", "parallel", "big"];
+        if (!allowed.includes(preset)) {
+          ctx.ui.notify(
+            `Unknown demo preset \"${preset}\". Use one of: ${allowed.join(", ")}`,
+            "error",
+          );
+          return;
+        }
+
+        const baseConfig = await loadConfig(ctx.cwd);
+        const config = presetConfig(baseConfig, preset);
+
+        widget?.detach();
+        await orchestrator?.stop();
+        await cleanupDemoRoot(demoRoot);
+
+        demoRoot = await createDemoRoot(preset);
+        orchestrator = new Orchestrator(
+          demoRoot,
+          config,
+          (msg) => ctx.ui.notify(msg, "warning"),
+          true,
+        );
+
+        orchestrator.on("fleet:done", (event) => {
+          const s = event.summary;
+          ctx.ui.notify(
+            `Demo done (${preset}) — ✓ ${s.done} done  ✗ ${s.failed} failed`,
+            "info",
+          );
+        });
+
+        widget = new FleetWidget(
+          orchestrator,
+          (id, lines) => ctx.ui.setWidget(id, lines),
+          (id) => ctx.ui.setWidget(id, undefined),
+        );
+        widget.attach();
+
+        await orchestrator.start();
+        ctx.ui.notify(
+          `Demo started (${preset}) — mock tasks + simulated engines`,
           "info",
         );
       } catch (error) {
