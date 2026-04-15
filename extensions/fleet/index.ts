@@ -19,12 +19,14 @@ import { Orchestrator } from "./orchestrator.js";
 import { handleFailure } from "./recovery.js";
 import { FleetWidget } from "./widget.js";
 import { createDemoRoot, cleanupDemoRoot, presetConfig, type DemoPreset } from "./demo.js";
+import { openFleetInspector } from "./inspect.js";
 
 // ── Module-level singletons ───────────────────────────────────────────────────
 
 let orchestrator: Orchestrator | null = null;
 let widget: FleetWidget | null = null;
 let demoRoot: string | null = null;
+let activeRoot: string | null = null;
 
 // ── Extension factory ─────────────────────────────────────────────────────────
 
@@ -36,6 +38,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
     await orchestrator?.stop();
     await cleanupDemoRoot(demoRoot);
     demoRoot = null;
+    activeRoot = null;
   });
 
   // ── fleet_status tool ──────────────────────────────────────────────────────
@@ -155,6 +158,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
         if (!orchestrator) {
           orchestrator = new Orchestrator(ctx.cwd, config);
         }
+        activeRoot = ctx.cwd;
 
         // Set up recovery integration
         orchestrator.on("task:status", async (event) => {
@@ -295,6 +299,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
           (msg) => ctx.ui.notify(msg, "warning"),
           true, // simulate = true
         );
+        activeRoot = ctx.cwd;
 
         orchestrator.on("fleet:done", (event) => {
           const s = event.summary;
@@ -348,6 +353,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
         await cleanupDemoRoot(demoRoot);
 
         demoRoot = await createDemoRoot(preset);
+        activeRoot = demoRoot;
         orchestrator = new Orchestrator(
           demoRoot,
           config,
@@ -381,46 +387,76 @@ const fleetExtension: ExtensionFactory = (pi) => {
     },
   });
 
+  // ── /fleet:inspect ────────────────────────────────────────────────────────
+
+  pi.registerCommand("fleet:inspect", {
+    description: "Open an inspector overlay for task logs and details",
+    async handler(args, ctx) {
+      try {
+        const root = activeRoot ?? ctx.cwd;
+        await openFleetInspector(root, args || undefined, ctx);
+      } catch (error) {
+        ctx.ui.notify((error as Error).message, "error");
+      }
+    },
+  });
+
   // ── /fleet:reset ──────────────────────────────────────────────────────────
 
   pi.registerCommand("fleet:reset", {
-    description: "Reset a task to pending status, clearing progress and output",
+    description: "Reset one task or all tasks to pending status, clearing progress and output",
     async handler(args, ctx) {
       if (!args) {
-        ctx.ui.notify("Usage: /fleet:reset <task-id>", "error");
+        ctx.ui.notify("Usage: /fleet:reset <task-id|all>", "error");
         return;
       }
 
       try {
-        const tasks = await listTasks(ctx.cwd);
-        const task = tasks.find((t) => t.id === args);
-        if (!task) {
-          ctx.ui.notify(`Task ${args} not found`, "error");
+        const root = activeRoot ?? ctx.cwd;
+        const tasks = await listTasks(root);
+        const targets = args === "all" ? tasks : tasks.filter((t) => t.id === args);
+
+        if (targets.length === 0) {
+          ctx.ui.notify(args === "all" ? "No tasks found" : `Task ${args} not found`, "error");
           return;
         }
 
-        const dir = taskDir(ctx.cwd, task.id, task.name);
-        await fs.writeFile(path.join(dir, "progress.jsonl"), "");
-        await fs.writeFile(path.join(dir, "output.jsonl"), "");
-        try {
-          await fs.unlink(path.join(dir, "recovery.md"));
-        } catch {
-          // File may not exist — ignore
+        if (orchestrator) {
+          await orchestrator.stop();
+          widget?.detach();
+          orchestrator = null;
+          widget = null;
         }
 
-        await writeStatus(ctx.cwd, {
-          ...task,
-          status: "pending",
-          retries: 0,
-          error: null,
-          pid: null,
-          startedAt: null,
-          completedAt: null,
-          duration: null,
-          usage: { inputTokens: 0, outputTokens: 0 },
-        });
+        for (const task of targets) {
+          const dir = taskDir(root, task.id, task.name);
+          await fs.writeFile(path.join(dir, "progress.jsonl"), "");
+          await fs.writeFile(path.join(dir, "output.jsonl"), "");
+          try {
+            await fs.unlink(path.join(dir, "recovery.md"));
+          } catch {
+            // File may not exist — ignore
+          }
 
-        ctx.ui.notify(`Task ${args} reset to pending`, "info");
+          await writeStatus(root, {
+            ...task,
+            status: "pending",
+            retries: 0,
+            error: null,
+            pid: null,
+            startedAt: null,
+            completedAt: null,
+            duration: null,
+            usage: { inputTokens: 0, outputTokens: 0 },
+          });
+        }
+
+        ctx.ui.notify(
+          args === "all"
+            ? `Reset ${targets.length} tasks to pending`
+            : `Task ${args} reset to pending`,
+          "info",
+        );
       } catch (error) {
         ctx.ui.notify((error as Error).message, "error");
       }
