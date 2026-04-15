@@ -94,7 +94,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
     async handler(_args, ctx) {
       try {
         const plan = await fs.readFile(
-          path.join(ctx.cwd, ".pi/tasks/PLAN.md"),
+          path.join(ctx.cwd, "PLAN.md"),
           "utf8",
         );
         ctx.ui.setEditorText(
