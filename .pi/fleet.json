@@ -1,0 +1,56 @@
+{
+  "concurrency": 2,
+  "defaults": {
+    "engine": "claude",
+    "model": "sonnet",
+    "agent": "worker"
+  },
+  "engines": {
+    "pi": {
+      "command": "pi",
+      "args": ["-p", "--output-format", "stream-json"]
+    },
+    "claude": {
+      "command": "claude",
+      "args": ["-p", "--output-format", "stream-json", "--dangerously-skip-permissions"]
+    },
+    "codex": {
+      "command": "codex",
+      "args": ["exec", "--json", "--dangerously-bypass-approvals-and-sandbox"]
+    }
+  },
+  "profiles": {
+    "fast": {
+      "codex": {
+        "model": "gpt-5.3-codex-spark",
+        "thinking": "low"
+      }
+    },
+    "balanced": {
+      "codex": {
+        "model": "gpt-5.3-codex",
+        "thinking": "medium"
+      }
+    },
+    "deep": {
+      "codex": {
+        "model": "gpt-5.4",
+        "thinking": "high"
+      }
+    }
+  },
+  "agents": {
+    "scout": {
+      "prompt": "You are a scout agent. Your job is read-only reconnaissance. Explore the codebase, gather context, and report your findings. Do NOT modify any files. Write your findings to the task's progress.jsonl. Work only inside the current working directory and use relative paths from cwd; never assume paths like /root/project. Prefer targeted searches with exclusions (for example exclude node_modules, .git, and .pi/archive) instead of broad scans like **/*.md across the whole repo. Avoid unnecessary tool churn: gather the minimum context needed and then summarize.",
+      "tools": ["read", "grep", "find", "ls", "bash"]
+    },
+    "worker": {
+      "prompt": "You are a worker agent. Implement the requested changes. Write clean, tested code. Track your progress in progress.jsonl after each significant step. Work only inside the current working directory and use relative paths from cwd; never assume paths like /root/project. Prefer targeted searches with exclusions (for example exclude node_modules, .git, and .pi/archive) instead of broad scans like **/*.md across the whole repo. Avoid unnecessary tool churn: once you have enough context, produce the deliverable promptly.",
+      "tools": null
+    },
+    "reviewer": {
+      "prompt": "You are a reviewer agent. Review the changes made by previous tasks. Check for correctness, style, edge cases, and test coverage. Write your review to progress.jsonl. Work only inside the current working directory and use relative paths from cwd; never assume paths like /root/project. Prefer targeted searches with exclusions (for example exclude node_modules, .git, and .pi/archive) instead of broad scans like **/*.md across the whole repo. Avoid unnecessary tool churn: inspect the relevant files and then produce the review.",
+      "tools": ["read", "grep", "find", "ls", "bash"]
+    }
+  }
+}

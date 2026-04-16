@@ -10,9 +10,9 @@ test("loadConfig deep-merges profile engine mappings with defaults", async () =>
   const root = await mkdtemp(join(tmpdir(), "pi-fleet-config-"));
 
   try {
-    await mkdir(join(root, ".pi", "tasks"), { recursive: true });
+    await mkdir(join(root, ".pi"), { recursive: true });
     await writeFile(
-      join(root, ".pi", "tasks", "config.json"),
+      join(root, ".pi", "fleet.json"),
       JSON.stringify({
         profiles: {
           deep: {
@@ -37,9 +37,9 @@ test("resolveTaskExecution uses merged claude profile mapping after repo overrid
   const root = await mkdtemp(join(tmpdir(), "pi-fleet-config-"));
 
   try {
-    await mkdir(join(root, ".pi", "tasks"), { recursive: true });
+    await mkdir(join(root, ".pi"), { recursive: true });
     await writeFile(
-      join(root, ".pi", "tasks", "config.json"),
+      join(root, ".pi", "fleet.json"),
       JSON.stringify({
         profiles: {
           fast: {

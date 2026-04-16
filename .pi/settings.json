@@ -1,0 +1,7 @@
+{
+  "extensions": [
+    "../extensions/fleet/index.ts",
+    "../extensions/browser/index.ts",
+    "../extensions/planner/index.ts"
+  ]
+}

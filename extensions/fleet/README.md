@@ -164,7 +164,7 @@ Both should report zero errors before any widget change is merged.
 
 ## Wiring `taskSteps` for realistic demos
 
-Add a `taskSteps` map to `SimulateConfig` (in `.pi/tasks/config.json` or programmatically) to supply realistic per-task progress messages:
+Add a `taskSteps` map to `SimulateConfig` (in `.pi/fleet.json` or programmatically) to supply realistic per-task progress messages:
 
 ```json
 {

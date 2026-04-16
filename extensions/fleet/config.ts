@@ -122,7 +122,7 @@ const DEFAULT_CONFIG: FleetConfig = {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * Load fleet config from `<cwd>/.pi/tasks/config.json`.
+ * Load fleet config from `<cwd>/.pi/fleet.json`.
  * Falls back to hardcoded defaults when the file does not exist.
  */
 function mergeProfiles(
@@ -144,7 +144,7 @@ function mergeProfiles(
 }
 
 export async function loadConfig(cwd: string): Promise<FleetConfig> {
-  const configPath = join(cwd, ".pi", "tasks", "config.json");
+  const configPath = join(cwd, ".pi", "fleet.json");
   try {
     const content = await readFile(configPath, "utf-8");
     const parsed = JSON.parse(content) as Partial<FleetConfig>;
