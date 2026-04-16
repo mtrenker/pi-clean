@@ -62,6 +62,10 @@ function renderTaskMd(spec: TaskSpec): string {
       : spec.depends.map((d) => `- ${d}`).join("\n");
   const profileLine = spec.profile ? `\n- **profile**: ${spec.profile}` : "";
   const thinkingLine = spec.thinking ? `\n- **thinking**: ${spec.thinking}` : "";
+  const taskDirRel = `.pi/tasks/${spec.id}-${spec.slug}`;
+  const progressRel = `${taskDirRel}/progress.jsonl`;
+  const outputRel = `${taskDirRel}/output.jsonl`;
+  const taskMdRel = `${taskDirRel}/task.md`;
 
   return `# Task: ${spec.name}
 
@@ -79,12 +83,15 @@ ${spec.description}
 ## Workspace Rules
 - Work only inside the current working directory.
 - Use relative paths from cwd; do not assume absolute paths like \`/root/project\`.
+- Your task instructions are in \`${taskMdRel}\`.
+- Write progress updates only to \`${progressRel}\`; never create or append to a repo-root \`progress.jsonl\`.
+- Raw engine output is captured separately in \`${outputRel}\`.
 - Prefer targeted searches with exclusions (exclude \`node_modules\`, \`.git\`, and \`.pi/archive\` unless the task explicitly needs them).
 - Avoid broad repo-wide scans such as \`**/*.md\` when a narrower path or pattern will do.
 - If you already have enough context, stop exploring and produce the deliverable.
 
 ## Progress Tracking
-Append to \`progress.jsonl\` in this task directory after each significant step:
+Append one JSON line to \`${progressRel}\` after each significant step:
 {"ts":"<ISO timestamp>","step":"<description>","status":"done"|"running"|"error"}
 `;
 }

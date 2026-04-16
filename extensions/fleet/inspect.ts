@@ -22,20 +22,54 @@ async function loadScreen(root: string, task: TaskState, screen: Screen): Promis
     case "overview": {
       const total = task.usage.inputTokens + task.usage.outputTokens;
       const blocked = task.depends.length > 0 ? task.depends.join(", ") : "none";
+
+      // Derive latest-progress fields directly from progress.jsonl so an
+      // operator can confirm the inspector view matches the underlying file.
+      const progressRaw = await readMaybe(join(dir, "progress.jsonl"));
+      let latestProgressAt = "-";
+      let latestProgressMsg = "-";
+      const progressLines = progressRaw
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+      const lastProgressLine = progressLines[progressLines.length - 1];
+      if (lastProgressLine) {
+        try {
+          const parsed = JSON.parse(lastProgressLine) as {
+            ts?: unknown;
+            step?: unknown;
+          };
+          if (typeof parsed.ts === "string" && parsed.ts) {
+            latestProgressAt = parsed.ts;
+          }
+          if (typeof parsed.step === "string" && parsed.step) {
+            latestProgressMsg = parsed.step;
+          }
+        } catch {
+          // malformed line — keep defaults
+        }
+      }
+
       return [
         `Task ${task.id}-${task.name}`,
         "",
-        `status:     ${task.status}`,
-        `engine:     ${task.engine}`,
-        `model:      ${task.model}`,
-        `agent:      ${task.agent}`,
-        `depends:    ${blocked}`,
-        `retries:    ${task.retries}`,
-        `pid:        ${task.pid ?? "-"}`,
-        `startedAt:  ${task.startedAt ?? "-"}`,
-        `completedAt:${task.completedAt ?? "-"}`,
-        `error:      ${task.error ?? "-"}`,
-        `tokens:     in ${task.usage.inputTokens} / out ${task.usage.outputTokens} / total ${total}`,
+        `status:      ${task.status}`,
+        `engine:      ${task.engine}`,
+        `model:       ${task.model}`,
+        `agent:       ${task.agent}`,
+        `depends:     ${blocked}`,
+        `retries:     ${task.retries}`,
+        `pid:         ${task.pid ?? "-"}`,
+        `startedAt:   ${task.startedAt ?? "-"}`,
+        `completedAt: ${task.completedAt ?? "-"}`,
+        `error:       ${task.error ?? "-"}`,
+        `tokens:      in ${task.usage.inputTokens} / out ${
+          task.usage.outputTokens
+        } / total ${total}`,
+        "",
+        `── latest progress (from progress.jsonl) ──`,
+        `progressAt:  ${latestProgressAt}`,
+        `progressMsg: ${latestProgressMsg}`,
       ].join("\n");
     }
     case "progress":

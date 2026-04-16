@@ -31,11 +31,13 @@ import { handleFailure } from "./recovery.js";
 import { FleetWidget } from "./widget.js";
 import { createDemoRoot, cleanupDemoRoot, presetConfig, type DemoPreset } from "./demo.js";
 import { openFleetInspector } from "./inspect.js";
+import { extractLatestCodexUsageFromJsonl } from "./engines/codex-usage.js";
 
 // ── Module-level singletons ───────────────────────────────────────────────────
 
 let orchestrator: Orchestrator | null = null;
 let widget: FleetWidget | null = null;
+let widgetVisible = true;
 let demoRoot: string | null = null;
 let activeRoot: string | null = null;
 
@@ -88,20 +90,70 @@ async function maybeOfferArchiveCommit(
   }
 }
 
+async function backfillCodexUsageFromOutput(cwd: string): Promise<{ updated: number; scanned: number }> {
+  const tasks = await listTasks(cwd);
+  let updated = 0;
+  let scanned = 0;
+
+  for (const task of tasks) {
+    if (task.engine !== "codex") continue;
+    scanned++;
+
+    const outputPath = path.join(taskDir(cwd, task.id, task.name), "output.jsonl");
+    let content: string;
+    try {
+      content = await fs.readFile(outputPath, "utf-8");
+    } catch {
+      continue;
+    }
+
+    const usage = extractLatestCodexUsageFromJsonl(content);
+    if (!usage) continue;
+
+    if (
+      usage.inputTokens === task.usage.inputTokens &&
+      usage.outputTokens === task.usage.outputTokens
+    ) {
+      continue;
+    }
+
+    await writeStatus(cwd, {
+      ...task,
+      usage,
+    });
+    updated++;
+  }
+
+  if (updated > 0) {
+    await refreshAggregateStateFromDisk(cwd);
+  }
+
+  return { updated, scanned };
+}
+
 // ── Extension factory ─────────────────────────────────────────────────────────
 
 const fleetExtension: ExtensionFactory = (pi) => {
+  function hideWidget(): void {
+    widget?.detach();
+    widget = null;
+  }
+
+  function showWidget(ctx: ExtensionContext): void {
+    if (!widgetVisible || !orchestrator || widget) return;
+
+    widget = new FleetWidget(
+      orchestrator,
+      (id, lines) => ctx.ui.setWidget(id, lines),
+      (id) => ctx.ui.setWidget(id, undefined),
+    );
+    widget.attach();
+  }
+
   function wireOrchestratorUi(ctx: ExtensionContext, cwd: string): void {
     if (!orchestrator) return;
 
-    if (!widget) {
-      widget = new FleetWidget(
-        orchestrator,
-        (id, lines) => ctx.ui.setWidget(id, lines),
-        (id) => ctx.ui.setWidget(id, undefined),
-      );
-      widget.attach();
-    }
+    showWidget(ctx);
 
     if (!(orchestrator as Orchestrator & { _fleetUiWired?: boolean })._fleetUiWired) {
       orchestrator.on("task:status", async (event) => {
@@ -143,7 +195,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
   // ── Session shutdown ───────────────────────────────────────────────────────
 
   pi.on("session_shutdown", async () => {
-    widget?.detach();
+    hideWidget();
     await orchestrator?.stop();
     await cleanupDemoRoot(demoRoot);
     demoRoot = null;
@@ -526,6 +578,30 @@ const fleetExtension: ExtensionFactory = (pi) => {
     },
   });
 
+  // ── /fleet:repair-usage ───────────────────────────────────────────────────
+
+  pi.registerCommand("fleet:repair-usage", {
+    description: "Backfill missing token usage from saved output.jsonl history",
+    async handler(_args, ctx) {
+      try {
+        if (hasActiveExecution()) {
+          throw new Error("Fleet is currently running. Stop it before repairing historical usage.");
+        }
+
+        const root = activeRoot ?? ctx.cwd;
+        const { updated, scanned } = await backfillCodexUsageFromOutput(root);
+        ctx.ui.notify(
+          updated > 0
+            ? `Backfilled token usage for ${updated} codex task(s) from output history (${scanned} scanned).`
+            : `No codex usage updates were needed (${scanned} scanned).`,
+          "info",
+        );
+      } catch (error) {
+        ctx.ui.notify((error as Error).message, "error");
+      }
+    },
+  });
+
   // ── /fleet:retry ──────────────────────────────────────────────────────────
 
   pi.registerCommand("fleet:retry", {
@@ -561,7 +637,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
         const config = await loadConfig(ctx.cwd);
 
         // Always create a fresh orchestrator in simulate mode
-        widget?.detach();
+        hideWidget();
         await orchestrator?.stop();
 
         orchestrator = new Orchestrator(
@@ -580,12 +656,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
           );
         });
 
-        widget = new FleetWidget(
-          orchestrator,
-          (id, lines) => ctx.ui.setWidget(id, lines),
-          (id) => ctx.ui.setWidget(id, undefined),
-        );
-        widget.attach();
+        showWidget(ctx);
 
         await orchestrator.start(args ? [args] : undefined);
 
@@ -619,7 +690,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
         const baseConfig = await loadConfig(ctx.cwd);
         const config = presetConfig(baseConfig, preset);
 
-        widget?.detach();
+        hideWidget();
         await orchestrator?.stop();
         await cleanupDemoRoot(demoRoot);
 
@@ -640,12 +711,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
           );
         });
 
-        widget = new FleetWidget(
-          orchestrator,
-          (id, lines) => ctx.ui.setWidget(id, lines),
-          (id) => ctx.ui.setWidget(id, undefined),
-        );
-        widget.attach();
+        showWidget(ctx);
 
         await orchestrator.start();
         ctx.ui.notify(
@@ -655,6 +721,35 @@ const fleetExtension: ExtensionFactory = (pi) => {
       } catch (error) {
         ctx.ui.notify((error as Error).message, "error");
       }
+    },
+  });
+
+  // ── /fleet:widget ─────────────────────────────────────────────────────────
+
+  pi.registerCommand("fleet:widget", {
+    description: "Show, hide, or toggle the live fleet widget",
+    async handler(args, ctx) {
+      const action = (args || "toggle").trim().toLowerCase();
+      if (!["show", "hide", "toggle", "status"].includes(action)) {
+        ctx.ui.notify("Usage: /fleet:widget <show|hide|toggle|status>", "error");
+        return;
+      }
+
+      if (action === "status") {
+        ctx.ui.notify(`Fleet widget is ${widgetVisible ? "visible" : "hidden"}`, "info");
+        return;
+      }
+
+      if (action === "show" || (action === "toggle" && !widgetVisible)) {
+        widgetVisible = true;
+        if (orchestrator) showWidget(ctx);
+        ctx.ui.notify("Fleet widget shown", "info");
+        return;
+      }
+
+      widgetVisible = false;
+      hideWidget();
+      ctx.ui.notify("Fleet widget hidden", "info");
     },
   });
 
@@ -694,9 +789,8 @@ const fleetExtension: ExtensionFactory = (pi) => {
 
         if (orchestrator) {
           await orchestrator.stop();
-          widget?.detach();
+          hideWidget();
           orchestrator = null;
-          widget = null;
         }
 
         for (const task of targets) {

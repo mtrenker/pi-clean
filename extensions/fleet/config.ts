@@ -27,6 +27,14 @@ export interface SimulateConfig {
   progressIntervalMs?: number;
   /** Probability (0–1) a simulated task fails. Default 0.2 */
   failureRate?: number;
+  /**
+   * Per-task step sequences used by the simulate engine.
+   * Keys are the task name as it appears in task.md (e.g. "Discover context").
+   * When a matching key is found the engine cycles through those steps instead
+   * of the built-in generic list.  Useful for demos that want realistic,
+   * task-specific progress messages.
+   */
+  taskSteps?: Record<string, string[]>;
 }
 
 export interface FleetConfig {
@@ -95,17 +103,17 @@ const DEFAULT_CONFIG: FleetConfig = {
   agents: {
     worker: {
       prompt:
-        "You are a worker agent. Implement the requested changes. Write clean, tested code. Track your progress in progress.jsonl after each significant step. Work only inside the current working directory and use relative paths from cwd; never assume paths like /root/project. Prefer targeted searches with exclusions (for example exclude node_modules, .git, and .pi/archive) instead of broad scans like **/*.md across the whole repo. Avoid unnecessary tool churn: once you have enough context, produce the deliverable promptly.",
+        "You are a worker agent. Implement the requested changes. Write clean, tested code. Track your progress in the explicit task-local progress path provided in task.md after each significant step, and never write to a repo-root progress.jsonl. Work only inside the current working directory and use relative paths from cwd; never assume paths like /root/project. Prefer targeted searches with exclusions (for example exclude node_modules, .git, and .pi/archive) instead of broad scans like **/*.md across the whole repo. Avoid unnecessary tool churn: once you have enough context, produce the deliverable promptly.",
       tools: null,
     },
     scout: {
       prompt:
-        "You are a scout agent. Your job is read-only reconnaissance. Explore the codebase, gather context, and report your findings. Do NOT modify any files. Write your findings to the task's progress.jsonl. Work only inside the current working directory and use relative paths from cwd; never assume paths like /root/project. Prefer targeted searches with exclusions (for example exclude node_modules, .git, and .pi/archive) instead of broad scans like **/*.md across the whole repo. Avoid unnecessary tool churn: gather the minimum context needed and then summarize.",
+        "You are a scout agent. Your job is read-only reconnaissance. Explore the codebase, gather context, and report your findings. Do NOT modify any files. Write your findings to the explicit task-local progress path provided in task.md, and never write to a repo-root progress.jsonl. Work only inside the current working directory and use relative paths from cwd; never assume paths like /root/project. Prefer targeted searches with exclusions (for example exclude node_modules, .git, and .pi/archive) instead of broad scans like **/*.md across the whole repo. Avoid unnecessary tool churn: gather the minimum context needed and then summarize.",
       tools: ["read", "grep", "find", "ls", "bash"],
     },
     reviewer: {
       prompt:
-        "You are a reviewer agent. Review the changes made by previous tasks. Check for correctness, style, edge cases, and test coverage. Write your review to progress.jsonl. Work only inside the current working directory and use relative paths from cwd; never assume paths like /root/project. Prefer targeted searches with exclusions (for example exclude node_modules, .git, and .pi/archive) instead of broad scans like **/*.md across the whole repo. Avoid unnecessary tool churn: inspect the relevant files and then produce the review.",
+        "You are a reviewer agent. Review the changes made by previous tasks. Check for correctness, style, edge cases, and test coverage. Write your review to the explicit task-local progress path provided in task.md, and never write to a repo-root progress.jsonl. Work only inside the current working directory and use relative paths from cwd; never assume paths like /root/project. Prefer targeted searches with exclusions (for example exclude node_modules, .git, and .pi/archive) instead of broad scans like **/*.md across the whole repo. Avoid unnecessary tool churn: inspect the relevant files and then produce the review.",
       tools: ["read", "grep", "find", "ls", "bash"],
     },
   },
@@ -214,13 +222,34 @@ export interface ResolvedTaskExecution {
   warnings: string[];
 }
 
+const DEPRECATED_MODEL_ALIASES: Record<string, string> = {
+  o3: "gpt-5.3-codex",
+  "gpt-5.1-codex-max": "gpt-5.3-codex",
+  "gpt-5.1-codex-mini": "gpt-5.3-codex-spark",
+  "gpt-5.2-codex": "gpt-5.3-codex",
+  "gpt-5.2": "gpt-5.4",
+};
+
+function normalizeModelAlias(model: string, task: TaskProfileInput, warnings: string[]): string {
+  const trimmed = model.trim();
+  if (!trimmed) return trimmed;
+
+  const replacement = DEPRECATED_MODEL_ALIASES[trimmed];
+  if (!replacement) return trimmed;
+
+  warnings.push(
+    `Task ${task.id} ("${task.name}") requested deprecated model "${trimmed}"; using "${replacement}" instead.`,
+  );
+  return replacement;
+}
+
 export function resolveTaskExecution(config: FleetConfig, task: TaskProfileInput): ResolvedTaskExecution {
   const warnings: string[] = [];
   const profileName = task.profile?.trim();
   const explicitModel = task.model.trim();
   const explicitThinking = task.thinking?.trim();
 
-  let model = explicitModel;
+  let model = normalizeModelAlias(explicitModel, task, warnings);
   let thinkingSource = explicitThinking;
 
   if (profileName) {
@@ -238,7 +267,7 @@ export function resolveTaskExecution(config: FleetConfig, task: TaskProfileInput
       );
     }
     if (!model) {
-      model = profileConfig.model;
+      model = normalizeModelAlias(profileConfig.model, task, warnings);
     }
     if (!thinkingSource && profileConfig.thinking) {
       thinkingSource = profileConfig.thinking;
@@ -246,7 +275,7 @@ export function resolveTaskExecution(config: FleetConfig, task: TaskProfileInput
   }
 
   if (!model) {
-    model = config.defaults.model;
+    model = normalizeModelAlias(config.defaults.model, task, warnings);
   }
 
   if (!thinkingSource) {

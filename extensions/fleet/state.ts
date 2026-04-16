@@ -17,7 +17,9 @@ export interface AggregateState {
     status: TaskStatus;
     startedAt: string | null;
     completedAt: string | null;
-    lastProgress: string | null;   // last progress entry step text
+    latestProgressAt: string | null;       // latest progress entry timestamp
+    latestProgressMessage: string | null;  // latest progress entry step text
+    lastProgress: string | null;           // backwards-compatible alias
     blockedBy: string[] | null;    // task IDs blocking this one (if status=pending and deps not done)
     usage: { inputTokens: number; outputTokens: number };
   }>;
@@ -63,6 +65,25 @@ export function buildAggregateState(
     totalOutputTokens: 0,
   };
 
+  const latestProgressFrom = (
+    entries: ProgressEntry[],
+  ): { latestProgressAt: string | null; latestProgressMessage: string | null } => {
+    // Walk backwards so malformed trailing lines don't hide the latest valid entry.
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const candidate = entries[i] as Partial<ProgressEntry> | undefined;
+      if (!candidate || typeof candidate !== "object") continue;
+      if (typeof candidate.step !== "string" || candidate.step.trim() === "") continue;
+      return {
+        latestProgressAt:
+          typeof candidate.ts === "string" && candidate.ts.trim() !== ""
+            ? candidate.ts
+            : null,
+        latestProgressMessage: candidate.step,
+      };
+    }
+    return { latestProgressAt: null, latestProgressMessage: null };
+  };
+
   const aggregateTasks: AggregateState["tasks"] = tasks.map((task) => {
     // Count status totals
     summary[task.status] = (summary[task.status] ?? 0) + 1;
@@ -79,8 +100,7 @@ export function buildAggregateState(
     // Last progress entry
     const progressKey = `${task.id}-${task.name}`;
     const entries = progressMap.get(progressKey) ?? progressMap.get(task.id) ?? [];
-    const lastEntry = entries.length > 0 ? entries[entries.length - 1] : null;
-    const lastProgress = lastEntry ? lastEntry.step : null;
+    const { latestProgressAt, latestProgressMessage } = latestProgressFrom(entries);
 
     return {
       id: task.id,
@@ -91,7 +111,9 @@ export function buildAggregateState(
       status: task.status,
       startedAt: task.startedAt,
       completedAt: task.completedAt,
-      lastProgress,
+      latestProgressAt,
+      latestProgressMessage,
+      lastProgress: latestProgressMessage,
       blockedBy,
       usage: { ...task.usage },
     };

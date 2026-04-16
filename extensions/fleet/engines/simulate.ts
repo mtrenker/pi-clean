@@ -9,7 +9,8 @@ import type { SimulateConfig } from "../config.js";
 
 // ── Fake progress steps cycled through during simulation ──────────────────────
 
-const STEPS = [
+/** Fallback step list used when no per-task override is configured. */
+const DEFAULT_STEPS = [
   "Reading codebase structure",
   "Scanning relevant files",
   "Analyzing dependencies",
@@ -41,8 +42,9 @@ class SimulateEngineProcess implements EngineProcess {
 
   constructor(
     private readonly outputJsonlPath: string,
-    private readonly cfg: Required<SimulateConfig>,
+    private readonly cfg: Required<Omit<SimulateConfig, "taskSteps">>,
     private readonly taskName: string,
+    private readonly steps: string[],
   ) {
     // Use a fake PID in the simulator range (negative to never clash with real PIDs)
     this.pid = -(Math.floor(Math.random() * 90000) + 10000);
@@ -97,7 +99,7 @@ class SimulateEngineProcess implements EngineProcess {
   // ── Private ─────────────────────────────────────────────────────────────
 
   private _tick(): void {
-    const step = STEPS[this.stepIndex % STEPS.length]!;
+    const step = this.steps[this.stepIndex % this.steps.length]!;
     this.stepIndex++;
 
     this._emitProgress(step, "running");
@@ -139,7 +141,8 @@ class SimulateEngineProcess implements EngineProcess {
 // ── SimulateEngineAdapter ─────────────────────────────────────────────────────
 
 export class SimulateEngineAdapter implements EngineAdapter {
-  private readonly cfg: Required<SimulateConfig>;
+  private readonly cfg: Required<Omit<SimulateConfig, "taskSteps">>;
+  private readonly taskSteps: Record<string, string[]>;
 
   constructor(cfg: SimulateConfig = {}) {
     this.cfg = {
@@ -147,6 +150,7 @@ export class SimulateEngineAdapter implements EngineAdapter {
       progressIntervalMs: cfg.progressIntervalMs ?? 1200,
       failureRate: cfg.failureRate ?? 0.2,
     };
+    this.taskSteps = cfg.taskSteps ?? {};
   }
 
   spawn(opts: {
@@ -160,10 +164,12 @@ export class SimulateEngineAdapter implements EngineAdapter {
     const nameMatch = opts.taskPrompt.match(/^#\s+Task[:\s]+(.+)/m);
     const taskName = nameMatch ? nameMatch[1].trim() : "unknown";
 
+    const steps = this.taskSteps[taskName] ?? DEFAULT_STEPS;
     const process = new SimulateEngineProcess(
       opts.outputJsonlPath,
       this.cfg,
       taskName,
+      steps,
     );
     process.start();
     return process;

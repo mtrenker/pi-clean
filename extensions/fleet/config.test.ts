@@ -71,3 +71,38 @@ test("resolveTaskExecution uses merged claude profile mapping after repo overrid
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("resolveTaskExecution remaps deprecated OpenAI model aliases to supported 5.3+ models", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-fleet-config-"));
+
+  try {
+    const config = await loadConfig(root);
+
+    const codexResolved = resolveTaskExecution(config, {
+      id: "002",
+      name: "Build widget",
+      engine: "codex",
+      model: "o3",
+    });
+    assert.equal(codexResolved.model, "gpt-5.3-codex");
+    assert.match(codexResolved.warnings[0] ?? "", /deprecated model "o3"/);
+
+    const codexMiniResolved = resolveTaskExecution(config, {
+      id: "003",
+      name: "Fast lane",
+      engine: "codex",
+      model: "gpt-5.1-codex-mini",
+    });
+    assert.equal(codexMiniResolved.model, "gpt-5.3-codex-spark");
+
+    const genericResolved = resolveTaskExecution(config, {
+      id: "004",
+      name: "Long running agent",
+      engine: "pi",
+      model: "gpt-5.2",
+    });
+    assert.equal(genericResolved.model, "gpt-5.4");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

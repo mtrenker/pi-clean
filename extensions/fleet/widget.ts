@@ -8,6 +8,7 @@ import type {
   TaskStatusEvent,
   TaskProgressEvent,
   TaskUsageEvent,
+  RuntimeTaskState,
 } from "./orchestrator.js";
 import type { TaskState, TaskStatus } from "./task.js";
 
@@ -67,7 +68,24 @@ const LINE_WIDTH =
   COL.tokensPad +
   COL.tokens;
 
+/** Layout constants for the progress sub-line. */
+const PROGRESS_TS_LEN = 8; // "HH:MM:SS"
+const PROGRESS_GAP = 1; // single space between timestamp and message
+const PROGRESS_MSG_WIDTH = LINE_WIDTH - COL.prefix - PROGRESS_TS_LEN - PROGRESS_GAP;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Fit text into a fixed-width column.
+ * Overflow is truncated with "..." when possible.
+ */
+function fit(text: string, width: number): string {
+  if (width <= 0) return "";
+  if (text.length === width) return text;
+  if (text.length < width) return text.padEnd(width);
+  if (width <= 3) return text.slice(0, width);
+  return text.slice(0, width - 3) + "...";
+}
 
 /**
  * Format a token count for display.
@@ -77,6 +95,81 @@ function formatTokens(n: number): string {
   if (n === 0) return "";
   if (n >= 1000) return (n / 1000).toFixed(1) + "k";
   return String(n);
+}
+
+/**
+ * Format an ISO timestamp string as "HH:MM:SS" (local time).
+ */
+function formatTimestamp(iso: string): string {
+  const d = new Date(iso);
+  return [d.getHours(), d.getMinutes(), d.getSeconds()]
+    .map((n) => String(n).padStart(2, "0"))
+    .join(":");
+}
+
+/**
+ * Build the progress sub-line for a task.
+ * Returns a LINE_WIDTH string when progress data exists, or empty string otherwise.
+ *
+ * Layout: <prefix-spaces><HH:MM:SS><space><message padded/truncated>
+ */
+function formatProgressLine(
+  task: TaskState,
+  progress: Map<string, { at: string; message: string }>,
+): string {
+  if (task.status === "done") return "";
+
+  const entry = progress.get(task.id);
+  if (!entry) return "";
+
+  const indent = " ".repeat(COL.prefix);
+  const ts = formatTimestamp(entry.at);
+  const msg = fit(entry.message, PROGRESS_MSG_WIDTH);
+
+  return indent + ts + " " + msg;
+}
+
+function formatTaskLabelColumn(task: TaskState): string {
+  return fit(`${task.id}-${task.name}`, COL.taskName);
+}
+
+function formatAgentColumn(task: TaskState): string {
+  return fit(task.agent, COL.agent);
+}
+
+function formatEngineModelColumn(task: TaskState): string {
+  return fit(`${task.engine}/${task.model}`, COL.engineModel);
+}
+
+function formatBarColumn(task: TaskState): string {
+  return fit(buildBar(task.status, task.startedAt), COL.bar);
+}
+
+function formatStatusColumn(task: TaskState, allTasks: Map<string, TaskState>): string {
+  return fit(displayStatus(task, allTasks), COL.status);
+}
+
+function formatTokensColumn(totalTokens: number): string {
+  return fit(" ", COL.tokensPad) + fit(formatTokens(totalTokens), COL.tokens);
+}
+
+function formatTaskRow(task: TaskState, allTasks: Map<string, TaskState>): string {
+  const symbolCol = fit(`${STATUS_SYMBOL[task.status]} `, COL.prefix);
+  const totalTokens = task.usage.inputTokens + task.usage.outputTokens;
+
+  return (
+    symbolCol +
+    formatTaskLabelColumn(task) +
+    fit(" ", COL.sep1) +
+    formatAgentColumn(task) +
+    fit(" ", COL.sep2) +
+    formatEngineModelColumn(task) +
+    fit(" ", COL.sep3) +
+    formatBarColumn(task) +
+    fit(" ", COL.barTrail) +
+    formatStatusColumn(task, allTasks) +
+    formatTokensColumn(totalTokens)
+  );
 }
 
 /**
@@ -130,9 +223,18 @@ function displayStatus(
 
 // ── FleetWidget ───────────────────────────────────────────────────────────────
 
+/** Latest progress entry per task id. */
+interface ProgressEntry {
+  at: string;
+  message: string;
+}
+
 export class FleetWidget {
   /** Local mirror of task states; updated incrementally on each event. */
   private tasks = new Map<string, TaskState>();
+
+  /** Latest progress entry per task id; updated from task:progress events. */
+  private progress = new Map<string, ProgressEntry>();
 
   private interval: ReturnType<typeof setInterval> | null = null;
 
@@ -141,20 +243,37 @@ export class FleetWidget {
   private readonly _onProgress: (e: TaskProgressEvent) => void;
   private readonly _onUsage: (e: TaskUsageEvent) => void;
 
+  private readonly orchestrator: Orchestrator;
+  private readonly setWidget: (id: string, lines: string[]) => void;
+  private readonly clearWidget: (id: string) => void;
+
   constructor(
-    private readonly orchestrator: Orchestrator,
-    private readonly setWidget: (id: string, lines: string[]) => void,
-    private readonly clearWidget: (id: string) => void,
+    orchestrator: Orchestrator,
+    setWidget: (id: string, lines: string[]) => void,
+    clearWidget: (id: string) => void,
   ) {
+    this.orchestrator = orchestrator;
+    this.setWidget = setWidget;
+    this.clearWidget = clearWidget;
     this._onStatus = (event: TaskStatusEvent) => {
-      // event.state is a snapshot of the full TaskState
+      // event.state is a snapshot of the full RuntimeTaskState
       this.tasks.set(event.id, { ...event.state });
+      // Capture latest progress carried on the state snapshot
+      if (event.state.latestProgressAt && event.state.latestProgressMessage) {
+        this.progress.set(event.id, {
+          at: event.state.latestProgressAt,
+          message: event.state.latestProgressMessage,
+        });
+      }
       this.render();
     };
 
-    this._onProgress = (_event: TaskProgressEvent) => {
-      // Progress lines don't carry token/status data we don't already have;
-      // re-render so the running bar animation stays current.
+    this._onProgress = (event: TaskProgressEvent) => {
+      // Store the latest progress details so the sub-line can display them.
+      this.progress.set(event.id, {
+        at: event.latestProgressAt,
+        message: event.latestProgressMessage,
+      });
       this.render();
     };
 
@@ -170,9 +289,18 @@ export class FleetWidget {
 
   /** Start listening to events and rendering. */
   attach(): void {
-    // Seed from current snapshot so the widget is populated immediately
+    // Seed from current snapshot so the widget is populated immediately.
+    // getSnapshot() returns RuntimeTaskState values which may carry
+    // latestProgressAt / latestProgressMessage from a previous run.
     for (const state of this.orchestrator.getSnapshot()) {
       this.tasks.set(state.id, { ...state });
+      const rt = state as Partial<RuntimeTaskState>;
+      if (rt.latestProgressAt && rt.latestProgressMessage) {
+        this.progress.set(state.id, {
+          at: rt.latestProgressAt,
+          message: rt.latestProgressMessage,
+        });
+      }
     }
 
     this.orchestrator.on("task:status", this._onStatus);
@@ -212,31 +340,9 @@ export class FleetWidget {
     // ── Per-task rows ──────────────────────────────────────────────────────
 
     for (const task of tasks) {
-      const symbol = STATUS_SYMBOL[task.status];
-      const taskLabel = `${task.id}-${task.name}`.padEnd(COL.taskName);
-      const agentCol = task.agent.padEnd(COL.agent);
-      const engineModelCol = `${task.engine}/${task.model}`.padEnd(
-        COL.engineModel,
-      );
-      const bar = buildBar(task.status, task.startedAt);
-      const statusLabel = displayStatus(task, this.tasks).padEnd(COL.status);
-
-      const total = task.usage.inputTokens + task.usage.outputTokens;
-      const tokensStr = formatTokens(total);
-
-      let row =
-        `${symbol} ` +
-        `${taskLabel} ` +
-        `${agentCol} ` +
-        `${engineModelCol} ` +
-        `${bar}  ` +
-        statusLabel;
-
-      if (tokensStr) {
-        row += " " + tokensStr;
-      }
-
-      lines.push(row);
+      lines.push(formatTaskRow(task, this.tasks));
+      const progressLine = formatProgressLine(task, this.progress);
+      if (progressLine) lines.push(progressLine);
     }
 
     // ── Separator ──────────────────────────────────────────────────────────

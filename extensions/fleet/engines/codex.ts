@@ -5,6 +5,7 @@ import { createInterface } from "readline";
 import { createWriteStream, mkdirSync } from "fs";
 import { dirname } from "path";
 import type { EngineAdapter, EngineProcess, EngineResult, Usage } from "./types.js";
+import { extractCodexUsage } from "./codex-usage.js";
 import type { EngineConfig } from "../config.js";
 
 // ── CodexEngineProcess ────────────────────────────────────────────────────────
@@ -13,9 +14,10 @@ import type { EngineConfig } from "../config.js";
  * EngineProcess implementation for the codex CLI JSONL output format.
  *
  * Expected stream events:
- *   { type: "message",      role: "assistant", content: "..." }  → onProgress
- *   { type: "shell_output", output: "..." }                       → onProgress
- *   { type: "done",         usage: { input_tokens, output_tokens } } → onUsageUpdate
+ *   { type: "message",        role: "assistant", content: "..." }   → onProgress
+ *   { type: "shell_output",   output: "..." }                        → onProgress
+ *   { type: "done",           usage: { input_tokens, output_tokens } } → onUsageUpdate
+ *   { type: "turn.completed", usage: { input_tokens, output_tokens } } → onUsageUpdate
  *
  * Non-zero exit code → failure.
  */
@@ -124,13 +126,10 @@ class CodexEngineProcess implements EngineProcess {
         }
         break;
       }
-      case "done": {
-        const usageRaw = evt["usage"] as Record<string, number> | undefined;
-        if (usageRaw) {
-          const usage: Usage = {
-            inputTokens: usageRaw["input_tokens"] ?? 0,
-            outputTokens: usageRaw["output_tokens"] ?? 0,
-          };
+      case "done":
+      case "turn.completed": {
+        const usage = extractCodexUsage(evt);
+        if (usage) {
           for (const cb of this.usageCbs) cb(usage);
         }
         break;

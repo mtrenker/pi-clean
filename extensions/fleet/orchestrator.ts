@@ -15,6 +15,7 @@ import {
   taskDir,
   type TaskState,
   type TaskStatus,
+  type ProgressEntry,
 } from "./task.js";
 import {
   buildAggregateState,
@@ -32,12 +33,14 @@ export interface TaskStatusEvent {
   name: string;
   status: TaskStatus;
   prevStatus: TaskStatus;
-  state: TaskState;
+  state: RuntimeTaskState;
 }
 
 export interface TaskProgressEvent {
   id: string;
   name: string;
+  latestProgressAt: string;
+  latestProgressMessage: string;
   step: string;
   status: "running" | "done" | "error";
 }
@@ -51,6 +54,11 @@ export interface TaskUsageEvent {
 
 export interface FleetDoneEvent {
   summary: AggregateState["summary"];
+}
+
+export interface RuntimeTaskState extends TaskState {
+  latestProgressAt: string | null;
+  latestProgressMessage: string | null;
 }
 
 // ── Typed EventEmitter interface ──────────────────────────────────────────────
@@ -86,7 +94,10 @@ export declare interface Orchestrator {
 
 export class Orchestrator extends EventEmitter {
   /** in-memory task states; the canonical view during a run */
-  private states = new Map<string, TaskState>();
+  private states = new Map<string, RuntimeTaskState>();
+
+  /** cached progress entries by task id for aggregate updates without disk rereads */
+  private progressByTask = new Map<string, ProgressEntry[]>();
 
   /** live engine processes keyed by task id */
   private processes = new Map<string, EngineProcess>();
@@ -110,9 +121,16 @@ export class Orchestrator extends EventEmitter {
     // Refresh in-memory state from disk
     const diskStates = await listTasks(this.cwd);
     for (const s of diskStates) {
-      this.states.set(s.id, s);
+      const state = this._toRuntimeTaskState(s);
+      const progressEntries = await this._readProgressEntriesSafe(s.id, s.name);
+      this.progressByTask.set(s.id, progressEntries);
+      const latest = progressEntries.length > 0 ? progressEntries[progressEntries.length - 1] : null;
+      state.latestProgressAt = latest?.ts || null;
+      state.latestProgressMessage = latest?.step ?? null;
+      this.states.set(s.id, state);
     }
 
+    await this._refreshAggregateState();
     await this._scheduleReady(taskIds);
   }
 
@@ -165,7 +183,7 @@ export class Orchestrator extends EventEmitter {
   /**
    * Return a snapshot of all in-memory task states.
    */
-  getSnapshot(): TaskState[] {
+  getSnapshot(): RuntimeTaskState[] {
     return [...this.states.values()];
   }
 
@@ -176,15 +194,56 @@ export class Orchestrator extends EventEmitter {
    */
   private async _refreshAggregateState(): Promise<void> {
     const tasks = [...this.states.values()];
-    const aggregate = buildAggregateState(tasks, new Map());
+    const aggregate = buildAggregateState(tasks, this.progressByTask);
     await writeAggregateState(this.cwd, aggregate);
+  }
+
+  private _toRuntimeTaskState(state: TaskState): RuntimeTaskState {
+    return {
+      ...state,
+      latestProgressAt: null,
+      latestProgressMessage: null,
+    };
+  }
+
+  private async _readProgressEntriesSafe(id: string, name: string): Promise<ProgressEntry[]> {
+    const filePath = join(taskDir(this.cwd, id, name), "progress.jsonl");
+    let content: string;
+    try {
+      content = await readFile(filePath, "utf-8");
+    } catch {
+      return [];
+    }
+
+    const entries: ProgressEntry[] = [];
+    for (const rawLine of content.split("\n")) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      try {
+        const parsed = JSON.parse(line) as Partial<ProgressEntry>;
+        if (typeof parsed.step !== "string" || parsed.step.trim() === "") continue;
+        const status =
+          parsed.status === "done" || parsed.status === "error"
+            ? parsed.status
+            : "running";
+        entries.push({
+          ts: typeof parsed.ts === "string" ? parsed.ts : "",
+          step: parsed.step,
+          status,
+        });
+      } catch {
+        // ignore malformed JSONL lines
+      }
+    }
+
+    return entries;
   }
 
   /**
    * Update in-memory state, write status.json, refresh state.json, emit "task:status".
    */
   private async onStatusChange(
-    state: TaskState,
+    state: RuntimeTaskState,
     prevStatus: TaskStatus,
   ): Promise<void> {
     this.states.set(state.id, state);
@@ -268,7 +327,7 @@ export class Orchestrator extends EventEmitter {
   /**
    * Spawn an engine process for a task.
    */
-  private async _spawnTask(task: TaskState): Promise<void> {
+  private async _spawnTask(task: RuntimeTaskState): Promise<void> {
     // Resolve agent prompt
     const agentName = task.agent || this.config.defaults.agent;
     const agentPrompt = resolveAgentPrompt(this.config, agentName);
@@ -338,19 +397,35 @@ export class Orchestrator extends EventEmitter {
       } catch {
         // raw text line — keep defaults
       }
-
-      // Persist to progress.jsonl (fire-and-forget; don't block event loop)
-      appendProgress(this.cwd, task.id, task.name, {
-        ts: new Date().toISOString(),
+      const now = new Date().toISOString();
+      const entry: ProgressEntry = {
+        ts: now,
         step,
         status: progressStatus,
-      }).catch(() => {
+      };
+
+      const state = this.states.get(task.id);
+      if (state) {
+        state.latestProgressAt = entry.ts;
+        state.latestProgressMessage = entry.step;
+      }
+      const existing = this.progressByTask.get(task.id) ?? [];
+      existing.push(entry);
+      this.progressByTask.set(task.id, existing);
+
+      // Persist to progress.jsonl (fire-and-forget; don't block event loop)
+      appendProgress(this.cwd, task.id, task.name, entry).catch(() => {
         // Ignore write errors for progress lines
+      });
+      this._refreshAggregateState().catch(() => {
+        // Ignore state refresh failures from progress updates
       });
 
       this.emit("task:progress", {
         id: task.id,
         name: task.name,
+        latestProgressAt: entry.ts,
+        latestProgressMessage: entry.step,
         step,
         status: progressStatus,
       });
@@ -384,7 +459,7 @@ export class Orchestrator extends EventEmitter {
    * Handle task process completion.
    */
   private async _handleComplete(
-    task: TaskState,
+    task: RuntimeTaskState,
     result: { success: boolean; exitCode: number; error?: string },
   ): Promise<void> {
     this.processes.delete(task.id);
@@ -510,7 +585,7 @@ export class Orchestrator extends EventEmitter {
     if (hasPendingReachable) return;
 
     // All tasks are done, failed, or permanently blocked → emit fleet:done
-    const aggregate = buildAggregateState(allStates, new Map());
+    const aggregate = buildAggregateState(allStates, this.progressByTask);
     this.emit("fleet:done", { summary: aggregate.summary });
   }
 }
