@@ -1,0 +1,192 @@
+{
+  "version": 1,
+  "summarizedAt": "2026-04-16T06:26:00.693Z",
+  "plan": null,
+  "summary": {
+    "total": 8,
+    "pending": 1,
+    "running": 0,
+    "done": 7,
+    "failed": 0,
+    "retrying": 0,
+    "totalInputTokens": 2904971,
+    "totalOutputTokens": 59192
+  },
+  "tasks": [
+    {
+      "id": "001",
+      "name": "foundation",
+      "agent": "worker",
+      "engine": "claude",
+      "model": "sonnet",
+      "status": "done",
+      "depends": [],
+      "retries": 0,
+      "startedAt": "2026-04-15T13:20:00Z",
+      "completedAt": "2026-04-15T13:28:49Z",
+      "duration": null,
+      "error": null,
+      "progressEntries": 4,
+      "lastProgress": "Verified npx tsc --noEmit passes with no TypeScript errors",
+      "usage": {
+        "inputTokens": 697699,
+        "outputTokens": 10739
+      }
+    },
+    {
+      "id": "001",
+      "name": "research-pi-primitives-for-planner-architecture",
+      "agent": "",
+      "engine": "",
+      "model": "",
+      "status": "pending",
+      "depends": [],
+      "retries": 0,
+      "startedAt": null,
+      "completedAt": null,
+      "duration": null,
+      "error": null,
+      "progressEntries": 0,
+      "lastProgress": null,
+      "usage": {
+        "inputTokens": 0,
+        "outputTokens": 0
+      }
+    },
+    {
+      "id": "002",
+      "name": "engine-adapters",
+      "agent": "worker",
+      "engine": "claude",
+      "model": "sonnet",
+      "status": "done",
+      "depends": [
+        "001"
+      ],
+      "retries": 0,
+      "startedAt": "2026-04-15T13:35:00Z",
+      "completedAt": "2026-04-15T13:32:34Z",
+      "duration": null,
+      "error": null,
+      "progressEntries": 7,
+      "lastProgress": "npx tsc --noEmit passed with zero errors",
+      "usage": {
+        "inputTokens": 439547,
+        "outputTokens": 12996
+      }
+    },
+    {
+      "id": "003",
+      "name": "task-state-management",
+      "agent": "worker",
+      "engine": "claude",
+      "model": "sonnet",
+      "status": "done",
+      "depends": [
+        "001"
+      ],
+      "retries": 0,
+      "startedAt": "2026-04-15T13:35:00Z",
+      "completedAt": "2026-04-15T13:32:34Z",
+      "duration": null,
+      "error": null,
+      "progressEntries": 4,
+      "lastProgress": "Verified zero TypeScript errors with npx tsc --noEmit",
+      "usage": {
+        "inputTokens": 270205,
+        "outputTokens": 5530
+      }
+    },
+    {
+      "id": "004",
+      "name": "orchestrator",
+      "agent": "worker",
+      "engine": "claude",
+      "model": "sonnet",
+      "status": "done",
+      "depends": [
+        "002",
+        "003"
+      ],
+      "retries": 0,
+      "startedAt": "2026-04-15T13:45:00Z",
+      "completedAt": "2026-04-15T13:34:45Z",
+      "duration": null,
+      "error": null,
+      "progressEntries": 3,
+      "lastProgress": "Verified zero TypeScript errors with npx tsc --noEmit",
+      "usage": {
+        "inputTokens": 356257,
+        "outputTokens": 6937
+      }
+    },
+    {
+      "id": "005",
+      "name": "recovery",
+      "agent": "worker",
+      "engine": "claude",
+      "model": "sonnet",
+      "status": "done",
+      "depends": [
+        "004"
+      ],
+      "retries": 0,
+      "startedAt": "2026-04-15T13:55:00Z",
+      "completedAt": "2026-04-15T13:37:52Z",
+      "duration": null,
+      "error": null,
+      "progressEntries": 1,
+      "lastProgress": "Created recovery.ts with handleFailure and extractOutputText, updated orchestrator.ts to import and call handleFailure",
+      "usage": {
+        "inputTokens": 350940,
+        "outputTokens": 5395
+      }
+    },
+    {
+      "id": "006",
+      "name": "widget",
+      "agent": "worker",
+      "engine": "claude",
+      "model": "sonnet",
+      "status": "done",
+      "depends": [
+        "004"
+      ],
+      "retries": 0,
+      "startedAt": "2026-04-15T13:55:00Z",
+      "completedAt": "2026-04-15T13:37:52Z",
+      "duration": null,
+      "error": null,
+      "progressEntries": 3,
+      "lastProgress": "npx tsc --noEmit passed with no errors",
+      "usage": {
+        "inputTokens": 418464,
+        "outputTokens": 12042
+      }
+    },
+    {
+      "id": "007",
+      "name": "commands-and-wiring",
+      "agent": "worker",
+      "engine": "claude",
+      "model": "sonnet",
+      "status": "done",
+      "depends": [
+        "004",
+        "005",
+        "006"
+      ],
+      "retries": 0,
+      "startedAt": "2026-04-15T14:05:00Z",
+      "completedAt": "2026-04-15T13:40:17Z",
+      "duration": null,
+      "error": null,
+      "progressEntries": 3,
+      "lastProgress": "TypeScript type check passed with no errors (npx tsc --noEmit)",
+      "usage": {
+        "inputTokens": 371859,
+        "outputTokens": 5553
+      }
+    }
+  ]
+}

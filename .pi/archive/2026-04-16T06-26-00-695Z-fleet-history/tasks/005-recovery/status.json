@@ -1,0 +1,1 @@
+{ "id": "005", "name": "recovery", "status": "done", "engine": "claude", "model": "sonnet", "agent": "worker", "depends": ["004"], "startedAt": "2026-04-15T13:55:00Z", "completedAt": "2026-04-15T13:37:52Z", "duration": null, "retries": 0, "pid": null, "error": null, "usage": { "inputTokens": 350940, "outputTokens": 5395 } }

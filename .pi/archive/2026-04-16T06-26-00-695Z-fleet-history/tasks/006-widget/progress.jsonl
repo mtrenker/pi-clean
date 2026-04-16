@@ -1,0 +1,3 @@
+{"ts":"2026-04-15T00:00:00.000Z","step":"Read orchestrator.ts, task.ts, state.ts to understand event types and TaskState shape","status":"done"}
+{"ts":"2026-04-15T00:01:00.000Z","step":"Implemented extensions/fleet/widget.ts with FleetWidget class — event subscriptions, progress bar, token formatting, summary row","status":"done"}
+{"ts":"2026-04-15T00:02:00.000Z","step":"npx tsc --noEmit passed with no errors","status":"done"}

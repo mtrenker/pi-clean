@@ -1,0 +1,1 @@
+{ "id": "004", "name": "orchestrator", "status": "done", "engine": "claude", "model": "sonnet", "agent": "worker", "depends": ["002","003"], "startedAt": "2026-04-15T13:45:00Z", "completedAt": "2026-04-15T13:34:45Z", "duration": null, "retries": 0, "pid": null, "error": null, "usage": { "inputTokens": 356257, "outputTokens": 6937 } }

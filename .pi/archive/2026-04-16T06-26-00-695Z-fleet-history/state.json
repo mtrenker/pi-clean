@@ -1,0 +1,22 @@
+{
+  "updatedAt": "2026-04-15T00:00:00Z",
+  "tasks": [
+    { "id": "001", "name": "foundation",             "agent": "worker", "engine": "claude", "model": "sonnet", "status": "pending", "startedAt": null, "completedAt": null, "lastProgress": null, "blockedBy": null,            "usage": { "inputTokens": 0, "outputTokens": 0 } },
+    { "id": "002", "name": "engine-adapters",        "agent": "worker", "engine": "claude", "model": "sonnet", "status": "pending", "startedAt": null, "completedAt": null, "lastProgress": null, "blockedBy": ["001"],         "usage": { "inputTokens": 0, "outputTokens": 0 } },
+    { "id": "003", "name": "task-state-management",  "agent": "worker", "engine": "claude", "model": "sonnet", "status": "pending", "startedAt": null, "completedAt": null, "lastProgress": null, "blockedBy": ["001"],         "usage": { "inputTokens": 0, "outputTokens": 0 } },
+    { "id": "004", "name": "orchestrator",           "agent": "worker", "engine": "claude", "model": "sonnet", "status": "pending", "startedAt": null, "completedAt": null, "lastProgress": null, "blockedBy": ["002","003"],   "usage": { "inputTokens": 0, "outputTokens": 0 } },
+    { "id": "005", "name": "recovery",               "agent": "worker", "engine": "claude", "model": "sonnet", "status": "pending", "startedAt": null, "completedAt": null, "lastProgress": null, "blockedBy": ["004"],         "usage": { "inputTokens": 0, "outputTokens": 0 } },
+    { "id": "006", "name": "widget",                 "agent": "worker", "engine": "claude", "model": "sonnet", "status": "pending", "startedAt": null, "completedAt": null, "lastProgress": null, "blockedBy": ["004"],         "usage": { "inputTokens": 0, "outputTokens": 0 } },
+    { "id": "007", "name": "commands-and-wiring",    "agent": "worker", "engine": "claude", "model": "sonnet", "status": "pending", "startedAt": null, "completedAt": null, "lastProgress": null, "blockedBy": ["004","005","006"], "usage": { "inputTokens": 0, "outputTokens": 0 } }
+  ],
+  "summary": {
+    "total": 7,
+    "pending": 7,
+    "running": 0,
+    "done": 0,
+    "failed": 0,
+    "retrying": 0,
+    "totalInputTokens": 0,
+    "totalOutputTokens": 0
+  }
+}

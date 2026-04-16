@@ -1,0 +1,19 @@
+{
+  "id": "001",
+  "name": "foundation",
+  "status": "done",
+  "engine": "claude",
+  "model": "sonnet",
+  "agent": "worker",
+  "depends": [],
+  "startedAt": "2026-04-15T13:20:00Z",
+  "completedAt": "2026-04-15T13:28:49Z",
+  "duration": null,
+  "retries": 0,
+  "pid": null,
+  "error": null,
+  "usage": {
+    "inputTokens": 697699,
+    "outputTokens": 10739
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "id": "2026-04-16T06-26-00-695Z-fleet-history",
+  "archivedAt": "2026-04-16T06:26:00.695Z",
+  "reason": "split-stale",
+  "title": "Fleet task archive",
+  "taskCount": 7,
+  "archivePath": ".pi/archive/2026-04-16T06-26-00-695Z-fleet-history",
+  "taskFolders": [
+    "001-foundation",
+    "002-engine-adapters",
+    "003-task-state-management",
+    "004-orchestrator",
+    "005-recovery",
+    "006-widget",
+    "007-commands-and-wiring"
+  ],
+  "summary": {
+    "total": 8,
+    "pending": 1,
+    "running": 0,
+    "done": 7,
+    "failed": 0,
+    "retrying": 0,
+    "totalInputTokens": 2904971,
+    "totalOutputTokens": 59192
+  }
+}

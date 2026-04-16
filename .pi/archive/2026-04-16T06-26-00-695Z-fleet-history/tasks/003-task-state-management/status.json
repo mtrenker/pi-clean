@@ -1,0 +1,1 @@
+{ "id": "003", "name": "task-state-management", "status": "done", "engine": "claude", "model": "sonnet", "agent": "worker", "depends": ["001"], "startedAt": "2026-04-15T13:35:00Z", "completedAt": "2026-04-15T13:32:34Z", "duration": null, "retries": 0, "pid": null, "error": null, "usage": { "inputTokens": 270205, "outputTokens": 5530 } }

@@ -1,0 +1,36 @@
+{
+  "concurrency": 2,
+  "defaults": {
+    "engine": "claude",
+    "model": "sonnet",
+    "agent": "worker"
+  },
+  "engines": {
+    "pi": {
+      "command": "pi",
+      "args": ["-p", "--output-format", "stream-json"]
+    },
+    "claude": {
+      "command": "claude",
+      "args": ["-p", "--output-format", "stream-json", "--dangerously-skip-permissions"]
+    },
+    "codex": {
+      "command": "codex",
+      "args": ["exec", "--json", "--dangerously-bypass-approvals-and-sandbox"]
+    }
+  },
+  "agents": {
+    "scout": {
+      "prompt": "You are a scout agent. Your job is read-only reconnaissance. Explore the codebase, gather context, and report your findings. Do NOT modify any files. Write your findings to the task's progress.jsonl.",
+      "tools": ["read", "grep", "find", "ls", "bash"]
+    },
+    "worker": {
+      "prompt": "You are a worker agent. Implement the requested changes. Write clean, tested code. Track your progress in progress.jsonl after each significant step.",
+      "tools": null
+    },
+    "reviewer": {
+      "prompt": "You are a reviewer agent. Review the changes made by previous tasks. Check for correctness, style, edge cases, and test coverage. Write your review to progress.jsonl.",
+      "tools": ["read", "grep", "find", "ls", "bash"]
+    }
+  }
+}

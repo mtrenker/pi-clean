@@ -1,0 +1,1 @@
+{ "id": "007", "name": "commands-and-wiring", "status": "done", "engine": "claude", "model": "sonnet", "agent": "worker", "depends": ["004","005","006"], "startedAt": "2026-04-15T14:05:00Z", "completedAt": "2026-04-15T13:40:17Z", "duration": null, "retries": 0, "pid": null, "error": null, "usage": { "inputTokens": 371859, "outputTokens": 5553 } }
