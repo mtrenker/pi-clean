@@ -117,6 +117,24 @@ const DEFAULT_CONFIG: FleetConfig = {
  * Load fleet config from `<cwd>/.pi/tasks/config.json`.
  * Falls back to hardcoded defaults when the file does not exist.
  */
+function mergeProfiles(
+  base: FleetConfig["profiles"],
+  override: FleetConfig["profiles"] | undefined,
+): FleetConfig["profiles"] {
+  const merged: NonNullable<FleetConfig["profiles"]> = {
+    ...(base ?? {}),
+  };
+
+  for (const [profileName, overrideEngines] of Object.entries(override ?? {})) {
+    merged[profileName] = {
+      ...(base?.[profileName] ?? {}),
+      ...(overrideEngines ?? {}),
+    };
+  }
+
+  return merged;
+}
+
 export async function loadConfig(cwd: string): Promise<FleetConfig> {
   const configPath = join(cwd, ".pi", "tasks", "config.json");
   try {
@@ -137,10 +155,7 @@ export async function loadConfig(cwd: string): Promise<FleetConfig> {
         ...DEFAULT_CONFIG.agents,
         ...(parsed.agents ?? {}),
       },
-      profiles: {
-        ...(DEFAULT_CONFIG.profiles ?? {}),
-        ...(parsed.profiles ?? {}),
-      },
+      profiles: mergeProfiles(DEFAULT_CONFIG.profiles, parsed.profiles),
       simulate: {
         ...(DEFAULT_CONFIG.simulate ?? {}),
         ...(parsed.simulate ?? {}),
