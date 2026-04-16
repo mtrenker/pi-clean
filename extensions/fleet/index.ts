@@ -6,6 +6,7 @@ import path from "path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { Type } from "@sinclair/typebox";
+import { Key } from "@mariozechner/pi-tui";
 import type { ExtensionContext, ExtensionFactory } from "@mariozechner/pi-coding-agent";
 
 // Re-export foundational types so other modules can import from "fleet/index"
@@ -134,14 +135,28 @@ async function backfillCodexUsageFromOutput(cwd: string): Promise<{ updated: num
 // ── Extension factory ─────────────────────────────────────────────────────────
 
 const fleetExtension: ExtensionFactory = (pi) => {
+  let clearWidgetSlot: (() => void) | null = null;
+
   function hideWidget(): void {
     widget?.detach();
     widget = null;
+    clearWidgetSlot?.();
+  }
+
+  function showIdleWidget(ctx: ExtensionContext): void {
+    if (!widgetVisible) return;
+    clearWidgetSlot = () => ctx.ui.setWidget("fleet", undefined);
+    ctx.ui.setWidget("fleet", [
+      "Fleet idle — no active agents.",
+      "Start work with /fleet:start, run a mock session with /fleet:demo, or inspect tasks with /fleet:status.",
+      "Toggle this widget with /fleet:widget or Ctrl+Alt+F.",
+    ]);
   }
 
   function showWidget(ctx: ExtensionContext): void {
-    if (!widgetVisible || !orchestrator || widget) return;
+    if (!widgetVisible || !orchestrator || widget || !hasActiveExecution()) return;
 
+    clearWidgetSlot = () => ctx.ui.setWidget("fleet", undefined);
     widget = new FleetWidget(
       orchestrator,
       (id, lines) => ctx.ui.setWidget(id, lines),
@@ -150,10 +165,25 @@ const fleetExtension: ExtensionFactory = (pi) => {
     widget.attach();
   }
 
+  function syncWidget(ctx: ExtensionContext): void {
+    if (!widgetVisible) {
+      hideWidget();
+      return;
+    }
+
+    if (hasActiveExecution()) {
+      showWidget(ctx);
+      return;
+    }
+
+    hideWidget();
+    showIdleWidget(ctx);
+  }
+
   function wireOrchestratorUi(ctx: ExtensionContext, cwd: string): void {
     if (!orchestrator) return;
 
-    showWidget(ctx);
+    syncWidget(ctx);
 
     if (!(orchestrator as Orchestrator & { _fleetUiWired?: boolean })._fleetUiWired) {
       orchestrator.on("task:status", async (event) => {
@@ -177,6 +207,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
           `Fleet done — ✓ ${s.done} done  ✗ ${s.failed} failed. Wrote .pi/tasks/archive-summary.json`,
           "info",
         );
+        syncWidget(ctx);
       });
 
       (orchestrator as Orchestrator & { _fleetUiWired?: boolean })._fleetUiWired = true;
@@ -192,7 +223,11 @@ const fleetExtension: ExtensionFactory = (pi) => {
     wireOrchestratorUi(ctx, ctx.cwd);
   }
 
-  // ── Session shutdown ───────────────────────────────────────────────────────
+  // ── Session lifecycle ──────────────────────────────────────────────────────
+
+  pi.on("session_start", async (_event, ctx) => {
+    syncWidget(ctx);
+  });
 
   pi.on("session_shutdown", async () => {
     hideWidget();
@@ -506,6 +541,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
       try {
         await ensureLiveOrchestrator(ctx);
         await orchestrator!.start(args ? [args] : undefined);
+        syncWidget(ctx);
 
         const tasks = await listTasks(ctx.cwd);
         ctx.ui.notify(`Fleet started (${tasks.length} tasks)`, "info");
@@ -525,6 +561,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
         return;
       }
       await orchestrator.stop(args || undefined);
+      syncWidget(ctx);
       ctx.ui.notify(args ? `Stopped task ${args}` : "All tasks stopped", "info");
     },
   });
@@ -621,6 +658,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
 
         wireOrchestratorUi(ctx, ctx.cwd);
         await orchestrator!.retry(args);
+        syncWidget(ctx);
         ctx.ui.notify(`Retrying task ${args}`, "info");
       } catch (error) {
         ctx.ui.notify((error as Error).message, "error");
@@ -659,6 +697,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
         showWidget(ctx);
 
         await orchestrator.start(args ? [args] : undefined);
+        syncWidget(ctx);
 
         const tasks = await listTasks(ctx.cwd);
         ctx.ui.notify(
@@ -714,6 +753,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
         showWidget(ctx);
 
         await orchestrator.start();
+        syncWidget(ctx);
         ctx.ui.notify(
           `Demo started (${preset}) — mock tasks + simulated engines`,
           "info",
@@ -742,7 +782,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
 
       if (action === "show" || (action === "toggle" && !widgetVisible)) {
         widgetVisible = true;
-        if (orchestrator) showWidget(ctx);
+        syncWidget(ctx);
         ctx.ui.notify("Fleet widget shown", "info");
         return;
       }
@@ -750,6 +790,15 @@ const fleetExtension: ExtensionFactory = (pi) => {
       widgetVisible = false;
       hideWidget();
       ctx.ui.notify("Fleet widget hidden", "info");
+    },
+  });
+
+  pi.registerShortcut(Key.ctrlAlt("f"), {
+    description: "Toggle the fleet widget",
+    handler: async (ctx) => {
+      widgetVisible = !widgetVisible;
+      syncWidget(ctx);
+      ctx.ui.notify(`Fleet widget ${widgetVisible ? "shown" : "hidden"}`, "info");
     },
   });
 
@@ -792,6 +841,8 @@ const fleetExtension: ExtensionFactory = (pi) => {
           hideWidget();
           orchestrator = null;
         }
+
+        syncWidget(ctx);
 
         for (const task of targets) {
           const dir = taskDir(root, task.id, task.name);

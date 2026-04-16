@@ -8,6 +8,11 @@ The fleet extension orchestrates parallel Claude Code / Codex / pi tasks, render
 
 The fleet widget renders a fixed-width table with one or two lines per task.
 
+- **Running / failed / retrying / pending tasks** can show a second progress sub-line.
+- **Done tasks** collapse to a single row to keep the widget compact.
+- When there is **no active fleet execution**, the widget shows a small help panel instead of the live table.
+- Toggle the widget with `/fleet:widget` or **Ctrl+Alt+F**.
+
 ```
 ● 001-discover-context   scout     pi/sonnet       ░░░░░░░░  running   12.4k
   11:42:07 Scanning extensions/fleet/ for module exports and p...
@@ -43,6 +48,7 @@ When a task emits at least one progress step, a second line appears immediately 
 - The timestamp is formatted in **local time** as `HH:MM:SS`.
 - The message area is exactly `LINE_WIDTH − 2 (indent) − 8 (ts) − 1 (gap) = 63` characters, padded with spaces or truncated with `...` to preserve alignment.
 - Tasks with no progress data yet show only their main row.
+- Done tasks stay collapsed even when they have historical progress.
 - The sub-line updates live on every `task:progress` event from the orchestrator.
 
 ### Summary line
@@ -83,6 +89,29 @@ Runs the simulate engine against the real task tree in `.pi/tasks/`. Useful for 
 
 ---
 
+## Widget controls
+
+### `/fleet:widget <show|hide|toggle|status>`
+
+Controls the visibility of the fleet widget:
+
+- `show` — show the widget again
+- `hide` — hide it completely
+- `toggle` — switch between shown and hidden
+- `status` — report whether the widget is currently visible
+
+Shortcut:
+
+- **Ctrl+Alt+F** — toggle the widget
+
+When the widget is visible but no fleet is actively running, it shows an idle/help panel with quick hints for `/fleet:start`, `/fleet:demo`, and `/fleet:status`.
+
+### `/fleet:repair-usage`
+
+Backfills missing token counts for historical **Codex** tasks by reading saved `output.jsonl` files and extracting the latest usage event (`done` or `turn.completed`). This is useful after older runs where Codex usage was recorded in output history but not written into `status.json`.
+
+---
+
 ## Inspector (`/fleet:inspect`)
 
 Open the interactive inspector to drill into any task:
@@ -103,7 +132,7 @@ Run the regression suite without starting any real agent:
 node --test extensions/fleet/widget.test.ts
 ```
 
-The six tests cover:
+The widget tests cover:
 
 1. **Fixed-width truncation** — all columns are exactly `LINE_WIDTH` characters regardless of content length.
 2. **Status column** — `pending` / `blocked` / `running` / `done` / `failed` / `retrying` labels render in the correct column.
@@ -112,13 +141,15 @@ The six tests cover:
 5. **Snapshot seeding** — progress carried in the `RuntimeTaskState` snapshot renders a sub-line immediately on `attach()`.
 6. **No sub-line for empty progress** — tasks without any progress data render a single row only.
 
-Run the full fleet test suite (17 tests):
+Run the full fleet test suite:
 
 ```bash
 node --test extensions/fleet/state.test.ts \
          extensions/fleet/plan.test.ts \
          extensions/fleet/config.test.ts \
-         extensions/fleet/widget.test.ts
+         extensions/fleet/task.test.ts \
+         extensions/fleet/widget.test.ts \
+         extensions/fleet/engines/codex.test.ts
 ```
 
 And type-check with:
@@ -133,7 +164,7 @@ Both should report zero errors before any widget change is merged.
 
 ## Wiring `taskSteps` for realistic demos
 
-Add a `taskSteps` map to `SimulateConfig` (in `fleet.config.json` or programmatically) to supply realistic per-task progress messages:
+Add a `taskSteps` map to `SimulateConfig` (in `.pi/tasks/config.json` or programmatically) to supply realistic per-task progress messages:
 
 ```json
 {
