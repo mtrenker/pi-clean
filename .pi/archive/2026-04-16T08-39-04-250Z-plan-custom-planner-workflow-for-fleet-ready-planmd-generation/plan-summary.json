@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "title": "Plan: Custom planner workflow for fleet-ready PLAN.md generation",
+  "overview": "Build a custom planning workflow for pi that is optimized for collaborative\nplanning, not implementation. This should not behave like a classic toggleable\n\"plan mode\". Instead, it should act more like a dedicated planner entrypoint\n(a command and/or planner-oriented skill) that interviews the user, challenges\nassumptions, and writes a high-quality `PLAN.md` suitable for the fleet\nextension.\n\nThe workflow must remain architecturally independent from both the fleet\nextension and the generic questionnaire extension. It may coexist with them, and\nit should output fleet-compatible `PLAN.md` markdown, but it must not require\nfleet internals to run. Likewise, it should use pi's own extension APIs for its\ninteractive flow rather than depending on another extension's tool contract.\n\nA core requirement is that the planner's first interaction always asks the user\nwhich planning depth/profile fits the task. The offered options should be\nadapted to the topic, but should span a practical spectrum such as: lightweight\nspike, MVP/pragmatic delivery, internal-tool quality, production-ready, and\nsecurity/compliance-hardened execution.",
+  "splitAt": "2026-04-16T06:55:08.264Z",
+  "sourcePlanPath": "PLAN.md",
+  "taskCount": 6,
+  "tasks": [
+    {
+      "id": "001",
+      "slug": "research-pi-primitives-for-planner-architecture",
+      "name": "Research pi primitives for planner architecture",
+      "engine": "pi",
+      "model": "anthropic/claude-sonnet-4-6",
+      "profile": "balanced",
+      "thinking": "medium",
+      "agent": "scout",
+      "depends": [],
+      "description": "Read the relevant pi docs and examples for skills, prompt templates, package resources, interactive extension APIs, and the existing questionnaire example. Summarize which concerns belong in a skill versus an extension command versus an optional prompt template. Identify the cleanest architecture for a dedicated planner workflow that is not a modal toggle, can ask interactive questions, can persist enough state to refine a plan over several turns, and can write a final `PLAN.md` file."
+    },
+    {
+      "id": "002",
+      "slug": "design-the-planner-workflow-and-planning-depth-taxonomy",
+      "name": "Design the planner workflow and planning-depth taxonomy",
+      "engine": "claude",
+      "model": "sonnet",
+      "profile": "deep",
+      "thinking": "high",
+      "agent": "worker",
+      "depends": [
+        "001"
+      ],
+      "description": "Turn the research findings into a concrete product and architecture spec for the planner. Define the planner's kickoff flow, the refinement loop, and the finalization step that writes `PLAN.md`. Specify the first-question taxonomy in detail: how the workflow detects the task topic, which planning profiles it offers for different classes of work, and how the spectrum should map from \"move fast / MVP / skip some details\" to \"full production-ready / security-first / compliance-aware\". Define how the planner should challenge bad assumptions, surface tradeoffs, and ask follow-up questions before locking the final plan."
+    },
+    {
+      "id": "003",
+      "slug": "create-the-reusable-planner-skill-and-prompt-assets",
+      "name": "Create the reusable planner skill and prompt assets",
+      "engine": "claude",
+      "model": "sonnet",
+      "profile": "balanced",
+      "thinking": "medium",
+      "agent": "worker",
+      "depends": [
+        "002"
+      ],
+      "description": "Implement a planner-oriented skill under `skills/` that captures the reusable planning doctrine: ask clarifying questions, challenge weak ideas, reason about risks, and aim for a concrete implementation plan. Add any supporting references or prompt assets needed so the planner can adapt to different project types such as product features, refactors, migrations, bug fixes, infrastructure, and security-sensitive work. If helpful, add a prompt template that gives humans a quick way to launch the planner workflow, but keep the primary experience centered on the dedicated planner entrypoint rather than a classic mode switch."
+    },
+    {
+      "id": "004",
+      "slug": "implement-the-interactive-planner-entrypoint",
+      "name": "Implement the interactive planner entrypoint",
+      "engine": "claude",
+      "model": "sonnet",
+      "profile": "deep",
+      "thinking": "high",
+      "agent": "worker",
+      "depends": [
+        "002"
+      ],
+      "description": "Build a new extension-based planner entrypoint, likely as a dedicated command such as `/planner`, that owns the interactive interview and plan-authoring flow. The very first interaction must ask the user to choose a planning depth/profile tailored to the topic. The planner should then continue with targeted questionnaires, free-text prompts, and challenge-oriented follow-ups until it has enough information to propose a strong plan. Keep this extension independent from fleet and from the standalone questionnaire extension by using pi extension UI primitives directly where appropriate. The result of the flow should be a generated `PLAN.md`, with a preview/refinement opportunity before the final write."
+    },
+    {
+      "id": "005",
+      "slug": "generate-and-validate-fleet-compatible-planmd-output",
+      "name": "Generate and validate fleet-compatible PLAN.md output",
+      "engine": "codex",
+      "model": "gpt-5.3-codex",
+      "profile": "balanced",
+      "thinking": "medium",
+      "agent": "worker",
+      "depends": [
+        "003",
+        "004"
+      ],
+      "description": "Implement the logic that turns the refined planning state into a high-quality `PLAN.md` document in the fleet task format used by this repository. Ensure the generated output includes a meaningful overview, well-scoped task breakdown, sensible dependency ordering, and explicit enough descriptions that fleet workers can execute them without needing the original planning chat. Add validation or guardrails so malformed tasks, duplicate IDs, broken dependency chains, or vague descriptions are caught before the file is finalized."
+    },
+    {
+      "id": "006",
+      "slug": "package-integration-docs-and-end-to-end-review",
+      "name": "Package integration, docs, and end-to-end review",
+      "engine": "claude",
+      "model": "opus",
+      "thinking": "high",
+      "agent": "reviewer",
+      "depends": [
+        "005"
+      ],
+      "description": "Review the final workflow from a user and package-design perspective. Verify that the questionnaire extension can stay independently enabled, that the new planner resources are packaged cleanly, and that the planner can be invoked without confusing mode semantics. Document how to use the planner, how the planning-depth profiles behave, and how the generated `PLAN.md` is intended to feed fleet. Review the prompts, command UX, and plan quality for gaps in challenge level, missing security considerations, or overengineering at the lightweight end of the spectrum."
+    }
+  ]
+}

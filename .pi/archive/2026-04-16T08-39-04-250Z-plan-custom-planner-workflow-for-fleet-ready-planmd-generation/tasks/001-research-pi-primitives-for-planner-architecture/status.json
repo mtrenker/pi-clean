@@ -1,0 +1,21 @@
+{
+  "id": "001",
+  "name": "research-pi-primitives-for-planner-architecture",
+  "status": "done",
+  "engine": "pi",
+  "model": "anthropic/claude-sonnet-4-6",
+  "agent": "scout",
+  "depends": [],
+  "startedAt": "2026-04-16T07:09:14.710Z",
+  "completedAt": "2026-04-16T07:11:57.707Z",
+  "duration": 162997,
+  "retries": 0,
+  "pid": 41821,
+  "error": null,
+  "usage": {
+    "inputTokens": 1735,
+    "outputTokens": 7476
+  },
+  "profile": "balanced",
+  "thinking": "medium"
+}

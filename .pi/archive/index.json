@@ -27,6 +27,32 @@
         "totalInputTokens": 2904971,
         "totalOutputTokens": 59192
       }
+    },
+    {
+      "id": "2026-04-16T08-39-04-250Z-plan-custom-planner-workflow-for-fleet-ready-planmd-generation",
+      "archivedAt": "2026-04-16T08:39:04.250Z",
+      "reason": "manual",
+      "title": "Plan: Custom planner workflow for fleet-ready PLAN.md generation",
+      "taskCount": 6,
+      "archivePath": ".pi/archive/2026-04-16T08-39-04-250Z-plan-custom-planner-workflow-for-fleet-ready-planmd-generation",
+      "taskFolders": [
+        "001-research-pi-primitives-for-planner-architecture",
+        "002-design-the-planner-workflow-and-planning-depth-taxonomy",
+        "003-create-the-reusable-planner-skill-and-prompt-assets",
+        "004-implement-the-interactive-planner-entrypoint",
+        "005-generate-and-validate-fleet-compatible-planmd-output",
+        "006-package-integration-docs-and-end-to-end-review"
+      ],
+      "summary": {
+        "total": 6,
+        "pending": 0,
+        "running": 0,
+        "done": 6,
+        "failed": 0,
+        "retrying": 0,
+        "totalInputTokens": 3338,
+        "totalOutputTokens": 107311
+      }
     }
   ]
 }

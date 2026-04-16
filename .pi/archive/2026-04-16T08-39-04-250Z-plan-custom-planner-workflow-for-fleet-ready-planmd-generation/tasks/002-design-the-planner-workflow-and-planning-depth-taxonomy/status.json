@@ -1,0 +1,23 @@
+{
+  "id": "002",
+  "name": "design-the-planner-workflow-and-planning-depth-taxonomy",
+  "status": "done",
+  "engine": "claude",
+  "model": "sonnet",
+  "agent": "worker",
+  "depends": [
+    "001"
+  ],
+  "startedAt": "2026-04-16T07:18:03.364Z",
+  "completedAt": "2026-04-16T07:25:33.127Z",
+  "duration": 449763,
+  "retries": 0,
+  "pid": 45044,
+  "error": null,
+  "usage": {
+    "inputTokens": 1497,
+    "outputTokens": 22058
+  },
+  "profile": "deep",
+  "thinking": "high"
+}

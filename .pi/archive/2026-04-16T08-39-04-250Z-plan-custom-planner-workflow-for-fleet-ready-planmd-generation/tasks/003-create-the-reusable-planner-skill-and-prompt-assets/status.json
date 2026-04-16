@@ -1,0 +1,23 @@
+{
+  "id": "003",
+  "name": "create-the-reusable-planner-skill-and-prompt-assets",
+  "status": "done",
+  "engine": "claude",
+  "model": "sonnet",
+  "agent": "worker",
+  "depends": [
+    "002"
+  ],
+  "startedAt": "2026-04-16T07:25:33.134Z",
+  "completedAt": "2026-04-16T07:29:00.779Z",
+  "duration": 207645,
+  "retries": 0,
+  "pid": 47291,
+  "error": null,
+  "usage": {
+    "inputTokens": 12,
+    "outputTokens": 6278
+  },
+  "profile": "balanced",
+  "thinking": "medium"
+}

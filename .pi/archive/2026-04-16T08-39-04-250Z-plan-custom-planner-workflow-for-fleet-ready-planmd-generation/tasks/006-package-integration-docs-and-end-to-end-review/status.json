@@ -1,0 +1,22 @@
+{
+  "id": "006",
+  "name": "package-integration-docs-and-end-to-end-review",
+  "status": "done",
+  "engine": "claude",
+  "model": "opus",
+  "agent": "reviewer",
+  "depends": [
+    "005"
+  ],
+  "startedAt": "2026-04-16T08:33:38.345Z",
+  "completedAt": "2026-04-16T08:38:13.704Z",
+  "duration": 275360,
+  "retries": 0,
+  "pid": 68737,
+  "error": null,
+  "usage": {
+    "inputTokens": 48,
+    "outputTokens": 14444
+  },
+  "thinking": "high"
+}
