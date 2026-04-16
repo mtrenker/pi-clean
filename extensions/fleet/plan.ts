@@ -10,7 +10,7 @@ export interface TaskSpec {
   slug: string;        // e.g. "refactor-auth"
   name: string;        // e.g. "Refactor auth middleware"
   engine: string;      // e.g. "claude"
-  model: string;       // resolved model, e.g. "claude-sonnet-4-6"
+  model: string;       // optional model override from PLAN.md; may be empty before split-time resolution
   profile?: string;    // optional execution profile alias, e.g. "balanced"
   thinking?: string;   // engine-native thinking/effort after resolution
   agent: string;       // e.g. "worker"
@@ -276,7 +276,7 @@ export function renderPlanDocument(document: PlanDocument): string {
     ];
 
     if (task.profile) lines.push(`- **profile**: ${task.profile}`);
-    lines.push(`- **model**: ${task.model}`);
+    if (task.model) lines.push(`- **model**: ${task.model}`);
     if (task.thinking) lines.push(`- **thinking**: ${task.thinking}`);
     lines.push(`- **agent**: ${task.agent}`);
     lines.push(`- **depends**: ${task.depends.length === 0 ? "none" : task.depends.join(", ")}`);
@@ -357,9 +357,6 @@ export function validatePlanDocument(document: PlanDocument): void {
     }
     if (!task.engine.trim()) {
       errors.push(`${prefix}: missing required field 'engine'.`);
-    }
-    if (!task.model.trim()) {
-      errors.push(`${prefix}: missing required field 'model'.`);
     }
     if (!task.agent.trim()) {
       errors.push(`${prefix}: missing required field 'agent'.`);

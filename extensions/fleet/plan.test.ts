@@ -54,6 +54,18 @@ test("normalizePlanMarkdown returns canonical fleet plan output", () => {
   assert.match(normalized, /^### Task 001: Build canonical plan parser and renderer$/m);
 });
 
+test("validatePlanDocument accepts a task without model when profile provides defaults", () => {
+  const markdown = validPlanMarkdown().replace("- **model**: gpt-5.3-codex\n", "");
+  const doc = parsePlanDocument(markdown);
+  assert.doesNotThrow(() => validatePlanDocument(doc));
+
+  const normalized = normalizePlanMarkdown(markdown);
+  assert.match(
+    normalized,
+    /### Task 001: Build canonical plan parser and renderer[\s\S]*?- \*\*profile\*\*: balanced\n- \*\*thinking\*\*: medium\n- \*\*agent\*\*: worker/,
+  );
+});
+
 test("validatePlanDocument rejects duplicate task IDs", () => {
   const markdown = validPlanMarkdown().replace("### Task 002", "### Task 001");
   const doc = parsePlanDocument(markdown);
