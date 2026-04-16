@@ -159,6 +159,8 @@ export class CodexEngineAdapter implements EngineAdapter {
     taskPrompt: string;
     agentPrompt: string;
     model: string;
+    thinking?: string;
+    tools?: string[] | null;
     cwd: string;
     outputJsonlPath: string;
   }): EngineProcess {
@@ -168,8 +170,13 @@ export class CodexEngineAdapter implements EngineAdapter {
       ...this.engineConfig.args,
       "-m",
       opts.model,
-      combinedPrompt,
     ];
+
+    if (opts.thinking) {
+      args.push("-c", `reasoning_level=\"${opts.thinking}\"`);
+    }
+
+    args.push(combinedPrompt);
 
     const proc = nodeSpawn(this.engineConfig.command, args, {
       cwd: opts.cwd,

@@ -10,6 +10,7 @@
     "declaration": false,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "allowImportingTsExtensions": true,
     "types": ["node"]
   },
   "include": ["extensions/**/*.ts"],

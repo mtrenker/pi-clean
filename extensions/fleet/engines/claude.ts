@@ -27,6 +27,8 @@ export class ClaudeEngineAdapter implements EngineAdapter {
     taskPrompt: string;
     agentPrompt: string;
     model: string;
+    thinking?: string;
+    tools?: string[] | null;
     cwd: string;
     outputJsonlPath: string;
   }): EngineProcess {
@@ -35,6 +37,7 @@ export class ClaudeEngineAdapter implements EngineAdapter {
       baseArgs: this.engineConfig.args,
       agentPrompt: opts.agentPrompt,
       model: opts.model,
+      thinking: opts.thinking,
       taskPrompt: opts.taskPrompt,
       cwd: opts.cwd,
       outputJsonlPath: opts.outputJsonlPath,

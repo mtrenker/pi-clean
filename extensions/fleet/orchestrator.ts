@@ -272,6 +272,7 @@ export class Orchestrator extends EventEmitter {
     // Resolve agent prompt
     const agentName = task.agent || this.config.defaults.agent;
     const agentPrompt = resolveAgentPrompt(this.config, agentName);
+    const agentTools = this.config.agents[agentName]?.tools ?? null;
 
     // Read task.md content
     const taskMdPath = join(taskDir(this.cwd, task.id, task.name), "task.md");
@@ -304,6 +305,8 @@ export class Orchestrator extends EventEmitter {
       taskPrompt,
       agentPrompt,
       model,
+      thinking: task.thinking,
+      tools: agentTools,
       cwd: this.cwd,
       outputJsonlPath,
     });

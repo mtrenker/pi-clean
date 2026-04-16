@@ -28,6 +28,8 @@ export class StreamJsonEngineProcess implements EngineProcess {
   private readonly completeCbs: Array<(result: EngineResult) => void> = [];
   private completed = false;
   private killTimer: ReturnType<typeof setTimeout> | undefined;
+  private lastProgress = "";
+  private lastUsage: Usage = { inputTokens: 0, outputTokens: 0 };
 
   constructor(proc: ChildProcess, outputJsonlPath: string) {
     this.proc = proc;
@@ -106,24 +108,46 @@ export class StreamJsonEngineProcess implements EngineProcess {
 
     switch (evt["type"]) {
       case "assistant": {
-        const text = extractAssistantText(evt);
-        if (text) {
-          for (const cb of this.progressCbs) cb(text);
-        }
+        const text = extractAssistantProgress(evt);
+        this.emitProgress(text);
+
+        const message = evt["message"] as Record<string, unknown> | undefined;
+        const usageRaw = message?.["usage"] as Record<string, number> | undefined;
+        this.emitUsage(usageRaw);
         break;
       }
       case "result": {
         const usageRaw = evt["usage"] as Record<string, number> | undefined;
-        if (usageRaw) {
-          const usage: Usage = {
-            inputTokens: usageRaw["input_tokens"] ?? 0,
-            outputTokens: usageRaw["output_tokens"] ?? 0,
-          };
-          for (const cb of this.usageCbs) cb(usage);
-        }
+        this.emitUsage(usageRaw);
         break;
       }
     }
+  }
+
+  private emitProgress(text: string): void {
+    const trimmed = text.trim().slice(0, 120);
+    if (!trimmed || trimmed === this.lastProgress) return;
+    this.lastProgress = trimmed;
+    for (const cb of this.progressCbs) cb(trimmed);
+  }
+
+  private emitUsage(usageRaw: Record<string, number> | undefined): void {
+    if (!usageRaw) return;
+
+    const usage: Usage = {
+      inputTokens: Math.max(this.lastUsage.inputTokens, usageRaw["input_tokens"] ?? 0),
+      outputTokens: Math.max(this.lastUsage.outputTokens, usageRaw["output_tokens"] ?? 0),
+    };
+
+    if (
+      usage.inputTokens === this.lastUsage.inputTokens &&
+      usage.outputTokens === this.lastUsage.outputTokens
+    ) {
+      return;
+    }
+
+    this.lastUsage = usage;
+    for (const cb of this.usageCbs) cb(usage);
   }
 }
 
@@ -131,22 +155,44 @@ export class StreamJsonEngineProcess implements EngineProcess {
 
 /**
  * Extract a human-readable progress string from an `assistant` stream event.
- * Concatenates all text-typed content blocks and trims to 120 characters.
+ * Prefers normal assistant text, but falls back to brief thinking/tool-use
+ * summaries so long-running tasks still show visible activity.
  */
-function extractAssistantText(evt: Record<string, unknown>): string {
+function extractAssistantProgress(evt: Record<string, unknown>): string {
   const message = evt["message"] as Record<string, unknown> | undefined;
   if (!message) return "";
 
   const content = message["content"];
   if (!Array.isArray(content)) return "";
 
-  const text = (content as Array<Record<string, unknown>>)
+  const blocks = content as Array<Record<string, unknown>>;
+
+  const text = blocks
     .filter((block) => block["type"] === "text")
     .map((block) => (block["text"] as string | undefined) ?? "")
     .join("")
     .trim();
+  if (text) return text;
 
-  return text.slice(0, 120);
+  const toolUse = blocks.find((block) => block["type"] === "tool_use");
+  if (toolUse) {
+    const name = (toolUse["name"] as string | undefined)?.trim() || "tool";
+    const input = toolUse["input"] as Record<string, unknown> | undefined;
+    const description = (input?.["description"] as string | undefined)?.trim();
+    const command = (input?.["command"] as string | undefined)?.trim();
+    const pattern = (input?.["pattern"] as string | undefined)?.trim();
+    const target = description || command || pattern;
+    return target ? `Using ${name}: ${target}` : `Using ${name}`;
+  }
+
+  const thinking = blocks
+    .filter((block) => block["type"] === "thinking")
+    .map((block) => (block["thinking"] as string | undefined) ?? "")
+    .join(" ")
+    .trim();
+  if (thinking) return `Thinking: ${thinking}`;
+
+  return "";
 }
 
 // ── Factory helper ────────────────────────────────────────────────────────────
@@ -160,18 +206,29 @@ export function spawnStreamJson(opts: {
   baseArgs: string[];
   agentPrompt: string;
   model: string;
+  thinking?: string;
   taskPrompt: string;
   cwd: string;
   outputJsonlPath: string;
 }): StreamJsonEngineProcess {
-  const args = [
-    ...opts.baseArgs,
+  const args = [...opts.baseArgs];
+
+  if (opts.command === "claude" && !args.includes("--verbose")) {
+    args.push("--verbose");
+  }
+
+  args.push(
     "--system-prompt",
     opts.agentPrompt,
     "--model",
     opts.model,
-    opts.taskPrompt,
-  ];
+  );
+
+  if (opts.thinking) {
+    args.push("--effort", opts.thinking);
+  }
+
+  args.push(opts.taskPrompt);
 
   const proc = nodeSpawn(opts.command, args, {
     cwd: opts.cwd,

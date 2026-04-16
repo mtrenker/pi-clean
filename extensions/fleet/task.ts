@@ -14,6 +14,8 @@ export interface TaskState {
   status: TaskStatus;
   engine: string;
   model: string;
+  profile?: string;
+  thinking?: string;
   agent: string;
   depends: string[];
   startedAt: string | null;    // ISO timestamp
@@ -58,12 +60,14 @@ function renderTaskMd(spec: TaskSpec): string {
     spec.depends.length === 0
       ? "None"
       : spec.depends.map((d) => `- ${d}`).join("\n");
+  const profileLine = spec.profile ? `\n- **profile**: ${spec.profile}` : "";
+  const thinkingLine = spec.thinking ? `\n- **thinking**: ${spec.thinking}` : "";
 
   return `# Task: ${spec.name}
 
 ## Configuration
-- **engine**: ${spec.engine}
-- **model**: ${spec.model}
+- **engine**: ${spec.engine}${profileLine}
+- **model**: ${spec.model}${thinkingLine}
 - **agent**: ${spec.agent}
 
 ## Dependencies
@@ -71,6 +75,13 @@ ${depsList}
 
 ## Requirements
 ${spec.description}
+
+## Workspace Rules
+- Work only inside the current working directory.
+- Use relative paths from cwd; do not assume absolute paths like \`/root/project\`.
+- Prefer targeted searches with exclusions (exclude \`node_modules\`, \`.git\`, and \`.pi/archive\` unless the task explicitly needs them).
+- Avoid broad repo-wide scans such as \`**/*.md\` when a narrower path or pattern will do.
+- If you already have enough context, stop exploring and produce the deliverable.
 
 ## Progress Tracking
 Append to \`progress.jsonl\` in this task directory after each significant step:
@@ -98,6 +109,8 @@ export async function createTaskFolder(cwd: string, spec: TaskSpec): Promise<voi
     status: "pending",
     engine: spec.engine,
     model: spec.model,
+    profile: spec.profile,
+    thinking: spec.thinking,
     agent: spec.agent,
     depends: spec.depends,
     startedAt: null,
@@ -116,6 +129,61 @@ export async function createTaskFolder(cwd: string, spec: TaskSpec): Promise<voi
   // Create empty progress.jsonl and output.jsonl
   await writeFile(join(dir, "progress.jsonl"), "", "utf-8");
   await writeFile(join(dir, "output.jsonl"), "", "utf-8");
+}
+
+/**
+ * Synchronize an existing task folder with the current TaskSpec.
+ * Preserves execution state while refreshing task metadata and task.md.
+ */
+export async function syncTaskFolder(cwd: string, spec: TaskSpec): Promise<void> {
+  const dir = taskDir(cwd, spec.id, spec.slug);
+  await mkdir(dir, { recursive: true });
+
+  await writeFile(join(dir, "task.md"), renderTaskMd(spec), "utf-8");
+
+  let state: TaskState;
+  try {
+    const existing = await readStatus(cwd, spec.id, spec.slug);
+    state = {
+      ...existing,
+      id: spec.id,
+      name: spec.slug,
+      engine: spec.engine,
+      model: spec.model,
+      profile: spec.profile,
+      thinking: spec.thinking,
+      agent: spec.agent,
+      depends: spec.depends,
+    };
+  } catch {
+    state = {
+      id: spec.id,
+      name: spec.slug,
+      status: "pending",
+      engine: spec.engine,
+      model: spec.model,
+      profile: spec.profile,
+      thinking: spec.thinking,
+      agent: spec.agent,
+      depends: spec.depends,
+      startedAt: null,
+      completedAt: null,
+      duration: null,
+      retries: 0,
+      pid: null,
+      error: null,
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+      },
+    };
+  }
+
+  await writeFile(join(dir, "status.json"), JSON.stringify(state, null, 2), "utf-8");
+
+  // Ensure auxiliary files exist without truncating existing history.
+  await appendFile(join(dir, "progress.jsonl"), "", "utf-8");
+  await appendFile(join(dir, "output.jsonl"), "", "utf-8");
 }
 
 /**

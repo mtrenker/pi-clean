@@ -24,6 +24,8 @@ export interface EngineAdapter {
     taskPrompt: string;
     agentPrompt: string;
     model: string;
+    thinking?: string;
+    tools?: string[] | null;
     cwd: string;
     outputJsonlPath: string; // path to append raw output lines
   }): EngineProcess;
