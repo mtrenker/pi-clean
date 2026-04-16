@@ -1,10 +1,44 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { loadConfig, resolveTaskExecution } from "./config.ts";
+
+
+test("loadConfig bootstraps .pi/fleet.json with defaults when missing", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-fleet-config-"));
+
+  try {
+    const config = await loadConfig(root);
+    const written = await readFile(join(root, ".pi", "fleet.json"), "utf-8");
+    const parsed = JSON.parse(written);
+
+    assert.equal(config.planPath, "PLAN.md");
+    assert.equal(config.tasksDir, ".pi/tasks");
+    assert.equal(config.defaults.engine, "claude");
+    assert.equal(parsed.planPath, "PLAN.md");
+    assert.equal(parsed.tasksDir, ".pi/tasks");
+    assert.equal(parsed.defaults.engine, "claude");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test("loadConfig throws when .pi/fleet.json contains invalid JSON", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-fleet-config-"));
+
+  try {
+    await mkdir(join(root, ".pi"), { recursive: true });
+    await writeFile(join(root, ".pi", "fleet.json"), "{ invalid json\n", "utf-8");
+
+    await assert.rejects(() => loadConfig(root), /JSON|Unexpected token|Expected property name/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("loadConfig deep-merges profile engine mappings with defaults", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-fleet-config-"));

@@ -4,6 +4,33 @@ The fleet extension orchestrates parallel Claude Code / Codex / pi tasks, render
 
 ---
 
+## Fleet config bootstrapping
+
+Fleet reads project config from:
+
+```text
+.pi/fleet.json
+```
+
+When you run a fleet command that needs config and this file does not exist yet,
+fleet creates `.pi/fleet.json` from the built-in defaults and shows an info
+notification telling you to review it. This makes the active configuration
+visible and editable instead of relying on hidden defaults.
+
+If `.pi/fleet.json` already exists but contains invalid JSON, fleet stops with
+an error. It does not silently fall back to defaults in that case.
+
+The generated config is the place to adjust:
+
+- engine commands and args
+- execution profiles (`fast`, `balanced`, `deep`)
+- agent prompts and allowed tools
+- concurrency
+- plan/task paths
+- simulation settings
+
+---
+
 ## Widget layout
 
 The fleet widget renders a fixed-width table with one or two lines per task.

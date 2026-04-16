@@ -1,6 +1,6 @@
 // Fleet extension — config loading and agent prompt resolution
 
-import { readFile } from "fs/promises";
+import { mkdir, readFile, writeFile } from "fs/promises";
 import { join } from "path";
 
 export interface AgentConfig {
@@ -123,7 +123,7 @@ const DEFAULT_CONFIG: FleetConfig = {
 
 /**
  * Load fleet config from `<cwd>/.pi/fleet.json`.
- * Falls back to hardcoded defaults when the file does not exist.
+ * If the file does not exist, write the default config there first.
  */
 function mergeProfiles(
   base: FleetConfig["profiles"],
@@ -143,12 +143,36 @@ function mergeProfiles(
   return merged;
 }
 
-export async function loadConfig(cwd: string): Promise<FleetConfig> {
-  const configPath = join(cwd, ".pi", "fleet.json");
+export interface LoadConfigResult {
+  config: FleetConfig;
+  configPath: string;
+  createdDefaultConfig: boolean;
+}
+
+export async function loadConfigWithStatus(cwd: string): Promise<LoadConfigResult> {
+  const configDir = join(cwd, ".pi");
+  const configPath = join(configDir, "fleet.json");
+
+  let content: string;
   try {
-    const content = await readFile(configPath, "utf-8");
-    const parsed = JSON.parse(content) as Partial<FleetConfig>;
+    content = await readFile(configPath, "utf-8");
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError.code !== "ENOENT") throw error;
+
+    const defaultConfig = structuredClone(DEFAULT_CONFIG);
+    await mkdir(configDir, { recursive: true });
+    await writeFile(configPath, `${JSON.stringify(defaultConfig, null, 2)}\n`, "utf-8");
     return {
+      config: defaultConfig,
+      configPath,
+      createdDefaultConfig: true,
+    };
+  }
+
+  const parsed = JSON.parse(content) as Partial<FleetConfig>;
+  return {
+    config: {
       ...structuredClone(DEFAULT_CONFIG),
       ...parsed,
       defaults: {
@@ -168,11 +192,15 @@ export async function loadConfig(cwd: string): Promise<FleetConfig> {
         ...(DEFAULT_CONFIG.simulate ?? {}),
         ...(parsed.simulate ?? {}),
       },
-    };
-  } catch {
-    // File missing or unreadable — return a fresh copy of defaults
-    return structuredClone(DEFAULT_CONFIG);
-  }
+    },
+    configPath,
+    createdDefaultConfig: false,
+  };
+}
+
+export async function loadConfig(cwd: string): Promise<FleetConfig> {
+  const result = await loadConfigWithStatus(cwd);
+  return result.config;
 }
 
 /**

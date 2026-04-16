@@ -1,5 +1,5 @@
 ---
-name: planner
+name: fleet-planner
 description: >
   Planning doctrine for the /planner workflow. Injected before every LLM turn
   during an active planner session. Provides stable, reusable doctrine for

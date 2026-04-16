@@ -12,10 +12,10 @@ import type { ExtensionContext, ExtensionFactory } from "@mariozechner/pi-coding
 // Re-export foundational types so other modules can import from "fleet/index"
 export type { FleetConfig, AgentConfig, EngineConfig, EngineProfileConfig, ThinkingLevel } from "./config.js";
 export type { TaskSpec } from "./plan.js";
-export { loadConfig, resolveAgentPrompt } from "./config.js";
+export { loadConfig, loadConfigWithStatus, resolveAgentPrompt } from "./config.js";
 export { parsePlan, loadPlan, validateDependencies, parsePlanDocument, renderPlanDocument, validatePlanDocument, normalizePlanMarkdown } from "./plan.js";
 
-import { loadConfig, resolveTaskExecution } from "./config.js";
+import { loadConfigWithStatus, resolveTaskExecution } from "./config.js";
 import { loadValidatedPlan } from "./plan.js";
 import { createTaskFolder, listTasks, readProgress, writeStatus, taskDir, syncTaskFolder } from "./task.js";
 import { buildAggregateState, writeAggregateState } from "./state.js";
@@ -38,6 +38,7 @@ import { extractLatestCodexUsageFromJsonl } from "./engines/codex-usage.js";
 
 let orchestrator: Orchestrator | null = null;
 let widget: FleetWidget | null = null;
+const fleetConfigBootstrapNotified = new Set<string>();
 let widgetVisible = true;
 let demoRoot: string | null = null;
 let activeRoot: string | null = null;
@@ -214,9 +215,21 @@ const fleetExtension: ExtensionFactory = (pi) => {
     }
   }
 
+  async function loadFleetConfigForCommand(ctx: ExtensionContext) {
+    const result = await loadConfigWithStatus(ctx.cwd);
+    if (result.createdDefaultConfig && !fleetConfigBootstrapNotified.has(ctx.cwd)) {
+      fleetConfigBootstrapNotified.add(ctx.cwd);
+      ctx.ui.notify(
+        "Created .pi/fleet.json from defaults. Review it to adjust engines, profiles, agents, concurrency, and paths.",
+        "info",
+      );
+    }
+    return result.config;
+  }
+
   async function ensureLiveOrchestrator(ctx: ExtensionContext): Promise<void> {
     if (!orchestrator) {
-      const config = await loadConfig(ctx.cwd);
+      const config = await loadFleetConfigForCommand(ctx);
       orchestrator = new Orchestrator(ctx.cwd, config);
     }
     activeRoot = ctx.cwd;
@@ -322,7 +335,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
     description: "Show configured fleet execution profiles and per-engine model/thinking mappings",
     async handler(args, ctx) {
       try {
-        const config = await loadConfig(ctx.cwd);
+        const config = await loadFleetConfigForCommand(ctx);
         const profiles = config.profiles ?? {};
         const requested = (args || "").trim();
 
@@ -368,7 +381,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
           throw new Error("Fleet is currently running. Stop it before splitting a new PLAN.md.");
         }
 
-        const config = await loadConfig(ctx.cwd);
+        const config = await loadFleetConfigForCommand(ctx);
         const validatedPlan = await loadValidatedPlan(ctx.cwd, config.planPath);
         const tasks = validatedPlan.document.tasks;
 
@@ -672,7 +685,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
     description: "Run fleet in simulation mode — fires all events without spending tokens",
     async handler(args, ctx) {
       try {
-        const config = await loadConfig(ctx.cwd);
+        const config = await loadFleetConfigForCommand(ctx);
 
         // Always create a fresh orchestrator in simulate mode
         hideWidget();
@@ -726,7 +739,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
           return;
         }
 
-        const baseConfig = await loadConfig(ctx.cwd);
+        const baseConfig = await loadFleetConfigForCommand(ctx);
         const config = presetConfig(baseConfig, preset);
 
         hideWidget();

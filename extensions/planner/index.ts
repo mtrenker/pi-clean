@@ -69,63 +69,8 @@ let plannerSession: PlannerSession | null = null;
 /** One-shot validation marker set when finalization asks the LLM to write PLAN.md. */
 let pendingPlanValidation: { cwd: string } | null = null;
 
-/** Cached content of skills/planner.md. Loaded lazily on first active turn. */
+/** Cached content of skills/fleet-planner/SKILL.md. Loaded lazily on first active turn. */
 let plannerSkillCache: string | null = null;
-
-// ── Embedded planner skill (fallback if skills/planner.md is not found) ───────
-
-const EMBEDDED_PLANNER_SKILL = `# Planner Doctrine
-
-You are acting as a software planning expert. Your goal is to produce a
-concrete, executable PLAN.md in the fleet task format.
-
-## Planning Rules
-
-1. Every task must have a specific, actionable description.
-   Vague descriptions like "implement the feature" are not acceptable.
-2. Task descriptions must name affected files, modules, or systems.
-3. Dependencies must be explicit: if task B needs output from task A, mark it.
-4. Scope must match the selected depth profile. At spike/MVP depth, explicitly
-   annotate every skipped concern with "⚠ skipped (depth)" so a future task can address it.
-5. Tasks should be 1–3 days of work. Break up anything larger.
-6. The first task should be a research/investigation task unless the
-   full solution is already well-understood.
-
-## Challenge Stance
-
-Before presenting any plan, ask yourself:
-- What scale assumption is hidden here?
-- What security boundary is assumed but unstated?
-- What external dependency could block this?
-- What's the most likely cause of a mid-execution scope change?
-
-## Output Format
-
-Output plans in the fleet task format:
-
-\`\`\`markdown
-# Plan: <one-line title>
-
-## Overview
-
-<2–4 paragraph narrative covering goal, approach, key decisions, and scope boundaries.>
-
-## Tasks
-
-### Task 001: <name>
-
-- **engine**: <claude|codex|pi>
-- **profile**: <balanced|deep|fast>
-- **model**: <optional — omit to use profile default>
-- **thinking**: <high|medium|low — optional>
-- **agent**: <worker|reviewer|scout>
-- **depends**: <none|001|001, 002>
-- **description**: <Full task description. Must name files/modules, state the
-  acceptance criterion, and reference dependencies explicitly.>
-\`\`\`
-
-Quality bar: minimum 2 sentences per task description. Must name affected
-files/modules. Must state the acceptance criterion or definition of done.`;
 
 // ── Depth taxonomy ─────────────────────────────────────────────────────────────
 
@@ -352,15 +297,10 @@ Structure as: full updated plan first, then "## Challenges & Tradeoffs" analysis
 async function loadPlannerSkill(cwd: string): Promise<string> {
   if (plannerSkillCache !== null) return plannerSkillCache;
 
-  const skillPath = path.join(cwd, "skills", "planner.md");
-  try {
-    const raw = await fs.readFile(skillPath, "utf-8");
-    // Strip YAML frontmatter if present
-    plannerSkillCache = raw.replace(/^---[\s\S]*?---\n?/, "").trim();
-  } catch {
-    // Fallback to embedded skill
-    plannerSkillCache = EMBEDDED_PLANNER_SKILL;
-  }
+  const skillPath = path.join(cwd, "skills", "fleet-planner", "SKILL.md");
+  const raw = await fs.readFile(skillPath, "utf-8");
+  // Strip YAML frontmatter if present
+  plannerSkillCache = raw.replace(/^---[\s\S]*?---\n?/, "").trim();
   return plannerSkillCache;
 }
 

@@ -20,6 +20,11 @@ Project config now lives in:
 .pi/fleet.json
 ```
 
+The first fleet command that needs config will create this file from defaults if
+it does not exist yet. Fleet then shows an info notification so you know where
+to adjust engines, profiles, agents, concurrency, and paths. If the file exists
+but contains invalid JSON, fleet fails loudly instead of silently falling back.
+
 Runtime task state, progress, and output remain under:
 
 ```text
@@ -55,7 +60,7 @@ pi-clean/
 │   ├── widget.ts          # Live fleet dashboard widget
 │   ├── inspect.ts         # Interactive task inspector overlay
 │   └── README.md          # Operator guide for fleet workflows
-├── skills/                # Custom planner and other skills
+├── skills/                # Custom skills, including fleet-planner doctrine
 ├── prompts/               # Prompt templates
 └── themes/                # Theme customizations
 ```
