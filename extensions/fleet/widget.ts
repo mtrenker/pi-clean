@@ -73,6 +73,14 @@ const PROGRESS_TS_LEN = 8; // "HH:MM:SS"
 const PROGRESS_GAP = 1; // single space between timestamp and message
 const PROGRESS_MSG_WIDTH = LINE_WIDTH - COL.prefix - PROGRESS_TS_LEN - PROGRESS_GAP;
 
+/**
+ * Default collapsed viewport height for the widget.
+ * We reserve 2 lines for the separator + summary/status bar.
+ */
+const DEFAULT_MAX_VISIBLE_LINES = 16;
+const FOOTER_LINES = 2;
+const DEFAULT_MAX_TASK_LINES = DEFAULT_MAX_VISIBLE_LINES - FOOTER_LINES;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
@@ -229,6 +237,16 @@ interface ProgressEntry {
   message: string;
 }
 
+interface FleetWidgetOptions {
+  expanded?: boolean;
+  maxVisibleLines?: number;
+}
+
+interface RenderedTaskBlock {
+  task: TaskState;
+  lines: string[];
+}
+
 export class FleetWidget {
   /** Local mirror of task states; updated incrementally on each event. */
   private tasks = new Map<string, TaskState>();
@@ -246,15 +264,21 @@ export class FleetWidget {
   private readonly orchestrator: Orchestrator;
   private readonly setWidget: (id: string, lines: string[]) => void;
   private readonly clearWidget: (id: string) => void;
+  private expanded: boolean;
+  private readonly maxTaskLines: number;
 
   constructor(
     orchestrator: Orchestrator,
     setWidget: (id: string, lines: string[]) => void,
     clearWidget: (id: string) => void,
+    options: FleetWidgetOptions = {},
   ) {
     this.orchestrator = orchestrator;
     this.setWidget = setWidget;
     this.clearWidget = clearWidget;
+    this.expanded = options.expanded ?? false;
+    const maxVisibleLines = options.maxVisibleLines ?? DEFAULT_MAX_VISIBLE_LINES;
+    this.maxTaskLines = Math.max(1, maxVisibleLines - FOOTER_LINES);
     this._onStatus = (event: TaskStatusEvent) => {
       // event.state is a snapshot of the full RuntimeTaskState
       this.tasks.set(event.id, { ...event.state });
@@ -313,6 +337,12 @@ export class FleetWidget {
     this.render();
   }
 
+  setExpanded(expanded: boolean): void {
+    if (this.expanded === expanded) return;
+    this.expanded = expanded;
+    this.render();
+  }
+
   /** Stop listening and clear the widget. */
   detach(): void {
     this.orchestrator.off("task:status", this._onStatus);
@@ -335,14 +365,11 @@ export class FleetWidget {
       a.id.localeCompare(b.id, undefined, { numeric: true }),
     );
 
+    const taskBlocks = tasks.map((task) => this.buildTaskBlock(task));
     const lines: string[] = [];
 
-    // ── Per-task rows ──────────────────────────────────────────────────────
-
-    for (const task of tasks) {
-      lines.push(formatTaskRow(task, this.tasks));
-      const progressLine = formatProgressLine(task, this.progress);
-      if (progressLine) lines.push(progressLine);
+    for (const line of this.selectVisibleTaskLines(taskBlocks)) {
+      lines.push(line);
     }
 
     // ── Separator ──────────────────────────────────────────────────────────
@@ -389,5 +416,66 @@ export class FleetWidget {
     lines.push(summary);
 
     this.setWidget(WIDGET_ID, lines);
+  }
+
+  private buildTaskBlock(task: TaskState): RenderedTaskBlock {
+    const lines = [formatTaskRow(task, this.tasks)];
+    const progressLine = formatProgressLine(task, this.progress);
+    if (progressLine) lines.push(progressLine);
+    return { task, lines };
+  }
+
+  private selectVisibleTaskLines(taskBlocks: RenderedTaskBlock[]): string[] {
+    if (this.expanded) {
+      return taskBlocks.flatMap((block) => block.lines);
+    }
+
+    const totalTaskLines = taskBlocks.reduce((sum, block) => sum + block.lines.length, 0);
+    if (totalTaskLines <= this.maxTaskLines) {
+      return taskBlocks.flatMap((block) => block.lines);
+    }
+
+    const focusIdx = this.findFocusTaskIndex(taskBlocks);
+    const visibleBlocks: RenderedTaskBlock[] = [];
+    let used = 0;
+
+    for (let i = focusIdx; i < taskBlocks.length; i++) {
+      const block = taskBlocks[i]!;
+      if (used > 0 && used + block.lines.length > this.maxTaskLines) break;
+      visibleBlocks.push(block);
+      used += block.lines.length;
+      if (used >= this.maxTaskLines) break;
+    }
+
+    for (let i = focusIdx - 1; i >= 0; i--) {
+      const block = taskBlocks[i]!;
+      if (used + block.lines.length > this.maxTaskLines) break;
+      visibleBlocks.unshift(block);
+      used += block.lines.length;
+    }
+
+    if (visibleBlocks.length === 0) {
+      return taskBlocks[focusIdx]?.lines.slice(0, this.maxTaskLines) ?? [];
+    }
+
+    return visibleBlocks.flatMap((block) => block.lines);
+  }
+
+  private findFocusTaskIndex(taskBlocks: RenderedTaskBlock[]): number {
+    const runningIdx = taskBlocks.findIndex((block) => block.task.status === "running");
+    if (runningIdx !== -1) return runningIdx;
+
+    const retryingIdx = taskBlocks.findIndex((block) => block.task.status === "retrying");
+    if (retryingIdx !== -1) return retryingIdx;
+
+    const actionablePendingIdx = taskBlocks.findIndex((block) =>
+      displayStatus(block.task, this.tasks) === "pending",
+    );
+    if (actionablePendingIdx !== -1) return actionablePendingIdx;
+
+    const unfinishedIdx = taskBlocks.findIndex((block) => block.task.status !== "done");
+    if (unfinishedIdx !== -1) return unfinishedIdx;
+
+    return Math.max(0, taskBlocks.length - 1);
   }
 }

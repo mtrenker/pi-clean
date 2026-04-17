@@ -40,6 +40,7 @@ let orchestrator: Orchestrator | null = null;
 let widget: FleetWidget | null = null;
 const fleetConfigBootstrapNotified = new Set<string>();
 let widgetVisible = true;
+let widgetExpanded = false;
 let demoRoot: string | null = null;
 let activeRoot: string | null = null;
 
@@ -162,6 +163,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
       orchestrator,
       (id, lines) => ctx.ui.setWidget(id, lines),
       (id) => ctx.ui.setWidget(id, undefined),
+      { expanded: widgetExpanded },
     );
     widget.attach();
   }
@@ -780,23 +782,42 @@ const fleetExtension: ExtensionFactory = (pi) => {
   // ── /fleet:widget ─────────────────────────────────────────────────────────
 
   pi.registerCommand("fleet:widget", {
-    description: "Show, hide, or toggle the live fleet widget",
+    description: "Show, hide, toggle, or resize the live fleet widget",
     async handler(args, ctx) {
       const action = (args || "toggle").trim().toLowerCase();
-      if (!["show", "hide", "toggle", "status"].includes(action)) {
-        ctx.ui.notify("Usage: /fleet:widget <show|hide|toggle|status>", "error");
+      if (!["show", "hide", "toggle", "status", "expand", "collapse"].includes(action)) {
+        ctx.ui.notify("Usage: /fleet:widget <show|hide|toggle|status|expand|collapse>", "error");
         return;
       }
 
       if (action === "status") {
-        ctx.ui.notify(`Fleet widget is ${widgetVisible ? "visible" : "hidden"}`, "info");
+        ctx.ui.notify(
+          `Fleet widget is ${widgetVisible ? "visible" : "hidden"} and ${widgetExpanded ? "expanded" : "collapsed"}`,
+          "info",
+        );
+        return;
+      }
+
+      if (action === "expand") {
+        widgetExpanded = true;
+        widget?.setExpanded(true);
+        syncWidget(ctx);
+        ctx.ui.notify("Fleet widget expanded", "info");
+        return;
+      }
+
+      if (action === "collapse") {
+        widgetExpanded = false;
+        widget?.setExpanded(false);
+        syncWidget(ctx);
+        ctx.ui.notify("Fleet widget collapsed", "info");
         return;
       }
 
       if (action === "show" || (action === "toggle" && !widgetVisible)) {
         widgetVisible = true;
         syncWidget(ctx);
-        ctx.ui.notify("Fleet widget shown", "info");
+        ctx.ui.notify(`Fleet widget shown (${widgetExpanded ? "expanded" : "collapsed"})`, "info");
         return;
       }
 

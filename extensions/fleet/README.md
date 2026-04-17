@@ -35,10 +35,12 @@ The generated config is the place to adjust:
 
 The fleet widget renders a fixed-width table with one or two lines per task.
 
+- **Collapsed mode (default)** keeps the summary/status bar visible and automatically follows the currently active work, so large plans do not push the interesting rows out of view.
+- **Expanded mode** shows the full task list.
 - **Running / failed / retrying / pending tasks** can show a second progress sub-line.
 - **Done tasks** collapse to a single row to keep the widget compact.
 - When there is **no active fleet execution**, the widget shows a small help panel instead of the live table.
-- Toggle the widget with `/fleet:widget` or **Ctrl+Alt+F**.
+- Toggle the widget with `/fleet:widget` or **Ctrl+Alt+F**. Use `/fleet:widget expand` or `/fleet:widget collapse` to control the viewport mode.
 
 ```
 ● 001-discover-context   scout     pi/sonnet       ░░░░░░░░  running   12.4k
@@ -118,14 +120,16 @@ Runs the simulate engine against the real task tree in `.pi/tasks/`. Useful for 
 
 ## Widget controls
 
-### `/fleet:widget <show|hide|toggle|status>`
+### `/fleet:widget <show|hide|toggle|status|expand|collapse>`
 
-Controls the visibility of the fleet widget:
+Controls the visibility and viewport mode of the fleet widget:
 
 - `show` — show the widget again
 - `hide` — hide it completely
 - `toggle` — switch between shown and hidden
-- `status` — report whether the widget is currently visible
+- `status` — report whether the widget is currently visible and whether it is expanded or collapsed
+- `expand` — show the full task list
+- `collapse` — return to the compact auto-following viewport
 
 Shortcut:
 

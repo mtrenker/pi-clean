@@ -394,3 +394,68 @@ test("fleet widget shows no progress sub-line for tasks with no progress data", 
 
   widget.detach();
 });
+
+test("fleet widget collapsed mode follows the active task and keeps the summary footer visible", () => {
+  const now = new Date().toISOString();
+  const snapshot: TaskState[] = [];
+  for (let i = 1; i <= 12; i++) {
+    const id = String(i).padStart(3, "0");
+    snapshot.push(
+      makeTask({
+        id,
+        name: `task-${id}`,
+        status: i < 10 ? "done" : i === 10 ? "running" : "pending",
+        startedAt: i === 10 ? now : null,
+      }),
+    );
+  }
+
+  let lines: string[] = [];
+  const widget = new FleetWidget(
+    new FakeOrchestrator(snapshot) as unknown as Orchestrator,
+    (_id, nextLines) => { lines = nextLines; },
+    () => {},
+    { maxVisibleLines: 6 },
+  );
+
+  widget.attach();
+
+  assert.equal(lines.length, 6);
+  assert.match(lines[0] ?? "", /^✓ 009-task-009/);
+  assert.match(lines[1] ?? "", /^● 010-task-010/);
+  assert.match(lines[2] ?? "", /^◌ 011-task-011/);
+  assert.match(lines[3] ?? "", /^◌ 012-task-012/);
+  assert.equal(lines[4], "─".repeat(LINE_WIDTH));
+  assert.match(lines[5] ?? "", /^Running: 1  Done: 9  Failed: 0  Blocked: 2  │  Total tokens: 0$/);
+
+  widget.detach();
+});
+
+test("fleet widget expanded mode shows all tasks and can be toggled at runtime", () => {
+  const snapshot: TaskState[] = Array.from({ length: 12 }, (_, idx) => {
+    const id = String(idx + 1).padStart(3, "0");
+    return makeTask({ id, name: `task-${id}`, status: "done" });
+  });
+
+  let lines: string[] = [];
+  const widget = new FleetWidget(
+    new FakeOrchestrator(snapshot) as unknown as Orchestrator,
+    (_id, nextLines) => { lines = nextLines; },
+    () => {},
+    { maxVisibleLines: 6 },
+  );
+
+  widget.attach();
+  assert.equal(lines.length, 6, "collapsed mode should show a viewport plus footer");
+
+  widget.setExpanded(true);
+  assert.equal(lines.length, 14, "expanded mode should show all task rows plus footer");
+  assert.match(lines[0] ?? "", /^✓ 001-task-001/);
+  assert.match(lines[11] ?? "", /^✓ 012-task-012/);
+  assert.equal(lines[12], "─".repeat(LINE_WIDTH));
+
+  widget.setExpanded(false);
+  assert.equal(lines.length, 6, "collapsing again should restore the viewport");
+
+  widget.detach();
+});
