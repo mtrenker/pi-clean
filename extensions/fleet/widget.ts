@@ -75,9 +75,10 @@ const PROGRESS_MSG_WIDTH = LINE_WIDTH - COL.prefix - PROGRESS_TS_LEN - PROGRESS_
 
 /**
  * Default collapsed viewport height for the widget.
- * We reserve 2 lines for the separator + summary/status bar.
+ * pi's interactive mode currently truncates widgets beyond 10 lines,
+ * so keep the default viewport within that cap, including footer lines.
  */
-const DEFAULT_MAX_VISIBLE_LINES = 16;
+const DEFAULT_MAX_VISIBLE_LINES = 10;
 const FOOTER_LINES = 2;
 const DEFAULT_MAX_TASK_LINES = DEFAULT_MAX_VISIBLE_LINES - FOOTER_LINES;
 

@@ -459,3 +459,51 @@ test("fleet widget expanded mode shows all tasks and can be toggled at runtime",
 
   widget.detach();
 });
+
+test("fleet widget default collapsed viewport stays within the interactive widget line cap", () => {
+  const now = new Date().toISOString();
+  const snapshot: TaskState[] = [];
+  for (let i = 1; i <= 12; i++) {
+    const id = String(i).padStart(3, "0");
+    snapshot.push(
+      makeTask({
+        id,
+        name: `task-${id}`,
+        status: i === 6 || i === 7 ? "running" : i < 6 ? "done" : "pending",
+        startedAt: i === 6 || i === 7 ? now : null,
+      }),
+    );
+  }
+
+  let lines: string[] = [];
+  const orch = new FakeOrchestratorWithEvents(snapshot);
+  const widget = new FleetWidget(
+    orch as unknown as Orchestrator,
+    (_id, nextLines) => { lines = nextLines; },
+    () => {},
+  );
+
+  widget.attach();
+  orch.emit("task:progress", {
+    id: "006",
+    name: "task-006",
+    latestProgressAt: now,
+    latestProgressMessage: "making sure the default widget viewport does not get truncated",
+    step: "making sure the default widget viewport does not get truncated",
+    status: "running",
+  } as TaskProgressEvent);
+  orch.emit("task:progress", {
+    id: "007",
+    name: "task-007",
+    latestProgressAt: now,
+    latestProgressMessage: "second active task progress row",
+    step: "second active task progress row",
+    status: "running",
+  } as TaskProgressEvent);
+
+  assert.ok(lines.length <= 10, `default widget output must stay within 10 lines, got ${lines.length}`);
+  assert.equal(lines.at(-2), "─".repeat(LINE_WIDTH));
+  assert.match(lines.at(-1) ?? "", /^Running: 2  Done: 5  Failed: 0  Blocked: 5  │  Total tokens: 0$/);
+
+  widget.detach();
+});
