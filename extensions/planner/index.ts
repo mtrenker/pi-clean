@@ -23,6 +23,7 @@
 
 import fs from "fs/promises";
 import path from "path";
+import { fileURLToPath } from "url";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -71,6 +72,16 @@ let pendingPlanValidation: { cwd: string } | null = null;
 
 /** Cached content of skills/fleet-planner/SKILL.md. Loaded lazily on first active turn. */
 let plannerSkillCache: string | null = null;
+
+const plannerExtensionDir = path.dirname(fileURLToPath(import.meta.url));
+const plannerSkillPath = path.resolve(
+  plannerExtensionDir,
+  "..",
+  "..",
+  "skills",
+  "fleet-planner",
+  "SKILL.md",
+);
 
 // ── Depth taxonomy ─────────────────────────────────────────────────────────────
 
@@ -294,11 +305,10 @@ Structure as: full updated plan first, then "## Challenges & Tradeoffs" analysis
 
 // ── Skill content loading ──────────────────────────────────────────────────────
 
-async function loadPlannerSkill(cwd: string): Promise<string> {
+async function loadPlannerSkill(): Promise<string> {
   if (plannerSkillCache !== null) return plannerSkillCache;
 
-  const skillPath = path.join(cwd, "skills", "fleet-planner", "SKILL.md");
-  const raw = await fs.readFile(skillPath, "utf-8");
+  const raw = await fs.readFile(plannerSkillPath, "utf-8");
   // Strip YAML frontmatter if present
   plannerSkillCache = raw.replace(/^---[\s\S]*?---\n?/, "").trim();
   return plannerSkillCache;
@@ -489,7 +499,7 @@ const plannerExtension: ExtensionFactory = (pi) => {
   pi.on("before_agent_start", async (event, ctx) => {
     if (!plannerSession || plannerSession.phase !== "active") return;
 
-    const skillContent = await loadPlannerSkill(ctx.cwd);
+    const skillContent = await loadPlannerSkill();
 
     return {
       systemPrompt:

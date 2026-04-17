@@ -4,6 +4,7 @@
 import { readFile, appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -125,7 +126,7 @@ export async function showBriefing(
   page: { setContent: (html: string, options?: unknown) => Promise<void>; waitForFunction: (fn: string | (() => unknown)) => Promise<{ jsonValue: () => Promise<unknown> }> },
   mission: BriefingMission,
 ): Promise<BriefingResult> {
-  const templatePath = new URL("briefing.html", import.meta.url).pathname;
+  const templatePath = fileURLToPath(new URL("briefing.html", import.meta.url));
   let html = await readFile(templatePath, "utf-8");
 
   const domain = new URL(mission.url).hostname;
