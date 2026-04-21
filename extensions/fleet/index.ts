@@ -40,6 +40,7 @@ let orchestrator: Orchestrator | null = null;
 let widget: FleetWidget | null = null;
 const fleetConfigBootstrapNotified = new Set<string>();
 let widgetVisible = true;
+let idleWidgetVisible = false;
 let widgetExpanded = false;
 let demoRoot: string | null = null;
 let activeRoot: string | null = null;
@@ -143,10 +144,11 @@ const fleetExtension: ExtensionFactory = (pi) => {
     widget?.detach();
     widget = null;
     clearWidgetSlot?.();
+    clearWidgetSlot = null;
   }
 
   function showIdleWidget(ctx: ExtensionContext): void {
-    if (!widgetVisible) return;
+    if (!widgetVisible || !idleWidgetVisible) return;
     clearWidgetSlot = () => ctx.ui.setWidget("fleet", undefined);
     ctx.ui.setWidget("fleet", [
       "Fleet idle — no active agents.",
@@ -171,6 +173,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
   function syncWidget(ctx: ExtensionContext): void {
     if (!widgetVisible) {
       hideWidget();
+      ctx.ui.setWidget("fleet", undefined);
       return;
     }
 
@@ -180,6 +183,10 @@ const fleetExtension: ExtensionFactory = (pi) => {
     }
 
     hideWidget();
+    if (!idleWidgetVisible) {
+      ctx.ui.setWidget("fleet", undefined);
+      return;
+    }
     showIdleWidget(ctx);
   }
 
@@ -792,7 +799,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
 
       if (action === "status") {
         ctx.ui.notify(
-          `Fleet widget is ${widgetVisible ? "visible" : "hidden"} and ${widgetExpanded ? "expanded" : "collapsed"}`,
+          `Fleet widget is ${widgetVisible ? "enabled" : "hidden"}, ${widgetExpanded ? "expanded" : "collapsed"}; idle placeholder ${idleWidgetVisible ? "shown" : "hidden"}`,
           "info",
         );
         return;
@@ -814,14 +821,18 @@ const fleetExtension: ExtensionFactory = (pi) => {
         return;
       }
 
-      if (action === "show" || (action === "toggle" && !widgetVisible)) {
+      const widgetShown = hasActiveExecution() ? widgetVisible : widgetVisible && idleWidgetVisible;
+
+      if (action === "show" || (action === "toggle" && !widgetShown)) {
         widgetVisible = true;
+        if (!hasActiveExecution()) idleWidgetVisible = true;
         syncWidget(ctx);
         ctx.ui.notify(`Fleet widget shown (${widgetExpanded ? "expanded" : "collapsed"})`, "info");
         return;
       }
 
       widgetVisible = false;
+      idleWidgetVisible = false;
       hideWidget();
       ctx.ui.notify("Fleet widget hidden", "info");
     },
@@ -830,9 +841,16 @@ const fleetExtension: ExtensionFactory = (pi) => {
   pi.registerShortcut(Key.ctrlAlt("f"), {
     description: "Toggle the fleet widget",
     handler: async (ctx) => {
-      widgetVisible = !widgetVisible;
+      const widgetShown = hasActiveExecution() ? widgetVisible : widgetVisible && idleWidgetVisible;
+      if (!widgetShown) {
+        widgetVisible = true;
+        if (!hasActiveExecution()) idleWidgetVisible = true;
+      } else {
+        widgetVisible = false;
+        idleWidgetVisible = false;
+      }
       syncWidget(ctx);
-      ctx.ui.notify(`Fleet widget ${widgetVisible ? "shown" : "hidden"}`, "info");
+      ctx.ui.notify(`Fleet widget ${widgetVisible && (hasActiveExecution() || idleWidgetVisible) ? "shown" : "hidden"}`, "info");
     },
   });
 
