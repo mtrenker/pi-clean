@@ -46,9 +46,16 @@ function getCompiledPatterns(policy: GuardPolicy): RegExp[] {
  *
  * A variable is stripped when:
  *   - Its name matches at least one pattern in `stripEnvPatterns`, AND
- *   - Its name is NOT in `preserveEnvVars` (exact, case-sensitive match).
+ *   - Its name is NOT in `preserveEnvVars` (exact, case-sensitive match), AND
+ *   - Its name does NOT start with `PI_`.
+ *
+ * `PI_` is an explicit operator escape hatch for env vars that should remain
+ * visible to subprocesses even when their suffix would otherwise look secret.
  */
 function shouldStrip(name: string, policy: GuardPolicy): boolean {
+  if (name.startsWith("PI_")) {
+    return false;
+  }
   if (policy.secretGuard.preserveEnvVars.includes(name)) {
     return false;
   }

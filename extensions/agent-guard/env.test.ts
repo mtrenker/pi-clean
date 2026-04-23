@@ -136,6 +136,12 @@ test("buildFilteredEnv: preserves a var in preserveEnvVars even if it matches a 
   assert.equal(filtered["KEEP_ME_TOKEN"], "must-survive");
 });
 
+test("buildFilteredEnv: preserves PI_-prefixed vars even if they match strip patterns", () => {
+  const env = { PI_SECRET_KEY: "must-survive" };
+  const filtered = buildFilteredEnv(env, DEFAULT_POLICY);
+  assert.equal(filtered["PI_SECRET_KEY"], "must-survive");
+});
+
 // ---------------------------------------------------------------------------
 // buildFilteredEnv — pass-through for non-secret vars
 // ---------------------------------------------------------------------------
@@ -219,6 +225,23 @@ test("buildUnsetPreamble: returns a valid unset snippet when matching vars are p
     const preamble = buildUnsetPreamble(customPolicy);
     assert.ok(preamble.startsWith("unset "), `Expected 'unset ...', got: ${preamble}`);
     assert.ok(preamble.includes(testKey), `Expected preamble to include ${testKey}`);
+  } finally {
+    if (originalValue === undefined) {
+      delete process.env[testKey];
+    } else {
+      process.env[testKey] = originalValue;
+    }
+  }
+});
+
+test("buildUnsetPreamble: does not unset PI_-prefixed vars", () => {
+  const testKey = "PI_SECRET_KEY_AGENT_GUARD_UNIT";
+  const originalValue = process.env[testKey];
+  process.env[testKey] = "test-value";
+
+  try {
+    const preamble = buildUnsetPreamble(DEFAULT_POLICY);
+    assert.ok(!preamble.includes(testKey), `Did not expect preamble to include ${testKey}`);
   } finally {
     if (originalValue === undefined) {
       delete process.env[testKey];

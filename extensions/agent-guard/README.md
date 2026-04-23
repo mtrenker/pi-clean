@@ -27,7 +27,7 @@ policy file).
 
 | Guard | What it does |
 |-------|-------------|
-| **secretGuard / env** | Strips secret environment variables (AWS keys, API tokens, …) from every bash command before execution |
+| **secretGuard / env** | Strips secret environment variables (AWS keys, API tokens, …) from every bash command before execution; `PI_`-prefixed variables are explicitly preserved as an operator escape hatch |
 | **secretGuard / path** | Hard-blocks reads/writes to sensitive paths (e.g. `~/.ssh/id_*`); warns for less-sensitive paths (e.g. `**/.env`) |
 | **secretGuard / redaction** | Scans tool output for secret-shaped strings and replaces them with `[REDACTED:<label>]` |
 | **actionGuard** | Immediately blocks catastrophic shell commands (`rm -rf /`, fork bombs, `mkfs`, …) without prompting |
@@ -164,6 +164,22 @@ The active policy is the merge of (highest to lowest precedence):
 }
 ```
 
+**`PI_` escape hatch for env filtering:**
+
+Any environment variable whose name starts with `PI_` is preserved even if it
+would otherwise match one of `secretGuard.stripEnvPatterns`.
+
+Example:
+
+```sh
+export PI_GITHUB_TOKEN=...
+export PI_ANTHROPIC_API_KEY=...
+```
+
+This is intended as a simple operator-controlled allowlist/workaround for
+selected credentials. Use sparingly: any command that can read environment
+variables can also read `PI_`-prefixed ones.
+
 See `docs/agent-guard/02-policy.md` for the full schema.
 
 ---
@@ -193,8 +209,9 @@ coding agent sessions:
   immediately.
 - **Transparent secret hygiene** — AWS keys, API tokens, and other
   secret-shaped environment variables are stripped before every bash command;
-  secret-shaped strings in tool output are replaced before entering session
-  history.
+  `PI_`-prefixed environment variables are intentionally preserved as an
+  explicit operator escape hatch; secret-shaped strings in tool output are
+  replaced before entering session history.
 - **Auditability** — every guard event is written to a structured JSONL log
   and surfaced through the `/agent-guard` operator command.
 
@@ -207,7 +224,7 @@ coding agent sessions:
 | `secretGuard.enabled` | `true` |
 | `actionGuard.enabled` | `true` |
 | Strip env patterns | 7 (AWS, Anthropic, GitHub, OpenAI, DATABASE\_URL, `_SECRET`, `_TOKEN`, `_KEY`, `_PASSWORD` suffixes) |
-| Preserved env vars | `PATH`, `HOME`, `NODE_ENV`, `CI` (plus any listed in `preserveEnvVars`) |
+| Preserved env vars | `PATH`, `HOME`, `NODE_ENV`, `CI`, and any `PI_`-prefixed variable (plus any listed in `preserveEnvVars`) |
 | Hard-blocked paths | `~/.ssh/id_*`, `~/.aws/credentials`, `~/.netrc`, `**/.env`, `**/.env.local`, `**/.env.*.local`, GPG private keys, age keys, password-store |
 | Warn-only paths | `~/.ssh/config`, `~/.ssh/known_hosts`, `~/.aws/config`, `**/.env.production`, `**/.env.staging`, `**/.env.development`, `**/.env.test` |
 | Catastrophic patterns | 9: `rm-rf-root`, `rm-rf-home`, `fork-bomb`, `dd-to-block-device`, `stdout-to-block-device`, `mkfs`, `format-disk-mac`, `shred-root`, `chmod-777-root` |
