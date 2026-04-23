@@ -16,7 +16,8 @@ in the session footer:
 🛡 guard:env+action
 ```
 
-`env` means secret-environment filtering is active. `action` means
+`env` means the secretGuard bundle is active (path protection, output
+redaction, and related secret-guard behavior). `action` means
 catastrophic-command blocking is active. `off` means both guards are
 disabled (only possible if you have explicitly set `enabled: false` in your
 policy file).
@@ -27,7 +28,7 @@ policy file).
 
 | Guard | What it does |
 |-------|-------------|
-| **secretGuard / env** | Strips secret environment variables (AWS keys, API tokens, …) from every bash command before execution; `PI_`-prefixed variables are explicitly preserved as an operator escape hatch |
+| **secretGuard / env** | Env stripping is currently disabled; this guard slot is reserved for a future redesign of secret injection / filtering |
 | **secretGuard / path** | Hard-blocks reads/writes to sensitive paths (e.g. `~/.ssh/id_*`); warns for less-sensitive paths (e.g. `**/.env`) |
 | **secretGuard / redaction** | Scans tool output for secret-shaped strings and replaces them with `[REDACTED:<label>]` |
 | **actionGuard** | Immediately blocks catastrophic shell commands (`rm -rf /`, fork bombs, `mkfs`, …) without prompting |
@@ -84,7 +85,7 @@ auditLog : .pi/agent-guard-audit.jsonl
 | `system/session-start` | — | Session opened; guard loaded |
 | `system/session-shutdown` | — | Session closed normally |
 | `actionGuard/action-blocked` | `actionGuard.catastrophicPatterns` | A bash command matched a catastrophic pattern and was rejected |
-| `secretGuard/env-preamble-prepended` | `secretGuard.stripEnvPatterns` | Env-unset preamble injected before a bash command |
+| `secretGuard/env-preamble-prepended` | `secretGuard.stripEnvPatterns` | Reserved historical event type from the earlier env-unset implementation; not expected while env stripping is disabled |
 | `secretGuard/path-blocked` | `secretGuard.hardBlockPaths` | A file-tool call was hard-blocked (access denied) |
 | `secretGuard/path-warned` | `secretGuard.warnOnlyPaths` | A file-tool call was allowed but flagged as sensitive |
 | `secretGuard/redacted` | `secretGuard.redactionPatterns` | Secret-shaped text found in tool output and replaced |
@@ -164,21 +165,13 @@ The active policy is the merge of (highest to lowest precedence):
 }
 ```
 
-**`PI_` escape hatch for env filtering:**
+**Current env-stripping status:**
 
-Any environment variable whose name starts with `PI_` is preserved even if it
-would otherwise match one of `secretGuard.stripEnvPatterns`.
+Env stripping is intentionally disabled for now.
 
-Example:
-
-```sh
-export PI_GITHUB_TOKEN=...
-export PI_ANTHROPIC_API_KEY=...
-```
-
-This is intended as a simple operator-controlled allowlist/workaround for
-selected credentials. Use sparingly: any command that can read environment
-variables can also read `PI_`-prefixed ones.
+`secretGuard.stripEnvPatterns` and `preserveEnvVars` remain in the policy
+schema for future compatibility, but no `unset ...` preamble is currently
+prepended to bash commands.
 
 See `docs/agent-guard/02-policy.md` for the full schema.
 
@@ -207,11 +200,10 @@ coding agent sessions:
 - **Hard blocks on catastrophic or irreversible operations** — disk wipe,
   `rm -rf /`, fork bombs, and filesystem format commands are rejected
   immediately.
-- **Transparent secret hygiene** — AWS keys, API tokens, and other
-  secret-shaped environment variables are stripped before every bash command;
-  `PI_`-prefixed environment variables are intentionally preserved as an
-  explicit operator escape hatch; secret-shaped strings in tool output are
-  replaced before entering session history.
+- **Transparent secret hygiene** — secret-shaped strings in tool output are
+  replaced before entering session history, and sensitive file paths remain
+  protected. Env stripping is intentionally disabled for now pending a safer
+  redesign.
 - **Auditability** — every guard event is written to a structured JSONL log
   and surfaced through the `/agent-guard` operator command.
 
@@ -224,7 +216,7 @@ coding agent sessions:
 | `secretGuard.enabled` | `true` |
 | `actionGuard.enabled` | `true` |
 | Strip env patterns | 7 (AWS, Anthropic, GitHub, OpenAI, DATABASE\_URL, `_SECRET`, `_TOKEN`, `_KEY`, `_PASSWORD` suffixes) |
-| Preserved env vars | `PATH`, `HOME`, `NODE_ENV`, `CI`, and any `PI_`-prefixed variable (plus any listed in `preserveEnvVars`) |
+| Preserved env vars | Policy field retained for future compatibility; currently not applied because env stripping is disabled |
 | Hard-blocked paths | `~/.ssh/id_*`, `~/.aws/credentials`, `~/.netrc`, `**/.env`, `**/.env.local`, `**/.env.*.local`, GPG private keys, age keys, password-store |
 | Warn-only paths | `~/.ssh/config`, `~/.ssh/known_hosts`, `~/.aws/config`, `**/.env.production`, `**/.env.staging`, `**/.env.development`, `**/.env.test` |
 | Catastrophic patterns | 9: `rm-rf-root`, `rm-rf-home`, `fork-bomb`, `dd-to-block-device`, `stdout-to-block-device`, `mkfs`, `format-disk-mac`, `shred-root`, `chmod-777-root` |
@@ -246,7 +238,7 @@ accepted gaps, but explicitly scoped-out items:
 | Case-sensitive on Linux | `~/.SSH/id_rsa` (uppercase SSH) is not caught on Linux (minimatch default). |
 | `echo mkfs` is blocked | The `\bmkfs\b` pattern is intentionally conservative; any command containing `mkfs` as a standalone word is blocked. |
 | `~/.ssh/id_rsa.pub` is blocked | The `id_*` glob matches public keys too. Operators can add an exception in `.pi/agent-guard.json`. |
-| No password-manager injection | Secrets are stripped globally; the agent cannot perform tasks requiring live credentials. Password-manager-backed on-demand injection is a planned future upgrade. |
+| Env stripping disabled | Secret env vars are currently passed through unchanged; a safer allowlist / capability-based design is planned. |
 | No OS-level sandboxing | The guard uses pattern matching, not kernel-level isolation. A sandbox (`bwrap`, `seccomp`, `sandbox-exec`) is a planned future upgrade. |
 
 ---

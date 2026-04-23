@@ -3,10 +3,10 @@
  *
  * Wires all hooks for the agent-guard extension:
  *
- *   1. tool_call (bash)         — block catastrophic commands, prepend env-unset preamble
+ *   1. tool_call (bash)         — block catastrophic commands (env preamble currently disabled)
  *   2. tool_call (read/write/edit) — path guard via enforcePathGuard (path-guard.ts)
  *   3. tool_result              — output redaction via redactContent (redaction.ts)
- *   4. user_bash                — prepend env-unset preamble for !cmd / !!cmd paths
+ *   4. user_bash                — env preamble hook for !cmd / !!cmd paths (currently disabled)
  *   5. session_start            — set footer status badge, load policy
  *   6. session_shutdown         — clear footer status badge
  *   7. /agent-guard cmd         — show policy summary and recent audit log
@@ -14,7 +14,7 @@
  * All guard logic is delegated to sub-modules; no guard logic lives here.
  *
  * Sub-modules:
- *   - env.ts          — buildUnsetPreamble / buildFilteredEnv
+ *   - env.ts          — env helper stubs (env stripping currently disabled)
  *   - action-guard.ts — checkAction
  *   - path-guard.ts   — enforcePathGuard / classifyPath
  *   - redaction.ts    — redactContent  (added by Task 005)
@@ -139,7 +139,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   // -------------------------------------------------------------------------
-  // tool_call — bash: block catastrophic commands + env preamble
+  // tool_call — bash: block catastrophic commands + optional env preamble
   //             read/write/edit: path guard via enforcePathGuard
   // -------------------------------------------------------------------------
   pi.on("tool_call", async (event, ctx) => {
@@ -166,7 +166,7 @@ export default function (pi: ExtensionAPI) {
         }
       }
 
-      // 2. Prepend env-unset preamble.
+      // 2. Prepend env-unset preamble (currently disabled; helper returns "").
       if (policy.secretGuard.enabled) {
         const preamble = buildUnsetPreamble(policy);
         if (preamble) {
@@ -220,6 +220,7 @@ export default function (pi: ExtensionAPI) {
 
   // -------------------------------------------------------------------------
   // user_bash — prepend env-unset preamble for !cmd / !!cmd
+  //             (currently disabled; helper returns an empty string)
   // -------------------------------------------------------------------------
   pi.on("user_bash", (_event, __ctx) => {
     if (!policy || !policy.secretGuard.enabled) return undefined;
