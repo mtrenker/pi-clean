@@ -1,0 +1,21 @@
+{
+  "id": "001",
+  "name": "audit-current-fleet-widget-rendering-and-progress-data-flow",
+  "status": "done",
+  "engine": "claude",
+  "model": "sonnet",
+  "profile": "deep",
+  "thinking": "high",
+  "agent": "scout",
+  "depends": [],
+  "startedAt": "2026-04-16T09:17:22.030Z",
+  "completedAt": "2026-04-16T09:19:20.635Z",
+  "duration": 118605,
+  "retries": 0,
+  "pid": 79277,
+  "error": null,
+  "usage": {
+    "inputTokens": 12,
+    "outputTokens": 6162
+  }
+}

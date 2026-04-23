@@ -1,0 +1,27 @@
+{
+  "id": "2026-04-23T08-01-37-768Z-plan-improve-fleet-widget-alignment-and-progress-visibility",
+  "archivedAt": "2026-04-23T08:01:37.768Z",
+  "reason": "split-stale",
+  "title": "Plan: Improve Fleet Widget Alignment and Progress Visibility",
+  "taskCount": 7,
+  "archivePath": ".pi/archive/2026-04-23T08-01-37-768Z-plan-improve-fleet-widget-alignment-and-progress-visibility",
+  "taskFolders": [
+    "001-audit-current-fleet-widget-rendering-and-progress-data-flow",
+    "002-add-latest-progress-metadata-to-the-in-memory-and-aggregate-fleet-state",
+    "003-refactor-fleet-widget-row-rendering-into-fixed-width-columns-with-explicit-truncation",
+    "004-render-a-second-aligned-progress-line-under-each-task-row",
+    "005-update-demo-and-operator-facing-inspection-surfaces-for-the-new-widget-behavior",
+    "006-add-regression-tests-for-widget-rendering-and-progress-formatting",
+    "007-validate-end-to-end-behavior-and-document-operator-usage"
+  ],
+  "summary": {
+    "total": 7,
+    "pending": 0,
+    "running": 0,
+    "done": 7,
+    "failed": 0,
+    "retrying": 0,
+    "totalInputTokens": 1496343,
+    "totalOutputTokens": 65584
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "id": "003",
+  "name": "refactor-fleet-widget-row-rendering-into-fixed-width-columns-with-explicit-truncation",
+  "status": "done",
+  "engine": "codex",
+  "model": "gpt-5.3-codex",
+  "profile": "balanced",
+  "thinking": "medium",
+  "agent": "worker",
+  "depends": [
+    "001"
+  ],
+  "startedAt": "2026-04-16T09:19:20.652Z",
+  "completedAt": "2026-04-16T09:22:01.801Z",
+  "duration": 161150,
+  "retries": 0,
+  "pid": 79895,
+  "error": null,
+  "usage": {
+    "inputTokens": 279634,
+    "outputTokens": 7107
+  }
+}

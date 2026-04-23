@@ -1,0 +1,24 @@
+{
+  "id": "006",
+  "name": "add-regression-tests-for-widget-rendering-and-progress-formatting",
+  "status": "done",
+  "engine": "claude",
+  "model": "sonnet",
+  "profile": "deep",
+  "thinking": "high",
+  "agent": "worker",
+  "depends": [
+    "002",
+    "004"
+  ],
+  "startedAt": "2026-04-16T09:28:41.696Z",
+  "completedAt": "2026-04-16T09:29:56.584Z",
+  "duration": 74888,
+  "retries": 0,
+  "pid": 83053,
+  "error": null,
+  "usage": {
+    "inputTokens": 18,
+    "outputTokens": 4135
+  }
+}

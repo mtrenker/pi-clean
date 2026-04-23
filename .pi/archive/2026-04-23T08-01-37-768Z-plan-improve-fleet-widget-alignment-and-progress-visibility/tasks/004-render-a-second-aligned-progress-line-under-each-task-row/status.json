@@ -1,0 +1,24 @@
+{
+  "id": "004",
+  "name": "render-a-second-aligned-progress-line-under-each-task-row",
+  "status": "done",
+  "engine": "claude",
+  "model": "sonnet",
+  "profile": "balanced",
+  "thinking": "medium",
+  "agent": "worker",
+  "depends": [
+    "002",
+    "003"
+  ],
+  "startedAt": "2026-04-16T09:24:10.162Z",
+  "completedAt": "2026-04-16T09:28:41.682Z",
+  "duration": 271520,
+  "retries": 0,
+  "pid": 81477,
+  "error": null,
+  "usage": {
+    "inputTokens": 462,
+    "outputTokens": 14377
+  }
+}

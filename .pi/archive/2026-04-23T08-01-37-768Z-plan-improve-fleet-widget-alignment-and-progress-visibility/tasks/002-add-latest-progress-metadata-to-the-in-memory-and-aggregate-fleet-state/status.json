@@ -1,0 +1,23 @@
+{
+  "id": "002",
+  "name": "add-latest-progress-metadata-to-the-in-memory-and-aggregate-fleet-state",
+  "status": "done",
+  "engine": "codex",
+  "model": "gpt-5.3-codex",
+  "profile": "balanced",
+  "thinking": "medium",
+  "agent": "worker",
+  "depends": [
+    "001"
+  ],
+  "startedAt": "2026-04-16T09:19:20.642Z",
+  "completedAt": "2026-04-16T09:24:10.157Z",
+  "duration": 289515,
+  "retries": 0,
+  "pid": 79894,
+  "error": null,
+  "usage": {
+    "inputTokens": 1213525,
+    "outputTokens": 11509
+  }
+}

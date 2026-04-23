@@ -1,0 +1,192 @@
+{
+  "version": 1,
+  "summarizedAt": "2026-04-23T08:01:37.766Z",
+  "plan": {
+    "title": "Plan: Improve Fleet Widget Alignment and Progress Visibility",
+    "overview": "This plan extends the existing fleet CLI widget so task rows render with stable\ncolumn widths and subagent values line up vertically, while also showing the\nmost recent progress update directly beneath each task row with a timestamp and\nmessage. The work stays inside the current fleet extension and existing\ntask/progress files; it does not add new persistence formats, external\nintegrations, or authentication changes.\n\nBecause this is an internal tool change for a known team, the implementation\nfavors reliability and debuggability over novelty. The approach is to first\nconfirm how the widget currently formats rows and receives progress events, then\nthread the latest progress timestamp and message through the existing runtime\nstate, and finally update the widget rendering, demo coverage, and tests so the\nchange is easy to validate before rollout.\n\nThe main design decision is to keep the widget as a fixed-width text table\nrendered through `ctx.ui.setWidget()` in `extensions/fleet/widget.ts` rather\nthan introducing a new custom TUI component. Scope is limited to fleet\nrendering, progress metadata plumbing, tests, and lightweight operator\ndocumentation; it does not redesign `/fleet:status`, change orchestrator\nscheduling behavior, or introduce any new long-lived state beyond the current\n`progress.jsonl` and `state.json` data already used by fleet.",
+    "splitAt": "2026-04-16T09:17:13.457Z",
+    "taskCount": 7
+  },
+  "summary": {
+    "total": 7,
+    "pending": 0,
+    "running": 0,
+    "done": 7,
+    "failed": 0,
+    "retrying": 0,
+    "totalInputTokens": 1496343,
+    "totalOutputTokens": 65584
+  },
+  "tasks": [
+    {
+      "id": "001",
+      "name": "audit-current-fleet-widget-rendering-and-progress-data-flow",
+      "agent": "scout",
+      "engine": "claude",
+      "model": "sonnet",
+      "profile": "deep",
+      "thinking": "high",
+      "status": "done",
+      "depends": [],
+      "retries": 0,
+      "startedAt": "2026-04-16T09:17:22.030Z",
+      "completedAt": "2026-04-16T09:19:20.635Z",
+      "duration": 118605,
+      "error": null,
+      "progressEntries": 19,
+      "lastProgress": "---\n\n## Implementation Note — Fleet Widget: Progress Timestamps & Messages\n\n### 1. Current Row Layout\n\nEach task renders",
+      "usage": {
+        "inputTokens": 12,
+        "outputTokens": 6162
+      }
+    },
+    {
+      "id": "002",
+      "name": "add-latest-progress-metadata-to-the-in-memory-and-aggregate-fleet-state",
+      "agent": "worker",
+      "engine": "codex",
+      "model": "gpt-5.3-codex",
+      "profile": "balanced",
+      "thinking": "medium",
+      "status": "done",
+      "depends": [
+        "001"
+      ],
+      "retries": 0,
+      "startedAt": "2026-04-16T09:19:20.642Z",
+      "completedAt": "2026-04-16T09:24:10.157Z",
+      "duration": 289515,
+      "error": null,
+      "progressEntries": 0,
+      "lastProgress": null,
+      "usage": {
+        "inputTokens": 1213525,
+        "outputTokens": 11509
+      }
+    },
+    {
+      "id": "003",
+      "name": "refactor-fleet-widget-row-rendering-into-fixed-width-columns-with-explicit-truncation",
+      "agent": "worker",
+      "engine": "codex",
+      "model": "gpt-5.3-codex",
+      "profile": "balanced",
+      "thinking": "medium",
+      "status": "done",
+      "depends": [
+        "001"
+      ],
+      "retries": 0,
+      "startedAt": "2026-04-16T09:19:20.652Z",
+      "completedAt": "2026-04-16T09:22:01.801Z",
+      "duration": 161150,
+      "error": null,
+      "progressEntries": 0,
+      "lastProgress": null,
+      "usage": {
+        "inputTokens": 279634,
+        "outputTokens": 7107
+      }
+    },
+    {
+      "id": "004",
+      "name": "render-a-second-aligned-progress-line-under-each-task-row",
+      "agent": "worker",
+      "engine": "claude",
+      "model": "sonnet",
+      "profile": "balanced",
+      "thinking": "medium",
+      "status": "done",
+      "depends": [
+        "002",
+        "003"
+      ],
+      "retries": 0,
+      "startedAt": "2026-04-16T09:24:10.162Z",
+      "completedAt": "2026-04-16T09:28:41.682Z",
+      "duration": 271520,
+      "error": null,
+      "progressEntries": 68,
+      "lastProgress": "All done. Here's a summary of what was implemented:\n\n## Changes Made\n\n### `extensions/fleet/widget.ts`\n\n1. **Imported `R",
+      "usage": {
+        "inputTokens": 462,
+        "outputTokens": 14377
+      }
+    },
+    {
+      "id": "005",
+      "name": "update-demo-and-operator-facing-inspection-surfaces-for-the-new-widget-behavior",
+      "agent": "worker",
+      "engine": "pi",
+      "model": "anthropic/claude-sonnet-4-6",
+      "profile": "balanced",
+      "thinking": "medium",
+      "status": "done",
+      "depends": [
+        "002",
+        "004"
+      ],
+      "retries": 0,
+      "startedAt": "2026-04-16T09:28:41.691Z",
+      "completedAt": "2026-04-16T09:31:59.724Z",
+      "duration": 198033,
+      "error": null,
+      "progressEntries": 21,
+      "lastProgress": "Here is a summary of every change made and the reasoning behind each decision:\n\n---\n\n## Changes Made\n\n### `extensions/fl",
+      "usage": {
+        "inputTokens": 1744,
+        "outputTokens": 12461
+      }
+    },
+    {
+      "id": "006",
+      "name": "add-regression-tests-for-widget-rendering-and-progress-formatting",
+      "agent": "worker",
+      "engine": "claude",
+      "model": "sonnet",
+      "profile": "deep",
+      "thinking": "high",
+      "status": "done",
+      "depends": [
+        "002",
+        "004"
+      ],
+      "retries": 0,
+      "startedAt": "2026-04-16T09:28:41.696Z",
+      "completedAt": "2026-04-16T09:29:56.584Z",
+      "duration": 74888,
+      "error": null,
+      "progressEntries": 35,
+      "lastProgress": "All 6 regression tests in `extensions/fleet/widget.test.ts` now pass cleanly:\n\n1. **Fixed-width row alignment** — verifi",
+      "usage": {
+        "inputTokens": 18,
+        "outputTokens": 4135
+      }
+    },
+    {
+      "id": "007",
+      "name": "validate-end-to-end-behavior-and-document-operator-usage",
+      "agent": "reviewer",
+      "engine": "claude",
+      "model": "sonnet",
+      "profile": "balanced",
+      "thinking": "medium",
+      "status": "done",
+      "depends": [
+        "005",
+        "006"
+      ],
+      "retries": 0,
+      "startedAt": "2026-04-16T09:31:59.734Z",
+      "completedAt": "2026-04-16T09:35:09.393Z",
+      "duration": 189659,
+      "error": null,
+      "progressEntries": 38,
+      "lastProgress": "## Review Summary\n\n**All checks pass.** Here is the complete validation report:\n\n---\n\n### End-to-end validation\n\n**Tests",
+      "usage": {
+        "inputTokens": 948,
+        "outputTokens": 9833
+      }
+    }
+  ]
+}

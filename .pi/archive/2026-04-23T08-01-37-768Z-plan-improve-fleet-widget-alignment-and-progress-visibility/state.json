@@ -1,0 +1,141 @@
+{
+  "updatedAt": "2026-04-16T10:22:27.673Z",
+  "tasks": [
+    {
+      "id": "001",
+      "name": "audit-current-fleet-widget-rendering-and-progress-data-flow",
+      "agent": "scout",
+      "engine": "claude",
+      "model": "sonnet",
+      "status": "done",
+      "startedAt": "2026-04-16T09:17:22.030Z",
+      "completedAt": "2026-04-16T09:19:20.635Z",
+      "latestProgressAt": "2026-04-16T09:19:20.290Z",
+      "latestProgressMessage": "---\n\n## Implementation Note — Fleet Widget: Progress Timestamps & Messages\n\n### 1. Current Row Layout\n\nEach task renders",
+      "lastProgress": "---\n\n## Implementation Note — Fleet Widget: Progress Timestamps & Messages\n\n### 1. Current Row Layout\n\nEach task renders",
+      "blockedBy": null,
+      "usage": {
+        "inputTokens": 12,
+        "outputTokens": 6162
+      }
+    },
+    {
+      "id": "002",
+      "name": "add-latest-progress-metadata-to-the-in-memory-and-aggregate-fleet-state",
+      "agent": "worker",
+      "engine": "codex",
+      "model": "gpt-5.3-codex",
+      "status": "done",
+      "startedAt": "2026-04-16T09:19:20.642Z",
+      "completedAt": "2026-04-16T09:24:10.157Z",
+      "latestProgressAt": null,
+      "latestProgressMessage": null,
+      "lastProgress": null,
+      "blockedBy": null,
+      "usage": {
+        "inputTokens": 1213525,
+        "outputTokens": 11509
+      }
+    },
+    {
+      "id": "003",
+      "name": "refactor-fleet-widget-row-rendering-into-fixed-width-columns-with-explicit-truncation",
+      "agent": "worker",
+      "engine": "codex",
+      "model": "gpt-5.3-codex",
+      "status": "done",
+      "startedAt": "2026-04-16T09:19:20.652Z",
+      "completedAt": "2026-04-16T09:22:01.801Z",
+      "latestProgressAt": null,
+      "latestProgressMessage": null,
+      "lastProgress": null,
+      "blockedBy": null,
+      "usage": {
+        "inputTokens": 279634,
+        "outputTokens": 7107
+      }
+    },
+    {
+      "id": "004",
+      "name": "render-a-second-aligned-progress-line-under-each-task-row",
+      "agent": "worker",
+      "engine": "claude",
+      "model": "sonnet",
+      "status": "done",
+      "startedAt": "2026-04-16T09:24:10.162Z",
+      "completedAt": "2026-04-16T09:28:41.682Z",
+      "latestProgressAt": "2026-04-16T09:28:41.362Z",
+      "latestProgressMessage": "All done. Here's a summary of what was implemented:\n\n## Changes Made\n\n### `extensions/fleet/widget.ts`\n\n1. **Imported `R",
+      "lastProgress": "All done. Here's a summary of what was implemented:\n\n## Changes Made\n\n### `extensions/fleet/widget.ts`\n\n1. **Imported `R",
+      "blockedBy": null,
+      "usage": {
+        "inputTokens": 462,
+        "outputTokens": 14377
+      }
+    },
+    {
+      "id": "005",
+      "name": "update-demo-and-operator-facing-inspection-surfaces-for-the-new-widget-behavior",
+      "agent": "worker",
+      "engine": "pi",
+      "model": "anthropic/claude-sonnet-4-6",
+      "status": "done",
+      "startedAt": "2026-04-16T09:28:41.691Z",
+      "completedAt": "2026-04-16T09:31:59.724Z",
+      "latestProgressAt": "2026-04-16T09:31:47.081Z",
+      "latestProgressMessage": "Here is a summary of every change made and the reasoning behind each decision:\n\n---\n\n## Changes Made\n\n### `extensions/fl",
+      "lastProgress": "Here is a summary of every change made and the reasoning behind each decision:\n\n---\n\n## Changes Made\n\n### `extensions/fl",
+      "blockedBy": null,
+      "usage": {
+        "inputTokens": 1744,
+        "outputTokens": 12461
+      }
+    },
+    {
+      "id": "006",
+      "name": "add-regression-tests-for-widget-rendering-and-progress-formatting",
+      "agent": "worker",
+      "engine": "claude",
+      "model": "sonnet",
+      "status": "done",
+      "startedAt": "2026-04-16T09:28:41.696Z",
+      "completedAt": "2026-04-16T09:29:56.584Z",
+      "latestProgressAt": "2026-04-16T09:29:56.252Z",
+      "latestProgressMessage": "All 6 regression tests in `extensions/fleet/widget.test.ts` now pass cleanly:\n\n1. **Fixed-width row alignment** — verifi",
+      "lastProgress": "All 6 regression tests in `extensions/fleet/widget.test.ts` now pass cleanly:\n\n1. **Fixed-width row alignment** — verifi",
+      "blockedBy": null,
+      "usage": {
+        "inputTokens": 18,
+        "outputTokens": 4135
+      }
+    },
+    {
+      "id": "007",
+      "name": "validate-end-to-end-behavior-and-document-operator-usage",
+      "agent": "reviewer",
+      "engine": "claude",
+      "model": "sonnet",
+      "status": "done",
+      "startedAt": "2026-04-16T09:31:59.734Z",
+      "completedAt": "2026-04-16T09:35:09.393Z",
+      "latestProgressAt": "2026-04-16T09:35:08.763Z",
+      "latestProgressMessage": "## Review Summary\n\n**All checks pass.** Here is the complete validation report:\n\n---\n\n### End-to-end validation\n\n**Tests",
+      "lastProgress": "## Review Summary\n\n**All checks pass.** Here is the complete validation report:\n\n---\n\n### End-to-end validation\n\n**Tests",
+      "blockedBy": null,
+      "usage": {
+        "inputTokens": 948,
+        "outputTokens": 9833
+      }
+    }
+  ],
+  "summary": {
+    "total": 7,
+    "pending": 0,
+    "running": 0,
+    "done": 7,
+    "failed": 0,
+    "retrying": 0,
+    "totalInputTokens": 1496343,
+    "totalOutputTokens": 65584
+  }
+}
