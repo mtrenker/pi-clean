@@ -10,6 +10,10 @@ pi install git:git@github.com:mtrenker/pi-clean.git
 
 ## Extensions
 
+### 🔌 [Harness Delegate](extensions/harness-delegate/README.md)
+
+Delegates a single prompt from pi into Claude Code or Codex via their official CLIs, streams progress inline, and returns the final result to pi. Useful when you want pi orchestration but need execution to happen through vendor-first subscription tooling.
+
 ### 🚢 [Fleet](extensions/fleet/README.md)
 
 Runs multi-agent task execution across pi, Claude, and Codex, with PLAN.md splitting, a live fleet widget, task inspection, simulation/demo flows, and archive/status tooling.
@@ -53,6 +57,9 @@ pi-clean/
 │   ├── overlay.ts         # Visual overlay for headed mode
 │   ├── briefing.ts        # Mission briefing gate for domain trust
 │   └── briefing.html      # Briefing panel HTML template
+├── extensions/harness-delegate/
+│   ├── index.ts           # Single prompt delegation to Claude Code / Codex
+│   └── README.md          # Usage and behavior notes
 ├── extensions/fleet/      # Multi-agent task orchestration + live widget
 │   ├── index.ts           # Fleet commands, wiring, and tool registration
 │   ├── config.ts          # Fleet config loading from .pi/fleet.json
