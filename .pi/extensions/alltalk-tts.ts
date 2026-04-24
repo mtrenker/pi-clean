@@ -1,7 +1,8 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { StringEnum, Type } from "@mariozechner/pi-ai";
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 type TtsMode = "off" | "auto" | "manual";
@@ -19,6 +20,8 @@ interface AllTalkConfig {
 	stopPath?: string;
 	stopMethod: "POST" | "PUT";
 	requestEncoding: "json" | "form";
+	responseMode: "json_url" | "binary";
+	binaryFileExtension: string;
 	textField: string;
 	voiceField?: string;
 	defaultVoice?: string;
@@ -94,6 +97,8 @@ function loadConfig(cwd: string): AllTalkConfig {
 		stopPath: process.env.ALLTALK_TTS_STOP_PATH,
 		stopMethod: process.env.ALLTALK_TTS_STOP_METHOD as "POST" | "PUT" | undefined,
 		requestEncoding: process.env.ALLTALK_TTS_REQUEST_ENCODING as "json" | "form" | undefined,
+		responseMode: process.env.ALLTALK_TTS_RESPONSE_MODE as "json_url" | "binary" | undefined,
+		binaryFileExtension: process.env.ALLTALK_TTS_BINARY_FILE_EXTENSION,
 		textField: process.env.ALLTALK_TTS_TEXT_FIELD,
 		voiceField: process.env.ALLTALK_TTS_VOICE_FIELD,
 		defaultVoice: process.env.ALLTALK_TTS_DEFAULT_VOICE,
@@ -114,6 +119,8 @@ function loadConfig(cwd: string): AllTalkConfig {
 		stopPath: "/api/stop-generation",
 		stopMethod: "PUT",
 		requestEncoding: "form",
+		responseMode: "json_url",
+		binaryFileExtension: "wav",
 		textField: "text_input",
 		voiceField: "narrator_voice_gen",
 		defaultVoice: DEFAULT_VOICE,
@@ -136,6 +143,8 @@ function loadConfig(cwd: string): AllTalkConfig {
 		speakMethod: merged.speakMethod === "PUT" ? "PUT" : "POST",
 		stopMethod: merged.stopMethod === "POST" ? "POST" : "PUT",
 		requestEncoding: merged.requestEncoding === "json" ? "json" : "form",
+		responseMode: merged.responseMode === "binary" ? "binary" : "json_url",
+		binaryFileExtension: merged.binaryFileExtension?.trim() || "wav",
 		textField: merged.textField?.trim() || "text_input",
 		voiceField: merged.voiceField?.trim() || undefined,
 		charLimit: Number.isFinite(merged.charLimit) && merged.charLimit > 0 ? merged.charLimit : 200,
@@ -294,6 +303,13 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 		return undefined;
 	}
 
+	function createTempAudioFile(data: Uint8Array): string {
+		const ext = config.binaryFileExtension.replace(/^\./, "") || "wav";
+		const filePath = join(tmpdir(), `pi-tts-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`);
+		writeFileSync(filePath, data);
+		return filePath;
+	}
+
 	function startLocalPlayback(ctx: ExtensionContext, source: string) {
 		if (!config.autoPlay) return;
 		stopLocalPlayer();
@@ -364,8 +380,15 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 					const detail = (await response.text()).slice(0, 300).trim();
 					notifyAsyncFailure(
 						ctx,
-						`AllTalk speak failed (${response.status}${detail ? `: ${detail}` : ""})`,
+						`TTS speak failed (${response.status}${detail ? `: ${detail}` : ""})`,
 					);
+					return;
+				}
+
+				if (config.responseMode === "binary") {
+					const bytes = new Uint8Array(await response.arrayBuffer());
+					if (bytes.byteLength === 0) return;
+					startLocalPlayback(ctx, createTempAudioFile(bytes));
 					return;
 				}
 
@@ -383,7 +406,7 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 			})
 			.catch((error: unknown) => {
 				const message = error instanceof Error ? error.message : String(error);
-				notifyAsyncFailure(ctx, `AllTalk speak failed: ${message}`);
+				notifyAsyncFailure(ctx, `TTS speak failed: ${message}`);
 			});
 
 		return {
@@ -397,8 +420,9 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 
 	async function stopSpeech(ctx: ExtensionContext): Promise<string> {
 		refreshConfig(ctx);
+		stopLocalPlayer();
 		if (!config.stopPath) {
-			return "No stop endpoint configured.";
+			return "Stopped local playback.";
 		}
 
 		const url = joinUrl(config.baseUrl, config.stopPath);
@@ -412,15 +436,14 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 			throw new Error(`Stop failed (${response.status}${detail ? `: ${detail}` : ""})`);
 		}
 
-		stopLocalPlayer();
 		return "Requested TTS stop.";
 	}
 
 	pi.registerTool({
 		name: TOOL_NAME,
 		label: "Speak",
-		description: "Play brief spoken narration through AllTalk TTS. Use only for short summaries, warnings, status updates, or next steps. Never send code, logs, stack traces, or reasoning.",
-		promptSnippet: "Play short spoken narration that complements the written response via AllTalk TTS",
+		description: "Play brief spoken narration through a configured TTS API. Use only for short summaries, warnings, status updates, or next steps. Never send code, logs, stack traces, or reasoning.",
+		promptSnippet: "Play short spoken narration that complements the written response via the configured TTS API",
 		promptGuidelines: [
 			"Use speak only for brief spoken narration that complements the written response.",
 			"Use speak for meaningful conclusions, warnings, status updates, or next steps, not for code, stack traces, raw logs, long lists, or chain-of-thought.",
@@ -440,7 +463,7 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("tts", {
-		description: "Control AllTalk TTS: /tts on|off|mode <auto|manual|off>|test|stop|status|reload",
+		description: "Control TTS: /tts on|off|mode <auto|manual|off>|test|stop|status|reload",
 		handler: async (args, ctx) => {
 			const [commandRaw, valueRaw] = args.trim().split(/\s+/, 2);
 			const command = (commandRaw || "status").toLowerCase();
@@ -451,14 +474,14 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 					state.mode = "auto";
 					persistState();
 					applyState(ctx);
-					ctx.ui.notify("AllTalk TTS enabled (auto).", "info");
+					ctx.ui.notify("TTS enabled (auto).", "info");
 					return;
 				}
 				case "off": {
 					state.mode = "off";
 					persistState();
 					applyState(ctx);
-					ctx.ui.notify("AllTalk TTS disabled.", "info");
+					ctx.ui.notify("TTS disabled.", "info");
 					return;
 				}
 				case "mode": {
@@ -470,7 +493,7 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 					state.mode = mode;
 					persistState();
 					applyState(ctx);
-					ctx.ui.notify(`AllTalk TTS mode: ${mode}`, "info");
+					ctx.ui.notify(`TTS mode: ${mode}`, "info");
 					return;
 				}
 				case "voice": {
@@ -478,7 +501,7 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 					state.voice = voice ? voice : undefined;
 					persistState();
 					applyState(ctx);
-					ctx.ui.notify(state.voice ? `AllTalk TTS voice: ${state.voice}` : "Cleared TTS voice override.", "info");
+					ctx.ui.notify(state.voice ? `TTS voice: ${state.voice}` : "Cleared TTS voice override.", "info");
 					return;
 				}
 				case "test": {
@@ -499,7 +522,7 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 				case "reload": {
 					refreshConfig(ctx);
 					applyState(ctx);
-					ctx.ui.notify(`Reloaded AllTalk config from ${join(ctx.cwd, ".pi", "alltalk-tts.json")}`, "info");
+					ctx.ui.notify(`Reloaded TTS config from ${join(ctx.cwd, ".pi", "alltalk-tts.json")}`, "info");
 					return;
 				}
 				case "status":
@@ -512,6 +535,7 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 						`speakPath=${config.speakMethod} ${config.speakPath}`,
 						`stopPath=${config.stopPath ? `${config.stopMethod} ${config.stopPath}` : "(none)"}`,
 						`encoding=${config.requestEncoding}`,
+						`responseMode=${config.responseMode}`,
 					].join(" | ");
 					ctx.ui.notify(summary, "info");
 					return;
