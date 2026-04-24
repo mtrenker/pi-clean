@@ -2,7 +2,7 @@
   "baseUrl": "http://localhost:7851",
   "speakPath": "/api/tts-generate",
   "stopPath": "/api/stop-generation",
-  "textField": "text",
+  "textField": "text_input",
   "voiceField": "voice",
   "defaultVoice": "female_01.wav",
   "extraBody": {
