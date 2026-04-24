@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { StringEnum, Type } from "@mariozechner/pi-ai";
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -14,7 +15,10 @@ interface TtsState {
 interface AllTalkConfig {
 	baseUrl: string;
 	speakPath: string;
+	speakMethod: "POST" | "PUT";
 	stopPath?: string;
+	stopMethod: "POST" | "PUT";
+	requestEncoding: "json" | "form";
 	textField: string;
 	voiceField?: string;
 	defaultVoice?: string;
@@ -23,6 +27,9 @@ interface AllTalkConfig {
 	headers?: Record<string, string>;
 	charLimit: number;
 	dedupeWindowMs: number;
+	autoPlay: boolean;
+	playerCommand: string;
+	playerArgs: string[];
 }
 
 interface SpeakResult {
@@ -32,6 +39,14 @@ interface SpeakResult {
 	kind?: SpeakKind;
 	deduped?: boolean;
 	endpoint?: string;
+	playbackSource?: string;
+}
+
+interface AllTalkGenerateResponse {
+	status?: string;
+	output_file_path?: string;
+	output_file_url?: string;
+	output_cache_url?: string;
 }
 
 const TOOL_NAME = "speak";
@@ -75,7 +90,10 @@ function loadConfig(cwd: string): AllTalkConfig {
 	const envConfig: Partial<AllTalkConfig> = {
 		baseUrl: process.env.ALLTALK_TTS_BASE_URL,
 		speakPath: process.env.ALLTALK_TTS_SPEAK_PATH,
+		speakMethod: process.env.ALLTALK_TTS_SPEAK_METHOD as "POST" | "PUT" | undefined,
 		stopPath: process.env.ALLTALK_TTS_STOP_PATH,
+		stopMethod: process.env.ALLTALK_TTS_STOP_METHOD as "POST" | "PUT" | undefined,
+		requestEncoding: process.env.ALLTALK_TTS_REQUEST_ENCODING as "json" | "form" | undefined,
 		textField: process.env.ALLTALK_TTS_TEXT_FIELD,
 		voiceField: process.env.ALLTALK_TTS_VOICE_FIELD,
 		defaultVoice: process.env.ALLTALK_TTS_DEFAULT_VOICE,
@@ -84,20 +102,29 @@ function loadConfig(cwd: string): AllTalkConfig {
 		headers: parseJsonEnv<Record<string, string>>("ALLTALK_TTS_HEADERS_JSON"),
 		charLimit: process.env.ALLTALK_TTS_CHAR_LIMIT ? Number(process.env.ALLTALK_TTS_CHAR_LIMIT) : undefined,
 		dedupeWindowMs: process.env.ALLTALK_TTS_DEDUPE_WINDOW_MS ? Number(process.env.ALLTALK_TTS_DEDUPE_WINDOW_MS) : undefined,
+		autoPlay: process.env.ALLTALK_TTS_AUTO_PLAY ? process.env.ALLTALK_TTS_AUTO_PLAY === "true" : undefined,
+		playerCommand: process.env.ALLTALK_TTS_PLAYER_COMMAND,
+		playerArgs: parseJsonEnv<string[]>("ALLTALK_TTS_PLAYER_ARGS_JSON"),
 	};
 
 	const merged = {
 		baseUrl: "http://localhost:7851",
 		speakPath: "/api/tts-generate",
+		speakMethod: "POST",
 		stopPath: "/api/stop-generation",
-		textField: "text",
-		voiceField: "voice",
+		stopMethod: "PUT",
+		requestEncoding: "form",
+		textField: "text_input",
+		voiceField: "narrator_voice_gen",
 		defaultVoice: DEFAULT_VOICE,
 		extraBody: {},
 		stopBody: {},
 		headers: {},
 		charLimit: 200,
 		dedupeWindowMs: 10_000,
+		autoPlay: true,
+		playerCommand: "ffplay",
+		playerArgs: ["-nodisp", "-autoexit", "-loglevel", "error"],
 		...fileConfig,
 		...Object.fromEntries(Object.entries(envConfig).filter(([, value]) => value !== undefined)),
 	} satisfies AllTalkConfig;
@@ -106,10 +133,16 @@ function loadConfig(cwd: string): AllTalkConfig {
 		...merged,
 		speakPath: normalizePath(merged.speakPath, "/api/tts-generate"),
 		stopPath: merged.stopPath ? normalizePath(merged.stopPath, "/api/stop-generation") : undefined,
-		textField: merged.textField?.trim() || "text",
+		speakMethod: merged.speakMethod === "PUT" ? "PUT" : "POST",
+		stopMethod: merged.stopMethod === "POST" ? "POST" : "PUT",
+		requestEncoding: merged.requestEncoding === "json" ? "json" : "form",
+		textField: merged.textField?.trim() || "text_input",
 		voiceField: merged.voiceField?.trim() || undefined,
 		charLimit: Number.isFinite(merged.charLimit) && merged.charLimit > 0 ? merged.charLimit : 200,
 		dedupeWindowMs: Number.isFinite(merged.dedupeWindowMs) && merged.dedupeWindowMs >= 0 ? merged.dedupeWindowMs : 10_000,
+		autoPlay: merged.autoPlay !== false,
+		playerCommand: merged.playerCommand?.trim() || "ffplay",
+		playerArgs: Array.isArray(merged.playerArgs) ? merged.playerArgs.map(String) : ["-nodisp", "-autoexit", "-loglevel", "error"],
 	};
 }
 
@@ -160,6 +193,7 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 	let state: TtsState = { mode: DEFAULT_MODE, voice: DEFAULT_VOICE };
 	let config: AllTalkConfig = loadConfig(process.cwd());
 	let lastSpoken = { text: "", at: 0 };
+	let playerPid: number | undefined;
 
 	function refreshConfig(ctx?: ExtensionContext) {
 		config = loadConfig(ctx?.cwd ?? process.cwd());
@@ -199,11 +233,80 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 		return body;
 	}
 
+	function encodeFormBody(body: Record<string, unknown>): URLSearchParams {
+		const params = new URLSearchParams();
+		for (const [key, value] of Object.entries(body)) {
+			if (value === undefined || value === null) continue;
+			params.set(key, String(value));
+		}
+		return params;
+	}
+
+	function buildRequestInit(body: Record<string, unknown>, method: "POST" | "PUT"): RequestInit {
+		if (config.requestEncoding === "json") {
+			return {
+				method,
+				headers: {
+					"content-type": "application/json",
+					...(config.headers ?? {}),
+				},
+				body: JSON.stringify(body),
+			};
+		}
+
+		return {
+			method,
+			headers: {
+				"content-type": "application/x-www-form-urlencoded",
+				...(config.headers ?? {}),
+			},
+			body: encodeFormBody(body),
+		};
+	}
+
 	function notifyAsyncFailure(ctx: ExtensionContext, message: string) {
 		if (ctx.hasUI) {
 			ctx.ui.notify(message, "error");
 		} else {
 			console.error(`[alltalk-tts] ${message}`);
+		}
+	}
+
+	function stopLocalPlayer() {
+		if (!playerPid) return;
+		try {
+			process.kill(playerPid, "SIGTERM");
+		} catch {
+			// ignore stale pid
+		}
+		playerPid = undefined;
+	}
+
+	function resolvePlaybackSource(payload: AllTalkGenerateResponse): string | undefined {
+		const remotePath = payload.output_file_url ?? payload.output_cache_url;
+		if (typeof remotePath === "string" && remotePath.trim()) {
+			if (/^https?:\/\//.test(remotePath)) return remotePath;
+			return joinUrl(config.baseUrl, remotePath);
+		}
+		if (typeof payload.output_file_path === "string" && payload.output_file_path.trim()) {
+			return payload.output_file_path;
+		}
+		return undefined;
+	}
+
+	function startLocalPlayback(ctx: ExtensionContext, source: string) {
+		if (!config.autoPlay) return;
+		stopLocalPlayer();
+		try {
+			const child = spawn(config.playerCommand, [...config.playerArgs, source], {
+				detached: true,
+				stdio: "ignore",
+			});
+			playerPid = child.pid;
+			child.unref();
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			notifyAsyncFailure(ctx, `AllTalk playback failed: ${message}`);
 		}
 	}
 
@@ -255,21 +358,28 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 		const body = buildSpeakBody(spokenText);
 		remember(spokenText);
 
-		void fetch(url, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				...(config.headers ?? {}),
-			},
-			body: JSON.stringify(body),
-		})
+		void fetch(url, buildRequestInit(body, config.speakMethod))
 			.then(async (response) => {
-				if (response.ok) return;
-				const detail = (await response.text()).slice(0, 300).trim();
-				notifyAsyncFailure(
-					ctx,
-					`AllTalk speak failed (${response.status}${detail ? `: ${detail}` : ""})`,
-				);
+				if (!response.ok) {
+					const detail = (await response.text()).slice(0, 300).trim();
+					notifyAsyncFailure(
+						ctx,
+						`AllTalk speak failed (${response.status}${detail ? `: ${detail}` : ""})`,
+					);
+					return;
+				}
+
+				let payload: AllTalkGenerateResponse | undefined;
+				try {
+					payload = (await response.json()) as AllTalkGenerateResponse;
+				} catch {
+					return;
+				}
+
+				const playbackSource = resolvePlaybackSource(payload);
+				if (playbackSource) {
+					startLocalPlayback(ctx, playbackSource);
+				}
 			})
 			.catch((error: unknown) => {
 				const message = error instanceof Error ? error.message : String(error);
@@ -293,12 +403,7 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 
 		const url = joinUrl(config.baseUrl, config.stopPath);
 		const response = await fetch(url, {
-			method: "POST",
-			headers: {
-				"content-type": "application/json",
-				...(config.headers ?? {}),
-			},
-			body: JSON.stringify(config.stopBody ?? {}),
+			...buildRequestInit(config.stopBody ?? {}, config.stopMethod),
 			signal: ctx.signal,
 		});
 
@@ -307,6 +412,7 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 			throw new Error(`Stop failed (${response.status}${detail ? `: ${detail}` : ""})`);
 		}
 
+		stopLocalPlayer();
 		return "Requested TTS stop.";
 	}
 
@@ -403,8 +509,9 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 						`mode=${state.mode}`,
 						`voice=${state.voice ?? config.defaultVoice ?? "default"}`,
 						`baseUrl=${config.baseUrl}`,
-						`speakPath=${config.speakPath}`,
-						`stopPath=${config.stopPath ?? "(none)"}`,
+						`speakPath=${config.speakMethod} ${config.speakPath}`,
+						`stopPath=${config.stopPath ? `${config.stopMethod} ${config.stopPath}` : "(none)"}`,
+						`encoding=${config.requestEncoding}`,
 					].join(" | ");
 					ctx.ui.notify(summary, "info");
 					return;

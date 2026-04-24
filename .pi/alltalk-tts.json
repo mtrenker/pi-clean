@@ -1,16 +1,23 @@
 {
   "baseUrl": "http://localhost:7851",
   "speakPath": "/api/tts-generate",
+  "speakMethod": "POST",
   "stopPath": "/api/stop-generation",
+  "stopMethod": "PUT",
+  "requestEncoding": "form",
   "textField": "text_input",
-  "voiceField": "voice",
+  "voiceField": "narrator_voice_gen",
   "defaultVoice": "female_01.wav",
   "extraBody": {
     "language": "en",
-    "stream": true
+    "streaming": true,
+    "autoplay": true
   },
   "stopBody": {},
   "headers": {},
   "charLimit": 200,
-  "dedupeWindowMs": 10000
+  "dedupeWindowMs": 10000,
+  "autoPlay": true,
+  "playerCommand": "ffplay",
+  "playerArgs": ["-nodisp", "-autoexit", "-loglevel", "error"]
 }
