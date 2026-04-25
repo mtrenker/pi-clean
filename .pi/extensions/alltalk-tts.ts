@@ -56,6 +56,30 @@ interface VoiceListResponse {
 	voices?: string[];
 }
 
+const POCKET_TTS_VOICE_ALIASES: Record<string, string> = {
+	alba: "hf://kyutai/tts-voices/alba-mackenna/casual.wav",
+	anna: "hf://kyutai/tts-voices/vctk/p228_023_enhanced.wav",
+	azelma: "hf://kyutai/tts-voices/vctk/p303_023_enhanced.wav",
+	bill_boerst: "hf://kyutai/tts-voices/voice-zero/bill_boerst.wav",
+	caro_davy: "hf://kyutai/tts-voices/voice-zero/caro_davy.wav",
+	charles: "hf://kyutai/tts-voices/vctk/p254_023_enhanced.wav",
+	cosette: "hf://kyutai/tts-voices/expresso/ex04-ex02_confused_001_channel1_499s.wav",
+	eponine: "hf://kyutai/tts-voices/vctk/p262_023_enhanced.wav",
+	eve: "hf://kyutai/tts-voices/vctk/p361_023_enhanced.wav",
+	fantine: "hf://kyutai/tts-voices/vctk/p244_023_enhanced.wav",
+	george: "hf://kyutai/tts-voices/vctk/p315_023_enhanced.wav",
+	jane: "hf://kyutai/tts-voices/vctk/p339_023_enhanced.wav",
+	jean: "hf://kyutai/tts-voices/ears/p010/freeform_speech_01_enhanced.wav",
+	javert: "hf://kyutai/tts-voices/voice-donations/Butter.wav",
+	marius: "hf://kyutai/tts-voices/voice-donations/Selfie.wav",
+	mary: "hf://kyutai/tts-voices/vctk/p333_023_enhanced.wav",
+	michael: "hf://kyutai/tts-voices/vctk/p360_023_enhanced.wav",
+	paul: "hf://kyutai/tts-voices/vctk/p259_023_enhanced.wav",
+	peter_yearsley: "hf://kyutai/tts-voices/voice-zero/peter_yearsley.wav",
+	stuart_bell: "hf://kyutai/tts-voices/voice-zero/stuart_bell.wav",
+	vera: "hf://kyutai/tts-voices/vctk/p229_023_enhanced.wav",
+};
+
 const TOOL_NAME = "speak";
 const STATE_TYPE = "alltalk-tts-config";
 const DEFAULT_MODE: TtsMode = "off";
@@ -238,7 +262,7 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 			[config.textField]: text,
 		};
 
-		const voice = state.voice ?? config.defaultVoice;
+		const voice = normalizeVoiceForBackend(state.voice ?? config.defaultVoice);
 		if (voice && config.voiceField) {
 			body[config.voiceField] = voice;
 		}
@@ -307,7 +331,18 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 		return undefined;
 	}
 
+	function normalizeVoiceForBackend(voice: string | undefined): string | undefined {
+		const trimmed = voice?.trim();
+		if (!trimmed) return undefined;
+		if (config.voiceField !== "voice_url") return trimmed;
+		if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("hf://")) return trimmed;
+		return POCKET_TTS_VOICE_ALIASES[trimmed] ?? undefined;
+	}
+
 	async function fetchAvailableVoices(): Promise<string[]> {
+		if (config.voiceField === "voice_url") {
+			return Object.keys(POCKET_TTS_VOICE_ALIASES).sort();
+		}
 		const response = await fetch(joinUrl(config.baseUrl, "/v1/audio/voices"), {
 			headers: { ...(config.headers ?? {}) },
 		});
