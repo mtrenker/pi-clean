@@ -52,6 +52,10 @@ interface AllTalkGenerateResponse {
 	output_cache_url?: string;
 }
 
+interface VoiceListResponse {
+	voices?: string[];
+}
+
 const TOOL_NAME = "speak";
 const STATE_TYPE = "alltalk-tts-config";
 const DEFAULT_MODE: TtsMode = "off";
@@ -303,6 +307,18 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 		return undefined;
 	}
 
+	async function fetchAvailableVoices(): Promise<string[]> {
+		const response = await fetch(joinUrl(config.baseUrl, "/v1/audio/voices"), {
+			headers: { ...(config.headers ?? {}) },
+		});
+		if (!response.ok) {
+			const detail = (await response.text()).slice(0, 300).trim();
+			throw new Error(`Voice list failed (${response.status}${detail ? `: ${detail}` : ""})`);
+		}
+		const payload = (await response.json()) as VoiceListResponse;
+		return Array.isArray(payload.voices) ? payload.voices.map(String).sort() : [];
+	}
+
 	function createTempAudioFile(data: Uint8Array): string {
 		const ext = config.binaryFileExtension.replace(/^\./, "") || "wav";
 		const filePath = join(tmpdir(), `pi-tts-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`);
@@ -545,7 +561,7 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("say", {
-		description: "Speak text immediately via AllTalk TTS: /say <text>",
+		description: "Speak text immediately via TTS: /say <text>",
 		handler: async (args, ctx) => {
 			const text = args.trim();
 			if (!text) {
@@ -555,6 +571,54 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 
 			const result = queueSpeech(ctx, text, "summary", true);
 			ctx.ui.notify(result.message, "info");
+		},
+	});
+
+	pi.registerCommand("tts-voices", {
+		description: "List voices from the configured TTS backend",
+		handler: async (_args, ctx) => {
+			refreshConfig(ctx);
+			const voices = await fetchAvailableVoices();
+			if (voices.length === 0) {
+				ctx.ui.notify("No voices returned by the TTS backend.", "warning");
+				return;
+			}
+			ctx.ui.setEditorText(voices.join("\n"));
+			ctx.ui.notify(`Loaded ${voices.length} voices into the editor.`, "info");
+		},
+	});
+
+	pi.registerCommand("tts-audition", {
+		description: "Audition voices: /tts-audition voice1,voice2 [optional test phrase]",
+		handler: async (args, ctx) => {
+			refreshConfig(ctx);
+			const trimmed = args.trim();
+			if (!trimmed) {
+				ctx.ui.notify("Usage: /tts-audition voice1,voice2 [optional test phrase]", "warning");
+				return;
+			}
+
+			const [voicePart, ...phraseParts] = trimmed.split(/\s+/);
+			const voices = voicePart
+				.split(",")
+				.map((v) => v.trim())
+				.filter(Boolean);
+			if (voices.length === 0) {
+				ctx.ui.notify("Provide at least one voice name.", "warning");
+				return;
+			}
+
+			const phrase = phraseParts.join(" ").trim() || "Done. See the written response for details.";
+			const previousVoice = state.voice;
+			for (const voice of voices) {
+				state.voice = voice;
+				setStatus(ctx, state);
+				const result = queueSpeech(ctx, phrase, "status", true);
+				ctx.ui.notify(`${voice}: ${result.message}`, "info");
+				await new Promise((resolve) => setTimeout(resolve, 2500));
+			}
+			state.voice = previousVoice;
+			setStatus(ctx, state);
 		},
 	});
 
