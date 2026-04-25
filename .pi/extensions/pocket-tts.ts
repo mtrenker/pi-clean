@@ -13,7 +13,7 @@ interface TtsState {
 	voice?: string;
 }
 
-interface AllTalkConfig {
+interface TtsConfig {
 	baseUrl: string;
 	speakPath: string;
 	speakMethod: "POST" | "PUT";
@@ -45,7 +45,7 @@ interface SpeakResult {
 	playbackSource?: string;
 }
 
-interface AllTalkGenerateResponse {
+interface TtsGenerateResponse {
 	status?: string;
 	output_file_path?: string;
 	output_file_url?: string;
@@ -81,7 +81,10 @@ const POCKET_TTS_VOICE_ALIASES: Record<string, string> = {
 };
 
 const TOOL_NAME = "speak";
-const STATE_TYPE = "alltalk-tts-config";
+const STATE_TYPE = "pocket-tts-config";
+const LEGACY_STATE_TYPE = "alltalk-tts-config";
+const STATUS_KEY = "pocket-tts";
+const CONFIG_PATHS = [".pi/pocket-tts.json", ".pi/alltalk-tts.json"] as const;
 const DEFAULT_MODE: TtsMode = "off";
 const DEFAULT_VOICE = undefined;
 
@@ -91,7 +94,7 @@ function parseJsonEnv<T>(name: string): T | undefined {
 	try {
 		return JSON.parse(value) as T;
 	} catch (error) {
-		console.error(`[alltalk-tts] Failed to parse ${name}:`, error);
+		console.error(`[pocket-tts] Failed to parse ${name}:`, error);
 		return undefined;
 	}
 }
@@ -106,80 +109,87 @@ function joinUrl(baseUrl: string, path: string): string {
 	return `${baseUrl.replace(/\/$/, "")}${normalizePath(path, "/")}`;
 }
 
-function loadConfig(cwd: string): AllTalkConfig {
-	const configPath = join(cwd, ".pi", "alltalk-tts.json");
-	let fileConfig: Partial<AllTalkConfig> = {};
-
-	if (existsSync(configPath)) {
+function loadFirstJsonConfig<T>(cwd: string, relativePaths: readonly string[]): { path?: string; config: Partial<T> } {
+	for (const relativePath of relativePaths) {
+		const configPath = join(cwd, relativePath);
+		if (!existsSync(configPath)) continue;
 		try {
-			fileConfig = JSON.parse(readFileSync(configPath, "utf8")) as Partial<AllTalkConfig>;
+			return {
+				path: configPath,
+				config: JSON.parse(readFileSync(configPath, "utf8")) as Partial<T>,
+			};
 		} catch (error) {
-			console.error(`[alltalk-tts] Failed to parse ${configPath}:`, error);
+			console.error(`[pocket-tts] Failed to parse ${configPath}:`, error);
 		}
 	}
+	return { config: {} };
+}
 
-	const envConfig: Partial<AllTalkConfig> = {
-		baseUrl: process.env.ALLTALK_TTS_BASE_URL,
-		speakPath: process.env.ALLTALK_TTS_SPEAK_PATH,
-		speakMethod: process.env.ALLTALK_TTS_SPEAK_METHOD as "POST" | "PUT" | undefined,
-		stopPath: process.env.ALLTALK_TTS_STOP_PATH,
-		stopMethod: process.env.ALLTALK_TTS_STOP_METHOD as "POST" | "PUT" | undefined,
-		requestEncoding: process.env.ALLTALK_TTS_REQUEST_ENCODING as "json" | "form" | undefined,
-		responseMode: process.env.ALLTALK_TTS_RESPONSE_MODE as "json_url" | "binary" | undefined,
-		binaryFileExtension: process.env.ALLTALK_TTS_BINARY_FILE_EXTENSION,
-		textField: process.env.ALLTALK_TTS_TEXT_FIELD,
-		voiceField: process.env.ALLTALK_TTS_VOICE_FIELD,
-		defaultVoice: process.env.ALLTALK_TTS_DEFAULT_VOICE,
-		extraBody: parseJsonEnv<Record<string, unknown>>("ALLTALK_TTS_EXTRA_BODY_JSON"),
-		stopBody: parseJsonEnv<Record<string, unknown>>("ALLTALK_TTS_STOP_BODY_JSON"),
-		headers: parseJsonEnv<Record<string, string>>("ALLTALK_TTS_HEADERS_JSON"),
-		charLimit: process.env.ALLTALK_TTS_CHAR_LIMIT ? Number(process.env.ALLTALK_TTS_CHAR_LIMIT) : undefined,
-		dedupeWindowMs: process.env.ALLTALK_TTS_DEDUPE_WINDOW_MS ? Number(process.env.ALLTALK_TTS_DEDUPE_WINDOW_MS) : undefined,
-		autoPlay: process.env.ALLTALK_TTS_AUTO_PLAY ? process.env.ALLTALK_TTS_AUTO_PLAY === "true" : undefined,
-		playerCommand: process.env.ALLTALK_TTS_PLAYER_COMMAND,
-		playerArgs: parseJsonEnv<string[]>("ALLTALK_TTS_PLAYER_ARGS_JSON"),
+function loadConfig(cwd: string): TtsConfig {
+	const { config: fileConfig } = loadFirstJsonConfig<TtsConfig>(cwd, CONFIG_PATHS);
+
+	const envConfig: Partial<TtsConfig> = {
+		baseUrl: process.env.POCKET_TTS_BASE_URL ?? process.env.ALLTALK_TTS_BASE_URL,
+		speakPath: process.env.POCKET_TTS_SPEAK_PATH ?? process.env.ALLTALK_TTS_SPEAK_PATH,
+		speakMethod: (process.env.POCKET_TTS_SPEAK_METHOD ?? process.env.ALLTALK_TTS_SPEAK_METHOD) as "POST" | "PUT" | undefined,
+		stopPath: process.env.POCKET_TTS_STOP_PATH ?? process.env.ALLTALK_TTS_STOP_PATH,
+		stopMethod: (process.env.POCKET_TTS_STOP_METHOD ?? process.env.ALLTALK_TTS_STOP_METHOD) as "POST" | "PUT" | undefined,
+		requestEncoding: (process.env.POCKET_TTS_REQUEST_ENCODING ?? process.env.ALLTALK_TTS_REQUEST_ENCODING) as "json" | "form" | undefined,
+		responseMode: (process.env.POCKET_TTS_RESPONSE_MODE ?? process.env.ALLTALK_TTS_RESPONSE_MODE) as "json_url" | "binary" | undefined,
+		binaryFileExtension: process.env.POCKET_TTS_BINARY_FILE_EXTENSION ?? process.env.ALLTALK_TTS_BINARY_FILE_EXTENSION,
+		textField: process.env.POCKET_TTS_TEXT_FIELD ?? process.env.ALLTALK_TTS_TEXT_FIELD,
+		voiceField: process.env.POCKET_TTS_VOICE_FIELD ?? process.env.ALLTALK_TTS_VOICE_FIELD,
+		defaultVoice: process.env.POCKET_TTS_DEFAULT_VOICE ?? process.env.ALLTALK_TTS_DEFAULT_VOICE,
+		extraBody: parseJsonEnv<Record<string, unknown>>("POCKET_TTS_EXTRA_BODY_JSON") ?? parseJsonEnv<Record<string, unknown>>("ALLTALK_TTS_EXTRA_BODY_JSON"),
+		stopBody: parseJsonEnv<Record<string, unknown>>("POCKET_TTS_STOP_BODY_JSON") ?? parseJsonEnv<Record<string, unknown>>("ALLTALK_TTS_STOP_BODY_JSON"),
+		headers: parseJsonEnv<Record<string, string>>("POCKET_TTS_HEADERS_JSON") ?? parseJsonEnv<Record<string, string>>("ALLTALK_TTS_HEADERS_JSON"),
+		charLimit: process.env.POCKET_TTS_CHAR_LIMIT ? Number(process.env.POCKET_TTS_CHAR_LIMIT) : process.env.ALLTALK_TTS_CHAR_LIMIT ? Number(process.env.ALLTALK_TTS_CHAR_LIMIT) : undefined,
+		dedupeWindowMs: process.env.POCKET_TTS_DEDUPE_WINDOW_MS ? Number(process.env.POCKET_TTS_DEDUPE_WINDOW_MS) : process.env.ALLTALK_TTS_DEDUPE_WINDOW_MS ? Number(process.env.ALLTALK_TTS_DEDUPE_WINDOW_MS) : undefined,
+		autoPlay: process.env.POCKET_TTS_AUTO_PLAY ? process.env.POCKET_TTS_AUTO_PLAY === "true" : process.env.ALLTALK_TTS_AUTO_PLAY ? process.env.ALLTALK_TTS_AUTO_PLAY === "true" : undefined,
+		playerCommand: process.env.POCKET_TTS_PLAYER_COMMAND ?? process.env.ALLTALK_TTS_PLAYER_COMMAND,
+		playerArgs: parseJsonEnv<string[]>("POCKET_TTS_PLAYER_ARGS_JSON") ?? parseJsonEnv<string[]>("ALLTALK_TTS_PLAYER_ARGS_JSON"),
 	};
 
 	const merged = {
-		baseUrl: "http://localhost:7851",
-		speakPath: "/api/tts-generate",
+		baseUrl: "http://localhost:8881",
+		speakPath: "/tts",
 		speakMethod: "POST",
-		stopPath: "/api/stop-generation",
-		stopMethod: "PUT",
+		stopPath: undefined,
+		stopMethod: "POST",
 		requestEncoding: "form",
-		responseMode: "json_url",
+		responseMode: "binary",
 		binaryFileExtension: "wav",
-		textField: "text_input",
-		voiceField: "narrator_voice_gen",
-		defaultVoice: DEFAULT_VOICE,
+		textField: "text",
+		voiceField: "voice_url",
+		defaultVoice: "jane",
 		extraBody: {},
 		stopBody: {},
 		headers: {},
 		charLimit: 200,
 		dedupeWindowMs: 10_000,
 		autoPlay: true,
-		playerCommand: "ffplay",
-		playerArgs: ["-nodisp", "-autoexit", "-loglevel", "error"],
+		playerCommand: "mpv",
+		playerArgs: ["--no-video", "--really-quiet"],
 		...fileConfig,
 		...Object.fromEntries(Object.entries(envConfig).filter(([, value]) => value !== undefined)),
-	} satisfies AllTalkConfig;
+	} satisfies TtsConfig;
 
 	return {
 		...merged,
-		speakPath: normalizePath(merged.speakPath, "/api/tts-generate"),
-		stopPath: merged.stopPath ? normalizePath(merged.stopPath, "/api/stop-generation") : undefined,
+		speakPath: normalizePath(merged.speakPath, "/tts"),
+		stopPath: merged.stopPath ? normalizePath(merged.stopPath, "/") : undefined,
 		speakMethod: merged.speakMethod === "PUT" ? "PUT" : "POST",
 		stopMethod: merged.stopMethod === "POST" ? "POST" : "PUT",
 		requestEncoding: merged.requestEncoding === "json" ? "json" : "form",
 		responseMode: merged.responseMode === "binary" ? "binary" : "json_url",
 		binaryFileExtension: merged.binaryFileExtension?.trim() || "wav",
-		textField: merged.textField?.trim() || "text_input",
+		textField: merged.textField?.trim() || "text",
 		voiceField: merged.voiceField?.trim() || undefined,
 		charLimit: Number.isFinite(merged.charLimit) && merged.charLimit > 0 ? merged.charLimit : 200,
 		dedupeWindowMs: Number.isFinite(merged.dedupeWindowMs) && merged.dedupeWindowMs >= 0 ? merged.dedupeWindowMs : 10_000,
 		autoPlay: merged.autoPlay !== false,
-		playerCommand: merged.playerCommand?.trim() || "ffplay",
-		playerArgs: Array.isArray(merged.playerArgs) ? merged.playerArgs.map(String) : ["-nodisp", "-autoexit", "-loglevel", "error"],
+		playerCommand: merged.playerCommand?.trim() || "mpv",
+		playerArgs: Array.isArray(merged.playerArgs) ? merged.playerArgs.map(String) : ["--no-video", "--really-quiet"],
 	};
 }
 
@@ -208,7 +218,7 @@ function readLatestState(ctx: ExtensionContext): TtsState {
 	let restored: TtsState = { mode: DEFAULT_MODE, voice: DEFAULT_VOICE };
 
 	for (const entry of ctx.sessionManager.getBranch()) {
-		if (entry.type === "custom" && entry.customType === STATE_TYPE) {
+		if (entry.type === "custom" && (entry.customType === STATE_TYPE || entry.customType === LEGACY_STATE_TYPE)) {
 			const data = entry.data as Partial<TtsState> | undefined;
 			const mode = parseMode(data?.mode);
 			restored = {
@@ -221,14 +231,19 @@ function readLatestState(ctx: ExtensionContext): TtsState {
 	return restored;
 }
 
-function setStatus(ctx: ExtensionContext, state: TtsState) {
-	const suffix = state.voice ? ` (${state.voice})` : "";
-	ctx.ui.setStatus("alltalk-tts", `TTS: ${state.mode}${suffix}`);
+function getLoadedConfigPath(cwd: string): string {
+	const result = loadFirstJsonConfig<TtsConfig>(cwd, CONFIG_PATHS);
+	return result.path ?? join(cwd, CONFIG_PATHS[0]);
 }
 
-export default function alltalkTtsExtension(pi: ExtensionAPI) {
+function setStatus(ctx: ExtensionContext, state: TtsState) {
+	const suffix = state.voice ? ` (${state.voice})` : "";
+	ctx.ui.setStatus(STATUS_KEY, `TTS: ${state.mode}${suffix}`);
+}
+
+export default function pocketTtsExtension(pi: ExtensionAPI) {
 	let state: TtsState = { mode: DEFAULT_MODE, voice: DEFAULT_VOICE };
-	let config: AllTalkConfig = loadConfig(process.cwd());
+	let config: TtsConfig = loadConfig(process.cwd());
 	let lastSpoken = { text: "", at: 0 };
 	let playerPid: number | undefined;
 
@@ -305,7 +320,7 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 		if (ctx.hasUI) {
 			ctx.ui.notify(message, "error");
 		} else {
-			console.error(`[alltalk-tts] ${message}`);
+			console.error(`[pocket-tts] ${message}`);
 		}
 	}
 
@@ -319,7 +334,7 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 		playerPid = undefined;
 	}
 
-	function resolvePlaybackSource(payload: AllTalkGenerateResponse): string | undefined {
+	function resolvePlaybackSource(payload: TtsGenerateResponse): string | undefined {
 		const remotePath = payload.output_file_url ?? payload.output_cache_url;
 		if (typeof remotePath === "string" && remotePath.trim()) {
 			if (/^https?:\/\//.test(remotePath)) return remotePath;
@@ -373,7 +388,7 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 			child.unref();
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			notifyAsyncFailure(ctx, `AllTalk playback failed: ${message}`);
+			notifyAsyncFailure(ctx, `Pocket TTS playback failed: ${message}`);
 		}
 	}
 
@@ -391,7 +406,7 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 		refreshConfig(ctx);
 
 		if (!config.baseUrl?.trim()) {
-			throw new Error("AllTalk TTS is not configured: missing baseUrl");
+			throw new Error("Pocket TTS is not configured: missing baseUrl");
 		}
 
 		const spokenText = sanitizeSpokenText(text, config.charLimit);
@@ -443,9 +458,9 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 					return;
 				}
 
-				let payload: AllTalkGenerateResponse | undefined;
+				let payload: TtsGenerateResponse | undefined;
 				try {
-					payload = (await response.json()) as AllTalkGenerateResponse;
+					payload = (await response.json()) as TtsGenerateResponse;
 				} catch {
 					return;
 				}
@@ -573,7 +588,7 @@ export default function alltalkTtsExtension(pi: ExtensionAPI) {
 				case "reload": {
 					refreshConfig(ctx);
 					applyState(ctx);
-					ctx.ui.notify(`Reloaded TTS config from ${join(ctx.cwd, ".pi", "alltalk-tts.json")}`, "info");
+					ctx.ui.notify(`Reloaded TTS config from ${getLoadedConfigPath(ctx.cwd)}`, "info");
 					return;
 				}
 				case "status":

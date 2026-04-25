@@ -1,0 +1,19 @@
+{
+  "baseUrl": "http://localhost:8881",
+  "speakPath": "/tts",
+  "speakMethod": "POST",
+  "requestEncoding": "form",
+  "responseMode": "binary",
+  "binaryFileExtension": "wav",
+  "textField": "text",
+  "voiceField": "voice_url",
+  "defaultVoice": "jane",
+  "extraBody": {},
+  "stopBody": {},
+  "headers": {},
+  "charLimit": 200,
+  "dedupeWindowMs": 10000,
+  "autoPlay": true,
+  "playerCommand": "mpv",
+  "playerArgs": ["--no-video", "--really-quiet"]
+}
