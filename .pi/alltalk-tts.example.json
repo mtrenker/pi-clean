@@ -14,6 +14,6 @@
   "charLimit": 200,
   "dedupeWindowMs": 10000,
   "autoPlay": true,
-  "playerCommand": "ffplay",
-  "playerArgs": ["-nodisp", "-autoexit", "-loglevel", "error"]
+  "playerCommand": "mpv",
+  "playerArgs": ["--no-video", "--really-quiet"]
 }
