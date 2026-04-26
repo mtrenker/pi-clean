@@ -90,12 +90,12 @@ const DEFAULT_CONFIG: FleetConfig = {
       codex: { model: "gpt-5.3-codex-spark", thinking: "low" },
     },
     balanced: {
-      pi: { model: "anthropic/claude-sonnet-4-6", thinking: "medium" },
+      pi: { model: "openai-codex/gpt-5.4", thinking: "medium" },
       claude: { model: "sonnet", thinking: "medium" },
       codex: { model: "gpt-5.3-codex", thinking: "medium" },
     },
     deep: {
-      pi: { model: "anthropic/claude-sonnet-4-6", thinking: "high" },
+      pi: { model: "openai-codex/gpt-5.4", thinking: "high" },
       claude: { model: "sonnet", thinking: "high" },
       codex: { model: "gpt-5.4", thinking: "high" },
     },
@@ -271,6 +271,20 @@ function normalizeModelAlias(model: string, task: TaskProfileInput, warnings: st
   return replacement;
 }
 
+function enforcePiModelPolicy(model: string, task: TaskProfileInput, warnings: string[]): string {
+  const trimmed = model.trim();
+  if (task.engine !== "pi" || !trimmed) return trimmed;
+
+  const normalized = trimmed.toLowerCase();
+  if (!normalized.includes("claude")) return trimmed;
+
+  const replacement = "openai-codex/gpt-5.4";
+  warnings.push(
+    `Task ${task.id} ("${task.name}") requested PI model "${trimmed}", but PI must not use Claude models because they bypass the subscription-max path and bill per token; using "${replacement}" instead.`,
+  );
+  return replacement;
+}
+
 export function resolveTaskExecution(config: FleetConfig, task: TaskProfileInput): ResolvedTaskExecution {
   const warnings: string[] = [];
   const profileName = task.profile?.trim();
@@ -305,6 +319,8 @@ export function resolveTaskExecution(config: FleetConfig, task: TaskProfileInput
   if (!model) {
     model = normalizeModelAlias(config.defaults.model, task, warnings);
   }
+
+  model = enforcePiModelPolicy(model, task, warnings);
 
   if (!thinkingSource) {
     return { model, warnings };

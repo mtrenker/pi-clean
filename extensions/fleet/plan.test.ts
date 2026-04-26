@@ -37,7 +37,7 @@ The implementation keeps the existing fleet workflow, but introduces a canonical
 - **thinking**: medium
 - **agent**: worker
 - **depends**: 001
-- **description**: Wire \`extensions/fleet/index.ts\` to validate dependencies, reject malformed tasks, and normalize PLAN.md before creating folders. Acceptance requires /fleet:split to fail with explicit errors for bad plans and proceed successfully for valid plans.
+- **description**: Wire \`extensions/fleet/index.ts\` to validate dependencies, reject malformed tasks, and normalize PLAN.md before creating folders, using the parser behavior and canonical rendering from Task 001 as direct input. Acceptance requires /fleet:split to fail with explicit errors for bad plans and proceed successfully for valid plans.
 `;
 }
 
@@ -97,5 +97,17 @@ test("validatePlanDocument rejects dependency ordering violations", () => {
   assert.throws(
     () => validatePlanDocument(swapped),
     /depends on 001, but appears before it in PLAN\.md/,
+  );
+});
+
+test("validatePlanDocument rejects dependent tasks that do not explain upstream handoff usage", () => {
+  const markdown = validPlanMarkdown().replace(
+    "- **description**: Wire `extensions/fleet/index.ts` to validate dependencies, reject malformed tasks, and normalize PLAN.md before creating folders, using the parser behavior and canonical rendering from Task 001 as direct input. Acceptance requires /fleet:split to fail with explicit errors for bad plans and proceed successfully for valid plans.",
+    "- **description**: Wire `extensions/fleet/index.ts` to validate dependencies, reject malformed tasks, and normalize PLAN.md before creating folders. Acceptance requires /fleet:split to fail with explicit errors for bad plans and proceed successfully for valid plans.",
+  );
+  const doc = parsePlanDocument(markdown);
+  assert.throws(
+    () => validatePlanDocument(doc),
+    /must explain how it uses upstream dependency outputs and reference at least one dependency ID explicitly/,
   );
 });

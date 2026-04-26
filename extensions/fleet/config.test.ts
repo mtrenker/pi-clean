@@ -61,7 +61,7 @@ test("loadConfig deep-merges profile engine mappings with defaults", async () =>
 
     assert.equal(config.profiles?.deep?.codex?.model, "custom-codex");
     assert.equal(config.profiles?.deep?.claude?.model, "sonnet");
-    assert.equal(config.profiles?.deep?.pi?.model, "anthropic/claude-sonnet-4-6");
+    assert.equal(config.profiles?.deep?.pi?.model, "openai-codex/gpt-5.4");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -136,6 +136,47 @@ test("resolveTaskExecution remaps deprecated OpenAI model aliases to supported 5
       model: "gpt-5.2",
     });
     assert.equal(genericResolved.model, "gpt-5.4");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("resolveTaskExecution rejects Claude-family models for the pi engine", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-fleet-config-"));
+
+  try {
+    const config = await loadConfig(root);
+
+    const explicitClaudeModel = resolveTaskExecution(config, {
+      id: "005",
+      name: "Use pi with an explicit Claude model",
+      engine: "pi",
+      model: "anthropic/claude-sonnet-4-6",
+    });
+    assert.equal(explicitClaudeModel.model, "openai-codex/gpt-5.4");
+    assert.match(explicitClaudeModel.warnings[0] ?? "", /PI must not use Claude models/i);
+
+    const profileClaudeModel = resolveTaskExecution(
+      {
+        ...config,
+        profiles: {
+          ...(config.profiles ?? {}),
+          balanced: {
+            ...(config.profiles?.balanced ?? {}),
+            pi: { model: "anthropic/claude-sonnet-4-6", thinking: "medium" },
+          },
+        },
+      },
+      {
+        id: "006",
+        name: "Use pi balanced profile with a Claude override",
+        engine: "pi",
+        model: "",
+        profile: "balanced",
+      },
+    );
+    assert.equal(profileClaudeModel.model, "openai-codex/gpt-5.4");
+    assert.match(profileClaudeModel.warnings[0] ?? "", /PI must not use Claude models/i);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

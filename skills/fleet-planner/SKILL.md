@@ -366,6 +366,7 @@ boundaries — what is and is not included.>
 - **Name the files, modules, or systems** being created or changed.
 - **State the acceptance criterion** or definition of done.
 - **Reference dependencies explicitly** if they affect implementation choices.
+- For any task with `depends`, **say how it uses upstream outputs** and name at least one dependency ID in the description (for example: "Use Task 001's findings..." or "Build on the API contract from Task 002...").
 - **Annotate skipped concerns** at spike/mvp depth with `⚠ skipped (depth): reason`.
 
 ### Agent selection guide

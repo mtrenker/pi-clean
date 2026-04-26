@@ -53,13 +53,49 @@ function progressPath(cwd: string, id: string, name: string): string {
   return join(taskDir(cwd, id, name), "progress.jsonl");
 }
 
+async function findTaskFolderNameById(cwd: string, id: string): Promise<string | null> {
+  const tasksDir = join(cwd, ".pi", "tasks");
+
+  let entries: string[];
+  try {
+    entries = await readdir(tasksDir);
+  } catch {
+    return null;
+  }
+
+  const prefix = `${id}-`;
+  return entries.find((entry) => entry.startsWith(prefix)) ?? null;
+}
+
+async function renderDependencyHandoff(cwd: string, spec: TaskSpec): Promise<string> {
+  if (spec.depends.length === 0) {
+    return "This task has no upstream task dependencies.";
+  }
+
+  const blocks = await Promise.all(
+    spec.depends.map(async (dep) => {
+      const folderName = await findTaskFolderNameById(cwd, dep);
+      const taskDirRel = folderName ? `.pi/tasks/${folderName}` : `.pi/tasks/${dep}-<slug>`;
+      return `### Upstream Task ${dep}
+- Read \`${taskDirRel}/task.md\` for the original scope, required deliverable, and any file paths it was supposed to touch.
+- Read \`${taskDirRel}/status.json\` to confirm whether the task completed successfully and when.
+- Read \`${taskDirRel}/progress.jsonl\` for concise execution notes and intermediate findings.
+- Read \`${taskDirRel}/output.jsonl\` for the raw engine transcript and final summary.
+- Reuse concrete outputs from this dependency instead of rediscovering context. If it created files, changed APIs, made decisions, or identified constraints, treat those as authoritative inputs for your work and reference them in your own progress updates.`;
+    }),
+  );
+
+  return blocks.join("\n\n");
+}
+
 // ── task.md template ──────────────────────────────────────────────────────────
 
-function renderTaskMd(spec: TaskSpec): string {
+async function renderTaskMd(cwd: string, spec: TaskSpec): Promise<string> {
   const depsList =
     spec.depends.length === 0
       ? "None"
       : spec.depends.map((d) => `- ${d}`).join("\n");
+  const dependencyHandoff = await renderDependencyHandoff(cwd, spec);
   const profileLine = spec.profile ? `\n- **profile**: ${spec.profile}` : "";
   const thinkingLine = spec.thinking ? `\n- **thinking**: ${spec.thinking}` : "";
   const taskDirRel = `.pi/tasks/${spec.id}-${spec.slug}`;
@@ -76,6 +112,11 @@ function renderTaskMd(spec: TaskSpec): string {
 
 ## Dependencies
 ${depsList}
+
+## Dependency Handoff
+Before starting substantive work, inspect every upstream task referenced above and use its outputs as direct inputs to this task. Do not redo discovery work that an upstream task already completed unless its output is missing or clearly insufficient.
+
+${dependencyHandoff}
 
 ## Requirements
 ${spec.description}
@@ -107,7 +148,7 @@ export async function createTaskFolder(cwd: string, spec: TaskSpec): Promise<voi
   await mkdir(dir, { recursive: true });
 
   // Write task.md
-  await writeFile(join(dir, "task.md"), renderTaskMd(spec), "utf-8");
+  await writeFile(join(dir, "task.md"), await renderTaskMd(cwd, spec), "utf-8");
 
   // Write initial status.json
   const initialState: TaskState = {
@@ -146,7 +187,7 @@ export async function syncTaskFolder(cwd: string, spec: TaskSpec): Promise<void>
   const dir = taskDir(cwd, spec.id, spec.slug);
   await mkdir(dir, { recursive: true });
 
-  await writeFile(join(dir, "task.md"), renderTaskMd(spec), "utf-8");
+  await writeFile(join(dir, "task.md"), await renderTaskMd(cwd, spec), "utf-8");
 
   let state: TaskState;
   try {

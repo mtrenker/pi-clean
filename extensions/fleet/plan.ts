@@ -156,6 +156,24 @@ function hasAcceptanceLanguage(description: string): boolean {
   );
 }
 
+function referencesDependencyOutputs(description: string, depends: string[]): boolean {
+  if (depends.length === 0) return true;
+
+  const mentionsDependencyId = depends.some((dep) => {
+    const patterns = [
+      new RegExp(`\\b${escapeRegex(dep)}\\b`),
+      new RegExp(`\\btask\\s+${escapeRegex(dep)}\\b`, "i"),
+    ];
+    return patterns.some((pattern) => pattern.test(description));
+  });
+
+  if (!mentionsDependencyId) return false;
+
+  return /\b(use|reuse|build on|based on|consume|apply|carry forward|take as input|using the output|using output|using findings|using context|upstream|artifact|handoff|from task)\b/i.test(
+    description,
+  );
+}
+
 function compareTaskId(a: TaskSpec, b: TaskSpec): number {
   const an = Number.parseInt(a.id, 10);
   const bn = Number.parseInt(b.id, 10);
@@ -403,6 +421,12 @@ export function validatePlanDocument(document: PlanDocument): void {
 
     if (!hasAcceptanceLanguage(task.description)) {
       errors.push(`${prefix}: description should include explicit acceptance criteria or test/verification language.`);
+    }
+
+    if (!referencesDependencyOutputs(task.description, task.depends)) {
+      errors.push(
+        `${prefix}: description must explain how it uses upstream dependency outputs and reference at least one dependency ID explicitly.`,
+      );
     }
   }
 
