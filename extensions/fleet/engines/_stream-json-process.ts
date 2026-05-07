@@ -17,7 +17,9 @@ import type { Usage, EngineResult, EngineProcess } from "./types.js";
  * Expected stream events:
  *   { type: "assistant", message: { content: Array<{type, text?, ...}> } }
  *   { type: "result",    subtype: "success"|"error_...", result: "...",
- *                        usage: { input_tokens, output_tokens } }
+ *                        usage: { input_tokens, output_tokens,
+ *                                 cache_creation_input_tokens?,
+ *                                 cache_read_input_tokens? } }
  */
 export class StreamJsonEngineProcess implements EngineProcess {
   readonly pid: number;
@@ -29,7 +31,7 @@ export class StreamJsonEngineProcess implements EngineProcess {
   private completed = false;
   private killTimer: ReturnType<typeof setTimeout> | undefined;
   private lastProgress = "";
-  private lastUsage: Usage = { inputTokens: 0, outputTokens: 0 };
+  private accumulatedUsage: Usage = { inputTokens: 0, outputTokens: 0 };
 
   constructor(proc: ChildProcess, outputJsonlPath: string) {
     this.proc = proc;
@@ -113,12 +115,12 @@ export class StreamJsonEngineProcess implements EngineProcess {
 
         const message = evt["message"] as Record<string, unknown> | undefined;
         const usageRaw = message?.["usage"] as Record<string, number> | undefined;
-        this.emitUsage(usageRaw);
+        this.emitIncrementalUsage(usageRaw);
         break;
       }
       case "result": {
         const usageRaw = evt["usage"] as Record<string, number> | undefined;
-        this.emitUsage(usageRaw);
+        this.emitAggregateUsage(usageRaw);
         break;
       }
     }
@@ -131,27 +133,89 @@ export class StreamJsonEngineProcess implements EngineProcess {
     for (const cb of this.progressCbs) cb(trimmed);
   }
 
-  private emitUsage(usageRaw: Record<string, number> | undefined): void {
+  private emitIncrementalUsage(usageRaw: Record<string, number> | undefined): void {
     if (!usageRaw) return;
 
-    const usage: Usage = {
-      inputTokens: Math.max(this.lastUsage.inputTokens, usageRaw["input_tokens"] ?? 0),
-      outputTokens: Math.max(this.lastUsage.outputTokens, usageRaw["output_tokens"] ?? 0),
-    };
+    const delta = parseStreamUsage(usageRaw);
+    if (usageDeltaIsZero(delta)) return;
 
-    if (
-      usage.inputTokens === this.lastUsage.inputTokens &&
-      usage.outputTokens === this.lastUsage.outputTokens
-    ) {
-      return;
-    }
+    this.accumulatedUsage = addUsage(this.accumulatedUsage, delta);
+    for (const cb of this.usageCbs) cb({ ...this.accumulatedUsage });
+  }
 
-    this.lastUsage = usage;
-    for (const cb of this.usageCbs) cb(usage);
+  private emitAggregateUsage(usageRaw: Record<string, number> | undefined): void {
+    if (!usageRaw) return;
+
+    const aggregate = parseStreamUsage(usageRaw);
+    const next = maxUsage(this.accumulatedUsage, aggregate);
+    if (usageEquals(next, this.accumulatedUsage)) return;
+
+    this.accumulatedUsage = next;
+    for (const cb of this.usageCbs) cb({ ...this.accumulatedUsage });
   }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+function parseStreamUsage(usageRaw: Record<string, number>): Usage {
+  const usage: Usage = {
+    inputTokens: usageRaw["input_tokens"] ?? 0,
+    outputTokens: usageRaw["output_tokens"] ?? 0,
+  };
+
+  const cacheCreation = usageRaw["cache_creation_input_tokens"] ?? 0;
+  const cacheRead = usageRaw["cache_read_input_tokens"] ?? 0;
+  if (cacheCreation > 0) usage.cacheCreationInputTokens = cacheCreation;
+  if (cacheRead > 0) usage.cacheReadInputTokens = cacheRead;
+
+  return usage;
+}
+
+function usageDeltaIsZero(usage: Usage): boolean {
+  return (
+    usage.inputTokens === 0 &&
+    usage.outputTokens === 0 &&
+    (usage.cacheCreationInputTokens ?? 0) === 0 &&
+    (usage.cacheReadInputTokens ?? 0) === 0
+  );
+}
+
+function addUsage(left: Usage, right: Usage): Usage {
+  const next: Usage = {
+    inputTokens: left.inputTokens + right.inputTokens,
+    outputTokens: left.outputTokens + right.outputTokens,
+  };
+
+  const cacheCreation = (left.cacheCreationInputTokens ?? 0) + (right.cacheCreationInputTokens ?? 0);
+  const cacheRead = (left.cacheReadInputTokens ?? 0) + (right.cacheReadInputTokens ?? 0);
+  if (cacheCreation > 0) next.cacheCreationInputTokens = cacheCreation;
+  if (cacheRead > 0) next.cacheReadInputTokens = cacheRead;
+
+  return next;
+}
+
+function maxUsage(left: Usage, right: Usage): Usage {
+  const next: Usage = {
+    inputTokens: Math.max(left.inputTokens, right.inputTokens),
+    outputTokens: Math.max(left.outputTokens, right.outputTokens),
+  };
+
+  const cacheCreation = Math.max(left.cacheCreationInputTokens ?? 0, right.cacheCreationInputTokens ?? 0);
+  const cacheRead = Math.max(left.cacheReadInputTokens ?? 0, right.cacheReadInputTokens ?? 0);
+  if (cacheCreation > 0) next.cacheCreationInputTokens = cacheCreation;
+  if (cacheRead > 0) next.cacheReadInputTokens = cacheRead;
+
+  return next;
+}
+
+function usageEquals(left: Usage, right: Usage): boolean {
+  return (
+    left.inputTokens === right.inputTokens &&
+    left.outputTokens === right.outputTokens &&
+    (left.cacheCreationInputTokens ?? 0) === (right.cacheCreationInputTokens ?? 0) &&
+    (left.cacheReadInputTokens ?? 0) === (right.cacheReadInputTokens ?? 0)
+  );
+}
 
 /**
  * Extract a human-readable progress string from an `assistant` stream event.

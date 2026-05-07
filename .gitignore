@@ -14,9 +14,10 @@ lockfile-verification-report.json
 install-scripts-report.json
 all-packages.txt
 
-# Fleet runtime artifacts (machine-specific, do not commit)
+# Fleet/runtime artifacts (machine-specific, do not commit)
 PLAN.md
 .pi/tasks/
+.pi/*.jsonl
 
 # Pi project-local packages (if using pi install -l)
 .pi/npm/

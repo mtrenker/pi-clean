@@ -3,6 +3,7 @@ import { join } from "path";
 import { Key, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@mariozechner/pi-tui";
 import type { TaskState } from "./task.js";
 import { listTasks } from "./task.js";
+import { totalUsageTokens } from "./engines/types.js";
 
 type Screen = "overview" | "progress" | "output" | "task" | "recovery";
 
@@ -20,7 +21,7 @@ async function loadScreen(root: string, task: TaskState, screen: Screen): Promis
   const dir = join(root, ".pi", "tasks", `${task.id}-${task.name}`);
   switch (screen) {
     case "overview": {
-      const total = task.usage.inputTokens + task.usage.outputTokens;
+      const total = totalUsageTokens(task.usage);
       const blocked = task.depends.length > 0 ? task.depends.join(", ") : "none";
 
       // Derive latest-progress fields directly from progress.jsonl so an
@@ -65,6 +66,8 @@ async function loadScreen(root: string, task: TaskState, screen: Screen): Promis
         `error:       ${task.error ?? "-"}`,
         `tokens:      in ${task.usage.inputTokens} / out ${
           task.usage.outputTokens
+        } / cache write ${task.usage.cacheCreationInputTokens ?? 0} / cache read ${
+          task.usage.cacheReadInputTokens ?? 0
         } / total ${total}`,
         "",
         `── latest progress (from progress.jsonl) ──`,

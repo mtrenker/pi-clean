@@ -32,7 +32,9 @@ import { handleFailure } from "./recovery.js";
 import { FleetWidget } from "./widget.js";
 import { createDemoRoot, cleanupDemoRoot, presetConfig, type DemoPreset } from "./demo.js";
 import { openFleetInspector } from "./inspect.js";
+import { extractClaudeUsageFromJsonl } from "./engines/claude-usage.js";
 import { extractLatestCodexUsageFromJsonl } from "./engines/codex-usage.js";
+import { totalUsageTokens, type Usage } from "./engines/types.js";
 
 // ── Module-level singletons ───────────────────────────────────────────────────
 
@@ -94,15 +96,12 @@ async function maybeOfferArchiveCommit(
   }
 }
 
-async function backfillCodexUsageFromOutput(cwd: string): Promise<{ updated: number; scanned: number }> {
+async function backfillUsageFromOutput(cwd: string): Promise<{ updated: number; scanned: number }> {
   const tasks = await listTasks(cwd);
   let updated = 0;
   let scanned = 0;
 
   for (const task of tasks) {
-    if (task.engine !== "codex") continue;
-    scanned++;
-
     const outputPath = path.join(taskDir(cwd, task.id, task.name), "output.jsonl");
     let content: string;
     try {
@@ -111,13 +110,11 @@ async function backfillCodexUsageFromOutput(cwd: string): Promise<{ updated: num
       continue;
     }
 
-    const usage = extractLatestCodexUsageFromJsonl(content);
+    const usage = extractUsageForEngine(task.engine, content);
     if (!usage) continue;
+    scanned++;
 
-    if (
-      usage.inputTokens === task.usage.inputTokens &&
-      usage.outputTokens === task.usage.outputTokens
-    ) {
+    if (usageEquals(usage, task.usage)) {
       continue;
     }
 
@@ -133,6 +130,31 @@ async function backfillCodexUsageFromOutput(cwd: string): Promise<{ updated: num
   }
 
   return { updated, scanned };
+}
+
+function extractUsageForEngine(engine: string, content: string): Usage | null {
+  switch (engine) {
+    case "claude":
+      return extractClaudeUsageFromJsonl(content);
+    case "codex":
+      return extractLatestCodexUsageFromJsonl(content);
+    default:
+      return null;
+  }
+}
+
+function usageEquals(left: Usage, right: Usage): boolean {
+  return (
+    left.inputTokens === right.inputTokens &&
+    left.outputTokens === right.outputTokens &&
+    (left.cacheCreationInputTokens ?? 0) === (right.cacheCreationInputTokens ?? 0) &&
+    (left.cacheReadInputTokens ?? 0) === (right.cacheReadInputTokens ?? 0)
+  );
+}
+
+function formatUsageTokens(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  return `${(tokens / 1000).toFixed(1)}k`;
 }
 
 // ── Extension factory ─────────────────────────────────────────────────────────
@@ -293,8 +315,8 @@ const fleetExtension: ExtensionFactory = (pi) => {
       }
 
       const lines = filtered.map((t) => {
-        const tokens = t.usage.inputTokens + t.usage.outputTokens;
-        const tokenStr = tokens > 0 ? ` | ${(tokens / 1000).toFixed(1)}k tokens` : "";
+        const tokens = totalUsageTokens(t.usage);
+        const tokenStr = tokens > 0 ? ` | ${formatUsageTokens(tokens)} tokens` : "";
         const thinkingStr = t.thinking ? `:${t.thinking}` : "";
         const profileStr = t.profile ? ` [${t.profile}]` : "";
         return `${t.status.padEnd(10)} ${t.id}-${t.name.padEnd(25)} ${t.engine}/${t.model}${thinkingStr}${profileStr}${tokenStr}`;
@@ -611,10 +633,10 @@ const fleetExtension: ExtensionFactory = (pi) => {
 
         const lines = tasks.map((t) => {
           const symbol = statusSymbol[t.status] ?? "?";
-          const tokens = t.usage.inputTokens + t.usage.outputTokens;
+          const tokens = totalUsageTokens(t.usage);
           const tokenStr =
             tokens > 0
-              ? ` ${(tokens / 1000).toFixed(1)}k tokens`
+              ? ` ${formatUsageTokens(tokens)} tokens`
               : "";
           const taskLabel = `${t.id}-${t.name}`.padEnd(26);
           const statusLabel = t.status.padEnd(9);
@@ -640,7 +662,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
   // ── /fleet:repair-usage ───────────────────────────────────────────────────
 
   pi.registerCommand("fleet:repair-usage", {
-    description: "Backfill missing token usage from saved output.jsonl history",
+    description: "Backfill missing Claude/Codex token usage from saved output.jsonl history",
     async handler(_args, ctx) {
       try {
         if (hasActiveExecution()) {
@@ -648,11 +670,11 @@ const fleetExtension: ExtensionFactory = (pi) => {
         }
 
         const root = activeRoot ?? ctx.cwd;
-        const { updated, scanned } = await backfillCodexUsageFromOutput(root);
+        const { updated, scanned } = await backfillUsageFromOutput(root);
         ctx.ui.notify(
           updated > 0
-            ? `Backfilled token usage for ${updated} codex task(s) from output history (${scanned} scanned).`
-            : `No codex usage updates were needed (${scanned} scanned).`,
+            ? `Backfilled token usage for ${updated} Claude/Codex task(s) from output history (${scanned} scanned).`
+            : `No Claude/Codex usage updates were needed (${scanned} scanned).`,
           "info",
         );
       } catch (error) {

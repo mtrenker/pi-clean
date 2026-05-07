@@ -151,9 +151,9 @@ test("fleet widget renders fixed-width rows with deterministic truncation", () =
   assert.equal(rows[1]?.slice(23, 32).endsWith("..."), true);
   assert.equal(rows[1]?.slice(33, 48).endsWith("..."), true);
 
-  // Token column is always present as fixed width; overflow is truncated.
+  // Token column is always present as fixed width and uses compact M/k units.
   assert.equal(rows[0]?.slice(69, 74), "     ");
-  assert.equal(rows[1]?.slice(69, 74).endsWith("..."), true);
+  assert.equal(rows[1]?.slice(69, 74), " 2.0M");
 
   widget.detach();
 });

@@ -30,6 +30,7 @@ test("createTaskFolder writes task.md with explicit task-local progress and outp
     assert.match(taskMd, /Write progress updates only to `\.pi\/tasks\/001-audit-widget\/progress\.jsonl`/);
     assert.match(taskMd, /Raw engine output is captured separately in `\.pi\/tasks\/001-audit-widget\/output\.jsonl`\./);
     assert.match(taskMd, /never create or append to a repo-root `progress\.jsonl`/);
+    assert.match(taskMd, /Before finishing, write `\.pi\/tasks\/001-audit-widget\/handoff\.md`/);
     assert.match(taskMd, /This task has no upstream task dependencies\./);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -68,9 +69,10 @@ test("createTaskFolder writes explicit upstream handoff references for dependent
 
     assert.match(taskMd, /Before starting substantive work, inspect every upstream task referenced above and use its outputs as direct inputs to this task\./);
     assert.match(taskMd, /Read `\.pi\/tasks\/001-discover-context\/task\.md` for the original scope/);
+    assert.match(taskMd, /Read `\.pi\/tasks\/001-discover-context\/handoff\.md` first if it exists/);
     assert.match(taskMd, /Read `\.pi\/tasks\/001-discover-context\/status\.json` to confirm whether the task completed successfully/);
-    assert.match(taskMd, /Read `\.pi\/tasks\/001-discover-context\/progress\.jsonl` for concise execution notes/);
-    assert.match(taskMd, /Read `\.pi\/tasks\/001-discover-context\/output\.jsonl` for the raw engine transcript and final summary/);
+    assert.match(taskMd, /Read `\.pi\/tasks\/001-discover-context\/progress\.jsonl` only if the handoff is missing or unclear/);
+    assert.match(taskMd, /Do not read `\.pi\/tasks\/001-discover-context\/output\.jsonl` unless debugging a failed task/);
     assert.match(taskMd, /Reuse concrete outputs from this dependency instead of rediscovering context\./);
   } finally {
     await rm(root, { recursive: true, force: true });

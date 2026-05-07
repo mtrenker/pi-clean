@@ -11,6 +11,7 @@ import type {
   RuntimeTaskState,
 } from "./orchestrator.js";
 import type { TaskState, TaskStatus } from "./task.js";
+import { totalUsageTokens } from "./engines/types.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -98,10 +99,11 @@ function fit(text: string, width: number): string {
 
 /**
  * Format a token count for display.
- * ≥ 1 000 → "12.4k"; < 1 000 → raw string; 0 → empty string.
+ * ≥ 1 000 000 → "12.4M"; ≥ 1 000 → "12.4k"; < 1 000 → raw string; 0 → empty string.
  */
 function formatTokens(n: number): string {
   if (n === 0) return "";
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
   if (n >= 1000) return (n / 1000).toFixed(1) + "k";
   return String(n);
 }
@@ -164,7 +166,7 @@ function formatTokensColumn(totalTokens: number): string {
 
 function formatTaskRow(task: TaskState, allTasks: Map<string, TaskState>): string {
   const symbolCol = fit(`${STATUS_SYMBOL[task.status]} `, COL.prefix);
-  const totalTokens = task.usage.inputTokens + task.usage.outputTokens;
+  const totalTokens = totalUsageTokens(task.usage);
 
   return (
     symbolCol +
@@ -305,8 +307,12 @@ export class FleetWidget {
     this._onUsage = (event: TaskUsageEvent) => {
       const state = this.tasks.get(event.id);
       if (state) {
-        state.usage.inputTokens = event.inputTokens;
-        state.usage.outputTokens = event.outputTokens;
+        state.usage = {
+          inputTokens: event.inputTokens,
+          outputTokens: event.outputTokens,
+          cacheCreationInputTokens: event.cacheCreationInputTokens,
+          cacheReadInputTokens: event.cacheReadInputTokens,
+        };
       }
       this.render();
     };
@@ -387,7 +393,7 @@ export class FleetWidget {
     let totalTokens = 0;
 
     for (const task of tasks) {
-      totalTokens += task.usage.inputTokens + task.usage.outputTokens;
+      totalTokens += totalUsageTokens(task.usage);
       switch (task.status) {
         case "running":
           running++;

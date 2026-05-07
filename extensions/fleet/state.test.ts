@@ -47,6 +47,26 @@ test("buildAggregateState exposes latest progress timestamp and message", () => 
   assert.equal(task.lastProgress, "Finish");
 });
 
+test("buildAggregateState totals cache-aware usage", () => {
+  const tasks = [
+    makeTask({
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheCreationInputTokens: 100,
+        cacheReadInputTokens: 1000,
+      },
+    }),
+  ];
+  const aggregate = buildAggregateState(tasks, new Map());
+
+  assert.equal(aggregate.summary.totalInputTokens, 10);
+  assert.equal(aggregate.summary.totalOutputTokens, 5);
+  assert.equal(aggregate.summary.totalCacheCreationInputTokens, 100);
+  assert.equal(aggregate.summary.totalCacheReadInputTokens, 1000);
+  assert.equal(aggregate.summary.totalTokens, 1115);
+});
+
 test("buildAggregateState ignores malformed trailing entries", () => {
   const tasks = [makeTask()];
   const progressMap = new Map<string, ProgressEntry[]>([

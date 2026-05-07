@@ -24,6 +24,7 @@ import {
 } from "./state.js";
 import { createEngineAdapter, createSimulateAdapter } from "./engines/index.js";
 import type { EngineProcess } from "./engines/index.js";
+import type { Usage } from "./engines/types.js";
 import { handleFailure } from "./recovery.js";
 
 // ── Event payload types ───────────────────────────────────────────────────────
@@ -45,11 +46,9 @@ export interface TaskProgressEvent {
   status: "running" | "done" | "error";
 }
 
-export interface TaskUsageEvent {
+export interface TaskUsageEvent extends Usage {
   id: string;
   name: string;
-  inputTokens: number;
-  outputTokens: number;
 }
 
 export interface FleetDoneEvent {
@@ -435,8 +434,7 @@ export class Orchestrator extends EventEmitter {
       // Update in-memory usage counters
       const current = this.states.get(task.id);
       if (current) {
-        current.usage.inputTokens = usage.inputTokens;
-        current.usage.outputTokens = usage.outputTokens;
+        current.usage = { ...usage };
       }
 
       this.emit("task:usage", {
@@ -444,6 +442,8 @@ export class Orchestrator extends EventEmitter {
         name: task.name,
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
+        cacheCreationInputTokens: usage.cacheCreationInputTokens,
+        cacheReadInputTokens: usage.cacheReadInputTokens,
       });
     });
 

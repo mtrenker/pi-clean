@@ -3,6 +3,8 @@
 import { readFile, writeFile, rename } from "fs/promises";
 import { join } from "path";
 import type { TaskStatus, TaskState, ProgressEntry } from "./task.js";
+import type { Usage } from "./engines/types.js";
+import { totalUsageTokens } from "./engines/types.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -21,7 +23,7 @@ export interface AggregateState {
     latestProgressMessage: string | null;  // latest progress entry step text
     lastProgress: string | null;           // backwards-compatible alias
     blockedBy: string[] | null;    // task IDs blocking this one (if status=pending and deps not done)
-    usage: { inputTokens: number; outputTokens: number };
+    usage: Usage;
   }>;
   summary: {
     total: number;
@@ -32,6 +34,9 @@ export interface AggregateState {
     retrying: number;
     totalInputTokens: number;
     totalOutputTokens: number;
+    totalCacheCreationInputTokens: number;
+    totalCacheReadInputTokens: number;
+    totalTokens: number;
   };
 }
 
@@ -63,6 +68,9 @@ export function buildAggregateState(
     retrying: 0,
     totalInputTokens: 0,
     totalOutputTokens: 0,
+    totalCacheCreationInputTokens: 0,
+    totalCacheReadInputTokens: 0,
+    totalTokens: 0,
   };
 
   const latestProgressFrom = (
@@ -89,6 +97,9 @@ export function buildAggregateState(
     summary[task.status] = (summary[task.status] ?? 0) + 1;
     summary.totalInputTokens += task.usage.inputTokens;
     summary.totalOutputTokens += task.usage.outputTokens;
+    summary.totalCacheCreationInputTokens += task.usage.cacheCreationInputTokens ?? 0;
+    summary.totalCacheReadInputTokens += task.usage.cacheReadInputTokens ?? 0;
+    summary.totalTokens += totalUsageTokens(task.usage);
 
     // Determine blockedBy
     let blockedBy: string[] | null = null;

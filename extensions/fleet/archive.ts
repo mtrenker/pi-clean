@@ -15,6 +15,7 @@ import { dirname, join } from "path";
 import { parsePlan, type TaskSpec } from "./plan.js";
 import { buildAggregateState } from "./state.js";
 import { listTasks, readProgress, type TaskState } from "./task.js";
+import type { Usage } from "./engines/types.js";
 
 export interface PlanTaskSummary {
   id: string;
@@ -57,6 +58,9 @@ export interface ArchiveSummary {
     retrying: number;
     totalInputTokens: number;
     totalOutputTokens: number;
+    totalCacheCreationInputTokens: number;
+    totalCacheReadInputTokens: number;
+    totalTokens: number;
   };
   tasks: Array<{
     id: string;
@@ -75,7 +79,7 @@ export interface ArchiveSummary {
     error: string | null;
     progressEntries: number;
     lastProgress: string | null;
-    usage: { inputTokens: number; outputTokens: number };
+    usage: Usage;
   }>;
 }
 

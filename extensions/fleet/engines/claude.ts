@@ -17,8 +17,8 @@ import { spawnStreamJson } from "./_stream-json-process.js";
  *     "<taskPrompt>"
  *
  * Stream events consumed:
- *   { type: "assistant", message: { content: [...] } }  → onProgress
- *   { type: "result",    usage: { input_tokens, output_tokens } } → onUsageUpdate
+ *   { type: "assistant", message: { content: [...], usage: {...} } } → onProgress/onUsageUpdate
+ *   { type: "result",    usage: { input_tokens, output_tokens, cache_*? } } → onUsageUpdate
  */
 export class ClaudeEngineAdapter implements EngineAdapter {
   constructor(private readonly engineConfig: EngineConfig) {}

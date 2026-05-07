@@ -139,7 +139,7 @@ When the widget is visible but no fleet is actively running, it shows an idle/he
 
 ### `/fleet:repair-usage`
 
-Backfills missing token counts for historical **Codex** tasks by reading saved `output.jsonl` files and extracting the latest usage event (`done` or `turn.completed`). This is useful after older runs where Codex usage was recorded in output history but not written into `status.json`.
+Backfills missing token counts for historical **Claude** and **Codex** tasks by reading saved `output.jsonl` files. Claude backfill includes `cache_creation_input_tokens` and `cache_read_input_tokens`; Codex backfill extracts the latest usage event (`done` or `turn.completed`).
 
 ---
 

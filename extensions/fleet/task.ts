@@ -3,6 +3,8 @@
 import { mkdir, readFile, writeFile, rename, readdir, appendFile } from "fs/promises";
 import { join } from "path";
 import type { TaskSpec } from "./plan.js";
+import type { Usage } from "./engines/types.js";
+import { normalizeUsage } from "./engines/types.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -24,10 +26,7 @@ export interface TaskState {
   retries: number;
   pid: number | null;
   error: string | null;
-  usage: {
-    inputTokens: number;
-    outputTokens: number;
-  };
+  usage: Usage;
 }
 
 export interface ProgressEntry {
@@ -77,10 +76,11 @@ async function renderDependencyHandoff(cwd: string, spec: TaskSpec): Promise<str
       const folderName = await findTaskFolderNameById(cwd, dep);
       const taskDirRel = folderName ? `.pi/tasks/${folderName}` : `.pi/tasks/${dep}-<slug>`;
       return `### Upstream Task ${dep}
+- Read \`${taskDirRel}/handoff.md\` first if it exists; it is the compact authoritative summary for downstream tasks.
 - Read \`${taskDirRel}/task.md\` for the original scope, required deliverable, and any file paths it was supposed to touch.
 - Read \`${taskDirRel}/status.json\` to confirm whether the task completed successfully and when.
-- Read \`${taskDirRel}/progress.jsonl\` for concise execution notes and intermediate findings.
-- Read \`${taskDirRel}/output.jsonl\` for the raw engine transcript and final summary.
+- Read \`${taskDirRel}/progress.jsonl\` only if the handoff is missing or unclear.
+- Do not read \`${taskDirRel}/output.jsonl\` unless debugging a failed task or explicitly searching for a missing detail with a targeted command.
 - Reuse concrete outputs from this dependency instead of rediscovering context. If it created files, changed APIs, made decisions, or identified constraints, treat those as authoritative inputs for your work and reference them in your own progress updates.`;
     }),
   );
@@ -101,6 +101,7 @@ async function renderTaskMd(cwd: string, spec: TaskSpec): Promise<string> {
   const taskDirRel = `.pi/tasks/${spec.id}-${spec.slug}`;
   const progressRel = `${taskDirRel}/progress.jsonl`;
   const outputRel = `${taskDirRel}/output.jsonl`;
+  const handoffRel = `${taskDirRel}/handoff.md`;
   const taskMdRel = `${taskDirRel}/task.md`;
 
   return `# Task: ${spec.name}
@@ -134,6 +135,14 @@ ${spec.description}
 ## Progress Tracking
 Append one JSON line to \`${progressRel}\` after each significant step:
 {"ts":"<ISO timestamp>","step":"<description>","status":"done"|"running"|"error"}
+
+## Completion Handoff
+Before finishing, write \`${handoffRel}\` with:
+- changed files
+- important APIs/contracts
+- tests run
+- known limitations
+- follow-up context for dependent tasks
 `;
 }
 
@@ -239,7 +248,9 @@ export async function syncTaskFolder(cwd: string, spec: TaskSpec): Promise<void>
  */
 export async function readStatus(cwd: string, id: string, name: string): Promise<TaskState> {
   const content = await readFile(statusPath(cwd, id, name), "utf-8");
-  return JSON.parse(content) as TaskState;
+  const parsed = JSON.parse(content) as TaskState;
+  parsed.usage = normalizeUsage(parsed.usage);
+  return parsed;
 }
 
 /**
