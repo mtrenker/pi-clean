@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "title": "Plan: Low-friction agent guard for secrets and catastrophic shell actions",
+  "overview": "This plan adds a conservative safety extension for pi that reduces the most damaging accidental leaks and destructive actions without turning Martin into the approval bottleneck. The extension will preserve normal agent freedom when running from the home directory, avoid deny-by-default filesystem policies, and focus instead on four low-friction controls: stripping sensitive environment variables from agent-executed bash, hard-blocking a tiny set of crown-jewel secret locations, redacting obvious secrets from tool output before they become durable session history, and blocking only a very small set of catastrophic shell commands.\n\nThe work is scoped as an internal safety extension for pi, not as a full security sandbox. We explicitly do not aim for perfect isolation, full OS-level containment, or broad path-based access control in this iteration. The design keeps secret-protection policy separate from destructive-action policy inside one extension package so both can be enabled, tuned, and logged independently.\n\nThe key architectural decision is to build on pi extension hooks already demonstrated in `docs/extensions.md` and the examples under `examples/extensions/`, especially `tool_call`, `tool_result`, built-in tool override patterns, and optional status/command UI. The extension should ship with useful defaults, a global config file, and an audit-first rollout path. ⚠ deferred (mvp): full password-manager integration, ephemeral secret injection into subprocesses, and OS-level sandboxing for bash are intentionally left for a later phase once the lightweight guardrails prove useful.",
+  "splitAt": "2026-04-23T08:17:43.835Z",
+  "sourcePlanPath": "PLAN.md",
+  "taskCount": 8,
+  "tasks": [
+    {
+      "id": "001",
+      "slug": "audit-pi-extension-hooks-and-define-the-exact-guard-architecture",
+      "name": "Audit pi extension hooks and define the exact guard architecture",
+      "engine": "claude",
+      "model": "sonnet",
+      "profile": "deep",
+      "thinking": "high",
+      "agent": "scout",
+      "depends": [],
+      "description": "Read `docs/extensions.md` and the example extensions `examples/extensions/tool-override.ts`, `examples/extensions/permission-gate.ts`, `examples/extensions/protected-paths.ts`, and `examples/extensions/sandbox/index.ts`, then create `docs/agent-guard/01-architecture.md` as the canonical handoff artifact for Tasks 002–006. That file must name the planned extension files under `extensions/agent-guard/` (at minimum `index.ts`, `policy.ts`, `env.ts`, `path-guard.ts`, `action-guard.ts`, and `redaction.ts` unless the audit recommends a better split), identify the exact hooks to use for environment filtering, path checks, command blocking, output redaction, and status UI, and clearly separate `secretGuard` behavior from `actionGuard` behavior. Acceptance: `docs/agent-guard/01-architecture.md` exists, lists the exact source files and responsibilities, and is explicit enough that later agents know both what to build and where to look for the design decisions instead of relying on this conversation."
+    },
+    {
+      "id": "002",
+      "slug": "specify-the-policy-model-and-default-config-for-secret-and-action-guards",
+      "name": "Specify the policy model and default config for secret and action guards",
+      "engine": "claude",
+      "model": "sonnet",
+      "profile": "balanced",
+      "thinking": "medium",
+      "agent": "worker",
+      "depends": [
+        "001"
+      ],
+      "description": "Before making changes, read `docs/agent-guard/01-architecture.md`, then define the config contract in two places: `docs/agent-guard/02-policy.md` for the human-readable policy spec and `extensions/agent-guard/policy.ts` for the typed default policy/config exported to the extension. The policy must cover `secretGuard` and `actionGuard`, including preserved environment variables, stripped environment-variable patterns, hard-block paths, warn-only paths, redaction patterns, the catastrophic-command blocklist, and the expected audit-log location. Acceptance: `docs/agent-guard/02-policy.md` and `extensions/agent-guard/policy.ts` agree on exact field names and defaults, both files explicitly mark password-manager secret injection and stronger bash sandboxing as future work, and Tasks 003–007 can use `policy.ts` as the single source of truth instead of inventing their own constants. ⚠ deferred (mvp): per-project approval workflows and broad command risk scoring are not part of the initial policy model."
+    },
+    {
+      "id": "003",
+      "slug": "implement-agent-bash-environment-filtering-and-catastrophic-command-blocking",
+      "name": "Implement agent bash environment filtering and catastrophic command blocking",
+      "engine": "codex",
+      "model": "gpt-5.3-codex",
+      "profile": "balanced",
+      "thinking": "medium",
+      "agent": "worker",
+      "depends": [
+        "002"
+      ],
+      "description": "Before coding, read `docs/agent-guard/01-architecture.md` and `extensions/agent-guard/policy.ts`, then implement bash-related behavior in `extensions/agent-guard/index.ts`, `extensions/agent-guard/env.ts`, and `extensions/agent-guard/action-guard.ts`. This task must intercept agent `bash` tool calls and user-triggered `!`/`!!` execution paths, run them with a filtered environment, and block only the configured high-confidence catastrophic commands; if additional helper files are needed, document them in `docs/agent-guard/03-bash-guard-notes.md` so later agents know where the logic landed. Acceptance: ordinary developer commands still work from the home directory, the configured secret environment variables are absent from agent-executed subprocesses, blocked catastrophic commands return a clear reason, and `docs/agent-guard/03-bash-guard-notes.md` points later tasks to the exact files/functions that implement env filtering and command blocking. ⚠ deferred (mvp): full shell parsing and OS-level sandboxing are intentionally skipped in favor of a short, high-confidence blocklist."
+    },
+    {
+      "id": "004",
+      "slug": "implement-minimal-secret-path-protection-with-hard-block-and-warn-only-buckets",
+      "name": "Implement minimal secret path protection with hard-block and warn-only buckets",
+      "engine": "codex",
+      "model": "gpt-5.3-codex",
+      "profile": "balanced",
+      "thinking": "medium",
+      "agent": "worker",
+      "depends": [
+        "002"
+      ],
+      "description": "Before coding, read `docs/agent-guard/01-architecture.md` and `extensions/agent-guard/policy.ts`, then implement file-tool path handling in `extensions/agent-guard/path-guard.ts` and wire it through `extensions/agent-guard/index.ts`. This task must add `tool_call` enforcement for `read`, `write`, and `edit`, classify accesses into hard-block versus warn-only buckets using the shared policy, and write any implementation-specific caveats or normalization decisions to `docs/agent-guard/04-path-guard-notes.md` so Task 005 and Task 007 know exactly which paths and helper functions to inspect. Acceptance: path handling resolves absolute paths safely enough for normal filesystem usage, hard-blocked locations are denied consistently across file tools, warn-only locations remain usable without confirmation prompts, and `docs/agent-guard/04-path-guard-notes.md` identifies the exact exported functions and files that later tasks should reuse."
+    },
+    {
+      "id": "005",
+      "slug": "add-tool-result-redaction-to-prevent-durable-secret-leakage-into-session-history",
+      "name": "Add tool-result redaction to prevent durable secret leakage into session history",
+      "engine": "claude",
+      "model": "sonnet",
+      "profile": "deep",
+      "thinking": "high",
+      "agent": "worker",
+      "depends": [
+        "002",
+        "003",
+        "004"
+      ],
+      "description": "Before coding, read `extensions/agent-guard/policy.ts`, `docs/agent-guard/03-bash-guard-notes.md`, and `docs/agent-guard/04-path-guard-notes.md`, then implement redaction in `extensions/agent-guard/redaction.ts` and connect it from `extensions/agent-guard/index.ts`. The redaction logic must process text output from guarded tools at minimum `bash`, `read`, `write`, and `edit`, use the shared policy patterns where possible, and record any intentionally supported or unsupported redaction categories in `docs/agent-guard/05-redaction-notes.md` so Task 006 and Task 007 know what behavior to surface and test. Acceptance: the redaction layer preserves normal command usefulness for non-secret output, clearly marks redacted spans with stable placeholders, prevents straightforward secret material from being copied verbatim into session transcripts, compaction summaries, or exported shares, and leaves behind a discoverable note in `docs/agent-guard/05-redaction-notes.md` for downstream agents."
+    },
+    {
+      "id": "006",
+      "slug": "add-audit-logging-status-visibility-and-a-lightweight-operator-command",
+      "name": "Add audit logging, status visibility, and a lightweight operator command",
+      "engine": "pi",
+      "model": "anthropic/claude-sonnet-4-6",
+      "profile": "balanced",
+      "thinking": "medium",
+      "agent": "worker",
+      "depends": [
+        "003",
+        "004",
+        "005"
+      ],
+      "description": "Before coding, read `docs/agent-guard/03-bash-guard-notes.md`, `docs/agent-guard/04-path-guard-notes.md`, and `docs/agent-guard/05-redaction-notes.md`, then implement audit/status behavior in `extensions/agent-guard/index.ts` plus any small helper file needed for logging. This task must choose and implement one canonical operator command name, write the audit log to a single documented path, and update `extensions/agent-guard/README.md` with a “How to inspect guard activity” section that tells later agents and operators where to find the command, status indicator, and audit log. Acceptance: a user can confirm the extension is active without reading source code, inspect recent sensitive-access and blocked-command events, understand which policy bucket caused an intervention, and find all of that documented in `extensions/agent-guard/README.md`."
+    },
+    {
+      "id": "007",
+      "slug": "add-regression-tests-and-adversarial-smoke-cases-for-the-low-friction-guardrails",
+      "name": "Add regression tests and adversarial smoke cases for the low-friction guardrails",
+      "engine": "claude",
+      "model": "sonnet",
+      "profile": "deep",
+      "thinking": "high",
+      "agent": "worker",
+      "depends": [
+        "003",
+        "004",
+        "005"
+      ],
+      "description": "Before writing tests, read `docs/agent-guard/03-bash-guard-notes.md`, `docs/agent-guard/04-path-guard-notes.md`, and `docs/agent-guard/05-redaction-notes.md`, then add tests under `extensions/agent-guard/` using the repo’s existing test style, with at minimum `policy.test.ts`, `action-guard.test.ts`, `path-guard.test.ts`, and `redaction.test.ts` unless the implementation landed differently. The tests must cover environment filtering, hard-blocked secret paths, warn-only paths, catastrophic command blocking, and output redaction, and they must leave a short coverage summary in `docs/agent-guard/07-test-matrix.md` so Task 008 knows exactly which cases were automated and which were only manually validated. Acceptance: the tests fail against the unguarded implementation, pass once the extension is complete, and `docs/agent-guard/07-test-matrix.md` documents the exact threat cases this lightweight version claims to handle versus the stronger sandboxing work intentionally left for later. ⚠ deferred (mvp): exhaustive shell obfuscation coverage and formal threat modeling are not part of this test pass."
+    },
+    {
+      "id": "008",
+      "slug": "validate-real-world-workflow-impact-and-document-next-step-upgrades",
+      "name": "Validate real-world workflow impact and document next-step upgrades",
+      "engine": "claude",
+      "model": "sonnet",
+      "profile": "balanced",
+      "thinking": "medium",
+      "agent": "reviewer",
+      "depends": [
+        "006",
+        "007"
+      ],
+      "description": "Before validating, read `extensions/agent-guard/README.md` and `docs/agent-guard/07-test-matrix.md`, then run the extension in a realistic pi session from the home directory and record the results in `docs/agent-guard/08-validation.md`. The validation note must state which workflows were exercised, what friction or false positives were observed, where the audit log and operator command helped during testing, and which future upgrades remain for password-manager-backed on-demand secret injection and optional stronger bash sandboxing. Acceptance: `docs/agent-guard/08-validation.md` exists as the final handoff artifact, common coding and shell workflows still succeed without new prompts, secret env vars are stripped, dangerous secret reads and catastrophic commands are handled as designed, and `extensions/agent-guard/README.md` links to the validation note and summarizes the extension’s goals, defaults, and limitations."
+    }
+  ]
+}

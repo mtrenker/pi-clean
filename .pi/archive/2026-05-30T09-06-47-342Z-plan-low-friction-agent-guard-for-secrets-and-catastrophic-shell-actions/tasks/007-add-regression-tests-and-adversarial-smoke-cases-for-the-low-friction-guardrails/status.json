@@ -1,0 +1,27 @@
+{
+  "id": "007",
+  "name": "add-regression-tests-and-adversarial-smoke-cases-for-the-low-friction-guardrails",
+  "status": "done",
+  "engine": "claude",
+  "model": "sonnet",
+  "profile": "deep",
+  "thinking": "high",
+  "agent": "worker",
+  "depends": [
+    "003",
+    "004",
+    "005"
+  ],
+  "startedAt": "2026-04-23T08:52:47.119Z",
+  "completedAt": "2026-04-23T09:01:15.183Z",
+  "duration": 508064,
+  "retries": 0,
+  "pid": 72053,
+  "error": null,
+  "usage": {
+    "inputTokens": 45,
+    "outputTokens": 37958
+  },
+  "latestProgressAt": "2026-04-23T09:01:14.814Z",
+  "latestProgressMessage": "All work is complete. Here's a summary of what was delivered:\n\n## Summary\n\n### Test files created (5 files, 169 tests to"
+}

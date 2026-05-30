@@ -1,0 +1,27 @@
+{
+  "id": "005",
+  "name": "add-tool-result-redaction-to-prevent-durable-secret-leakage-into-session-history",
+  "status": "done",
+  "engine": "claude",
+  "model": "sonnet",
+  "profile": "deep",
+  "thinking": "high",
+  "agent": "worker",
+  "depends": [
+    "002",
+    "003",
+    "004"
+  ],
+  "startedAt": "2026-04-23T08:46:23.632Z",
+  "completedAt": "2026-04-23T08:52:47.101Z",
+  "duration": 383469,
+  "retries": 0,
+  "pid": 70450,
+  "error": null,
+  "usage": {
+    "inputTokens": 18,
+    "outputTokens": 17665
+  },
+  "latestProgressAt": "2026-04-23T08:52:46.750Z",
+  "latestProgressMessage": "Here's a summary of everything implemented:\n\n---\n\n## Task 005 — Tool Result Redaction — Complete\n\n### Files created/modi"
+}

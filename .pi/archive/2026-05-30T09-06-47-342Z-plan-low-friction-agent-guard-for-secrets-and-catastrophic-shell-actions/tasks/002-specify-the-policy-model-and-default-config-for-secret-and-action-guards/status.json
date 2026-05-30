@@ -1,0 +1,25 @@
+{
+  "id": "002",
+  "name": "specify-the-policy-model-and-default-config-for-secret-and-action-guards",
+  "status": "done",
+  "engine": "claude",
+  "model": "sonnet",
+  "profile": "balanced",
+  "thinking": "medium",
+  "agent": "worker",
+  "depends": [
+    "001"
+  ],
+  "startedAt": "2026-04-23T08:34:10.066Z",
+  "completedAt": "2026-04-23T08:37:58.237Z",
+  "duration": 228171,
+  "retries": 0,
+  "pid": 65791,
+  "error": null,
+  "usage": {
+    "inputTokens": 8,
+    "outputTokens": 13188
+  },
+  "latestProgressAt": "2026-04-23T08:37:57.812Z",
+  "latestProgressMessage": "Both files are created. Here's a summary of what was delivered:\n\n## Deliverables\n\n### `extensions/agent-guard/policy.ts`"
+}

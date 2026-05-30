@@ -1,0 +1,31 @@
+{
+  "id": "2026-05-30T09-06-47-342Z-plan-low-friction-agent-guard-for-secrets-and-catastrophic-shell-actions",
+  "archivedAt": "2026-05-30T09:06:47.342Z",
+  "reason": "manual",
+  "title": "Plan: Low-friction agent guard for secrets and catastrophic shell actions",
+  "taskCount": 8,
+  "archivePath": ".pi/archive/2026-05-30T09-06-47-342Z-plan-low-friction-agent-guard-for-secrets-and-catastrophic-shell-actions",
+  "taskFolders": [
+    "001-audit-pi-extension-hooks-and-define-the-exact-guard-architecture",
+    "002-specify-the-policy-model-and-default-config-for-secret-and-action-guards",
+    "003-implement-agent-bash-environment-filtering-and-catastrophic-command-blocking",
+    "004-implement-minimal-secret-path-protection-with-hard-block-and-warn-only-buckets",
+    "005-add-tool-result-redaction-to-prevent-durable-secret-leakage-into-session-history",
+    "006-add-audit-logging-status-visibility-and-a-lightweight-operator-command",
+    "007-add-regression-tests-and-adversarial-smoke-cases-for-the-low-friction-guardrails",
+    "008-validate-real-world-workflow-impact-and-document-next-step-upgrades"
+  ],
+  "summary": {
+    "total": 8,
+    "pending": 0,
+    "running": 0,
+    "done": 8,
+    "failed": 0,
+    "retrying": 0,
+    "totalInputTokens": 6409,
+    "totalOutputTokens": 136561,
+    "totalCacheCreationInputTokens": 0,
+    "totalCacheReadInputTokens": 0,
+    "totalTokens": 142970
+  }
+}
