@@ -67,8 +67,8 @@ interface PlannerSession {
 /** The in-progress planner session, if any. Survives soft reloads. */
 let plannerSession: PlannerSession | null = null;
 
-/** One-shot validation marker set when finalization asks the LLM to write PLAN.md. */
-let pendingPlanValidation: { cwd: string } | null = null;
+/** Validation marker set when finalization asks the LLM to write PLAN.md. */
+let pendingPlanValidation: { cwd: string; attempts: number; session: PlannerSession } | null = null;
 
 /** Cached content of skills/fleet-planner/SKILL.md. Loaded lazily on first active turn. */
 let plannerSkillCache: string | null = null;
@@ -289,6 +289,21 @@ Then re-output the complete, final plan as markdown. Structure the response as:
 The plan should incorporate any fixes suggested by your challenge analysis.`;
 }
 
+function buildPlanRepairPrompt(validationError: string, attempt: number): string {
+  return `[PLANNER VALIDATION REPAIR — attempt ${attempt}]
+
+The PLAN.md you wrote did not pass fleet validation. Rewrite PLAN.md using the write file tool so it satisfies every validation error below.
+
+Validation errors:
+${validationError}
+
+Important repair rules:
+- Keep the existing goal and selected depth profile.
+- Every dependent task description must explicitly reference at least one upstream dependency ID, e.g. "Use Task 001's findings...".
+- Every task description needs concrete files/modules/systems and an explicit acceptance or verification criterion.
+- Write only the final PLAN.md content with "# Plan:", "## Overview", and "## Tasks" sections. Do not include challenge commentary.`;
+}
+
 function buildDeeperChallengePrompt(depth: PlannerDepth): string {
   return `[PLANNER DEEPER CHALLENGE]
 
@@ -451,10 +466,13 @@ async function runFinalization(
     return;
   }
 
-  // Mark session done before triggering the LLM turn
-  session.phase = "done";
-  plannerSession = null;
-  pi.appendEntry("planner-state", { phase: "done", goal: session.goal });
+  // Keep the planner session active for the write/validation turn so the fleet
+  // planner doctrine remains injected. The session is marked done only after
+  // PLAN.md validates successfully.
+  session.awaitingResponse = null;
+  plannerSession = session;
+  pi.appendEntry("planner-state", { ...session });
+  pendingPlanValidation = { cwd: ctx.cwd, attempts: 0, session };
 
   // Ask the LLM to write the file. The LLM has the full plan in context.
   pi.sendUserMessage(
@@ -465,7 +483,6 @@ async function runFinalization(
       `After writing, report the task count and suggest running /fleet:split to create task folders.`,
   );
 
-  pendingPlanValidation = { cwd: ctx.cwd };
   ctx.ui.notify("Writing PLAN.md…", "info");
 }
 
@@ -513,7 +530,7 @@ const plannerExtension: ExtensionFactory = (pi) => {
 
   pi.on("agent_end", async (_event, ctx) => {
     if (pendingPlanValidation && pendingPlanValidation.cwd === ctx.cwd) {
-      pendingPlanValidation = null;
+      const validation = pendingPlanValidation;
       try {
         const validatedPlan = await loadValidatedPlan(ctx.cwd);
         if (validatedPlan.normalizedContent.trim() !== validatedPlan.sourceContent.trim()) {
@@ -522,16 +539,32 @@ const plannerExtension: ExtensionFactory = (pi) => {
         } else {
           ctx.ui.notify("PLAN.md validated and is fleet-compatible.", "info");
         }
+        validation.session.phase = "done";
+        pendingPlanValidation = null;
+        plannerSession = null;
+        pi.appendEntry("planner-state", { phase: "done", goal: validation.session.goal });
         ctx.ui.notify(
           `Finalized ${validatedPlan.document.tasks.length} task(s). Next step: run /fleet:split.`,
           "info",
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        ctx.ui.notify(
-          `PLAN.md validation failed after write: ${message}. Refine and rewrite the plan before splitting.`,
-          "error",
-        );
+        const current = validation;
+        if (current.attempts < 2) {
+          current.attempts += 1;
+          pendingPlanValidation = current;
+          plannerSession = current.session;
+          ctx.ui.notify(`PLAN.md validation failed; asking planner to repair it (attempt ${current.attempts}/2).`, "warning");
+          pi.sendUserMessage(buildPlanRepairPrompt(message, current.attempts));
+        } else {
+          pendingPlanValidation = null;
+          plannerSession = current.session;
+          ctx.ui.notify(
+            `PLAN.md validation failed after repair attempts: ${message}. Refine and rewrite the plan before splitting.`,
+            "error",
+          );
+          await showReviewMenu(pi, ctx, current.session);
+        }
       }
       return;
     }

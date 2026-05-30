@@ -6,4 +6,4 @@ description: >
   collection step.
 ---
 
-/planner $1
+/planner $@

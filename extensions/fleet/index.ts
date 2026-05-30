@@ -12,10 +12,26 @@ import type { ExtensionContext, ExtensionFactory } from "@mariozechner/pi-coding
 // Re-export foundational types so other modules can import from "fleet/index"
 export type { FleetConfig, AgentConfig, EngineConfig, EngineProfileConfig, ThinkingLevel } from "./config.js";
 export type { TaskSpec } from "./plan.js";
-export { loadConfig, loadConfigWithStatus, resolveAgentPrompt } from "./config.js";
+export {
+  defaultFleetConfig,
+  loadConfig,
+  loadConfigWithStatus,
+  projectFleetConfigPath,
+  resolveAgentPrompt,
+  userFleetConfigPath,
+  writeDefaultProjectConfig,
+  writeDefaultUserConfig,
+} from "./config.js";
 export { parsePlan, loadPlan, validateDependencies, parsePlanDocument, renderPlanDocument, validatePlanDocument, normalizePlanMarkdown } from "./plan.js";
 
-import { loadConfigWithStatus, resolveTaskExecution } from "./config.js";
+import {
+  loadConfigWithStatus,
+  projectFleetConfigPath,
+  resolveTaskExecution,
+  userFleetConfigPath,
+  writeDefaultProjectConfig,
+  writeDefaultUserConfig,
+} from "./config.js";
 import { loadValidatedPlan } from "./plan.js";
 import { createTaskFolder, listTasks, readProgress, writeStatus, taskDir, syncTaskFolder } from "./task.js";
 import { buildAggregateState, writeAggregateState } from "./state.js";
@@ -40,7 +56,6 @@ import { totalUsageTokens, type Usage } from "./engines/types.js";
 
 let orchestrator: Orchestrator | null = null;
 let widget: FleetWidget | null = null;
-const fleetConfigBootstrapNotified = new Set<string>();
 let widgetVisible = true;
 let idleWidgetVisible = false;
 let widgetExpanded = false;
@@ -248,13 +263,6 @@ const fleetExtension: ExtensionFactory = (pi) => {
 
   async function loadFleetConfigForCommand(ctx: ExtensionContext) {
     const result = await loadConfigWithStatus(ctx.cwd);
-    if (result.createdDefaultConfig && !fleetConfigBootstrapNotified.has(ctx.cwd)) {
-      fleetConfigBootstrapNotified.add(ctx.cwd);
-      ctx.ui.notify(
-        "Created .pi/fleet.json from defaults. Review it to adjust engines, profiles, agents, concurrency, and paths.",
-        "info",
-      );
-    }
     return result.config;
   }
 
@@ -335,8 +343,9 @@ const fleetExtension: ExtensionFactory = (pi) => {
     description: "Interactively refine PLAN.md with the LLM",
     async handler(_args, ctx) {
       try {
+        const config = await loadFleetConfigForCommand(ctx);
         const plan = await fs.readFile(
-          path.join(ctx.cwd, "PLAN.md"),
+          path.join(ctx.cwd, config.planPath),
           "utf8",
         );
         ctx.ui.setEditorText(
@@ -345,17 +354,96 @@ const fleetExtension: ExtensionFactory = (pi) => {
             `- Adjust engine/model/agent assignments\n` +
             `- Fix or add dependencies\n` +
             `- Split large tasks into smaller ones\n\n` +
-            `When done, write the updated PLAN.md to .pi/tasks/PLAN.md\n\n---\n\n${plan}`,
+            `When done, write the updated plan to ${config.planPath}\n\n---\n\n${plan}`,
         );
         ctx.ui.notify(
-          "Plan loaded into editor. Refine and ask the LLM to write the updated PLAN.md.",
+          `Plan loaded into editor. Refine and ask the LLM to write the updated ${config.planPath}.`,
           "info",
         );
       } catch (error) {
         ctx.ui.notify(
-          `Failed to load PLAN.md: ${(error as Error).message}`,
+          `Failed to load plan: ${(error as Error).message}`,
           "error",
         );
+      }
+    },
+  });
+
+  // ── /fleet:config ─────────────────────────────────────────────────────────
+
+  pi.registerCommand("fleet:config", {
+    description: "Show or initialize fleet config (show|path|init-user|init-project|export-project)",
+    async handler(args, ctx) {
+      const action = (args || "show").trim().toLowerCase();
+      const userPath = userFleetConfigPath();
+      const projectPath = projectFleetConfigPath(ctx.cwd);
+
+      try {
+        if (action === "path" || action === "paths") {
+          const result = await loadConfigWithStatus(ctx.cwd);
+          pi.sendMessage({
+            customType: "fleet-config",
+            content: [
+              "Fleet config paths:",
+              `- user: ${userPath}`,
+              `- project override: ${projectPath}`,
+              `- active sources: ${result.sources.join(" → ")}`,
+            ].join("\n"),
+            display: true,
+          });
+          return;
+        }
+
+        if (action === "init-user") {
+          try {
+            await fs.access(userPath);
+            ctx.ui.notify(`User fleet config already exists: ${userPath}`, "warning");
+          } catch {
+            await writeDefaultUserConfig(userPath);
+            ctx.ui.notify(`Created user fleet config: ${userPath}`, "info");
+          }
+          return;
+        }
+
+        if (action === "init-project") {
+          try {
+            await fs.access(projectPath);
+            ctx.ui.notify(`Project fleet config already exists: ${projectPath}`, "warning");
+          } catch {
+            await writeDefaultProjectConfig(ctx.cwd);
+            ctx.ui.notify(`Created project fleet override: ${projectPath}`, "info");
+          }
+          return;
+        }
+
+        if (action === "export-project") {
+          const result = await loadConfigWithStatus(ctx.cwd);
+          await fs.mkdir(path.dirname(projectPath), { recursive: true });
+          await fs.writeFile(projectPath, `${JSON.stringify(result.config, null, 2)}\n`, "utf-8");
+          ctx.ui.notify(`Exported effective fleet config to project override: ${projectPath}`, "info");
+          return;
+        }
+
+        if (action !== "show") {
+          ctx.ui.notify("Usage: /fleet:config <show|path|init-user|init-project|export-project>", "error");
+          return;
+        }
+
+        const result = await loadConfigWithStatus(ctx.cwd);
+        pi.sendMessage({
+          customType: "fleet-config",
+          content: [
+            "Fleet effective config:",
+            `Sources: ${result.sources.join(" → ")}`,
+            "",
+            "```json",
+            JSON.stringify(result.config, null, 2),
+            "```",
+          ].join("\n"),
+          display: true,
+        });
+      } catch (error) {
+        ctx.ui.notify((error as Error).message, "error");
       }
     },
   });
@@ -396,6 +484,27 @@ const fleetExtension: ExtensionFactory = (pi) => {
           content: blocks.join("\n\n"),
           display: true,
         });
+      } catch (error) {
+        ctx.ui.notify((error as Error).message, "error");
+      }
+    },
+  });
+
+  // ── /fleet:validate ───────────────────────────────────────────────────────
+
+  pi.registerCommand("fleet:validate", {
+    description: "Validate and canonicalize PLAN.md without creating task folders",
+    async handler(_args, ctx) {
+      try {
+        const config = await loadFleetConfigForCommand(ctx);
+        const validatedPlan = await loadValidatedPlan(ctx.cwd, config.planPath);
+
+        if (validatedPlan.normalizedContent.trim() !== validatedPlan.sourceContent.trim()) {
+          await fs.writeFile(validatedPlan.planPath, validatedPlan.normalizedContent, "utf-8");
+          ctx.ui.notify(`PLAN.md valid and normalized (${validatedPlan.document.tasks.length} task(s)).`, "info");
+        } else {
+          ctx.ui.notify(`PLAN.md valid (${validatedPlan.document.tasks.length} task(s)).`, "info");
+        }
       } catch (error) {
         ctx.ui.notify((error as Error).message, "error");
       }

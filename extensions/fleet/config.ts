@@ -1,7 +1,8 @@
 // Fleet extension — config loading and agent prompt resolution
 
 import { mkdir, readFile, writeFile } from "fs/promises";
-import { join } from "path";
+import { homedir } from "os";
+import { dirname, join } from "path";
 
 export interface AgentConfig {
   prompt: string;
@@ -121,10 +122,18 @@ const DEFAULT_CONFIG: FleetConfig = {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/**
- * Load fleet config from `<cwd>/.pi/fleet.json`.
- * If the file does not exist, write the default config there first.
- */
+export function defaultFleetConfig(): FleetConfig {
+  return structuredClone(DEFAULT_CONFIG);
+}
+
+export function userFleetConfigPath(): string {
+  return process.env.PI_FLEET_USER_CONFIG || join(homedir(), ".pi", "agent", "fleet.json");
+}
+
+export function projectFleetConfigPath(cwd: string): string {
+  return join(cwd, ".pi", "fleet.json");
+}
+
 function mergeProfiles(
   base: FleetConfig["profiles"],
   override: FleetConfig["profiles"] | undefined,
@@ -145,55 +154,100 @@ function mergeProfiles(
 
 export interface LoadConfigResult {
   config: FleetConfig;
+  /** Backwards-compatible alias for the project override path. */
   configPath: string;
+  projectConfigPath: string;
+  userConfigPath: string;
+  sources: string[];
   createdDefaultConfig: boolean;
 }
 
-export async function loadConfigWithStatus(cwd: string): Promise<LoadConfigResult> {
-  const configDir = join(cwd, ".pi");
-  const configPath = join(configDir, "fleet.json");
-
+async function readOptionalConfigLayer(filePath: string): Promise<Partial<FleetConfig> | null> {
   let content: string;
   try {
-    content = await readFile(configPath, "utf-8");
+    content = await readFile(filePath, "utf-8");
   } catch (error) {
     const nodeError = error as NodeJS.ErrnoException;
-    if (nodeError.code !== "ENOENT") throw error;
-
-    const defaultConfig = structuredClone(DEFAULT_CONFIG);
-    await mkdir(configDir, { recursive: true });
-    await writeFile(configPath, `${JSON.stringify(defaultConfig, null, 2)}\n`, "utf-8");
-    return {
-      config: defaultConfig,
-      configPath,
-      createdDefaultConfig: true,
-    };
+    if (nodeError.code === "ENOENT") return null;
+    throw error;
   }
 
-  const parsed = JSON.parse(content) as Partial<FleetConfig>;
+  try {
+    return JSON.parse(content) as Partial<FleetConfig>;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid fleet config JSON at ${filePath}: ${message}`);
+  }
+}
+
+function mergeConfig(base: FleetConfig, override: Partial<FleetConfig> | null): FleetConfig {
+  if (!override) return base;
+
   return {
-    config: {
-      ...structuredClone(DEFAULT_CONFIG),
-      ...parsed,
-      defaults: {
-        ...DEFAULT_CONFIG.defaults,
-        ...(parsed.defaults ?? {}),
-      },
-      engines: {
-        ...DEFAULT_CONFIG.engines,
-        ...(parsed.engines ?? {}),
-      },
-      agents: {
-        ...DEFAULT_CONFIG.agents,
-        ...(parsed.agents ?? {}),
-      },
-      profiles: mergeProfiles(DEFAULT_CONFIG.profiles, parsed.profiles),
-      simulate: {
-        ...(DEFAULT_CONFIG.simulate ?? {}),
-        ...(parsed.simulate ?? {}),
-      },
+    ...base,
+    ...override,
+    defaults: {
+      ...base.defaults,
+      ...(override.defaults ?? {}),
     },
-    configPath,
+    engines: {
+      ...base.engines,
+      ...(override.engines ?? {}),
+    },
+    agents: {
+      ...base.agents,
+      ...(override.agents ?? {}),
+    },
+    profiles: mergeProfiles(base.profiles, override.profiles),
+    simulate: {
+      ...(base.simulate ?? {}),
+      ...(override.simulate ?? {}),
+    },
+  };
+}
+
+export async function writeDefaultUserConfig(filePath = userFleetConfigPath()): Promise<void> {
+  await mkdir(dirname(filePath), { recursive: true });
+  await writeFile(filePath, `${JSON.stringify(defaultFleetConfig(), null, 2)}\n`, "utf-8");
+}
+
+export async function writeDefaultProjectConfig(cwd: string): Promise<void> {
+  const configPath = projectFleetConfigPath(cwd);
+  await mkdir(dirname(configPath), { recursive: true });
+  await writeFile(configPath, `${JSON.stringify(defaultFleetConfig(), null, 2)}\n`, "utf-8");
+}
+
+/**
+ * Load fleet config from built-in defaults, optional user config, then optional
+ * project override. Missing config files are ignored; fleet never auto-creates
+ * `.pi/fleet.json` during normal commands.
+ */
+export async function loadConfigWithStatus(cwd: string): Promise<LoadConfigResult> {
+  const projectPath = projectFleetConfigPath(cwd);
+  const userPath = userFleetConfigPath();
+
+  const userConfig = await readOptionalConfigLayer(userPath);
+  const projectConfig = await readOptionalConfigLayer(projectPath);
+
+  let config = defaultFleetConfig();
+  const sources = ["built-in"];
+
+  if (userConfig) {
+    config = mergeConfig(config, userConfig);
+    sources.push(userPath);
+  }
+
+  if (projectConfig) {
+    config = mergeConfig(config, projectConfig);
+    sources.push(projectPath);
+  }
+
+  return {
+    config,
+    configPath: projectPath,
+    projectConfigPath: projectPath,
+    userConfigPath: userPath,
+    sources,
     createdDefaultConfig: false,
   };
 }

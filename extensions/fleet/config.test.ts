@@ -4,20 +4,80 @@ import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { loadConfig, resolveTaskExecution } from "./config.ts";
+import { loadConfig, loadConfigWithStatus, resolveTaskExecution, writeDefaultUserConfig } from "./config.ts";
 
+async function withTempUserConfig<T>(root: string, fn: () => Promise<T>): Promise<T> {
+  const previous = process.env.PI_FLEET_USER_CONFIG;
+  process.env.PI_FLEET_USER_CONFIG = join(root, "user-fleet.json");
+  try {
+    return await fn();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.PI_FLEET_USER_CONFIG;
+    } else {
+      process.env.PI_FLEET_USER_CONFIG = previous;
+    }
+  }
+}
 
-test("loadConfig bootstraps .pi/fleet.json with defaults when missing", async () => {
+test("loadConfig uses defaults without bootstrapping .pi/fleet.json when config files are missing", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-fleet-config-"));
 
   try {
-    const config = await loadConfig(root);
-    const written = await readFile(join(root, ".pi", "fleet.json"), "utf-8");
-    const parsed = JSON.parse(written);
+    await withTempUserConfig(root, async () => {
+      const result = await loadConfigWithStatus(root);
 
-    assert.equal(config.planPath, "PLAN.md");
-    assert.equal(config.tasksDir, ".pi/tasks");
-    assert.equal(config.defaults.engine, "claude");
+      assert.equal(result.config.planPath, "PLAN.md");
+      assert.equal(result.config.tasksDir, ".pi/tasks");
+      assert.equal(result.config.defaults.engine, "claude");
+      assert.deepEqual(result.sources, ["built-in"]);
+      await assert.rejects(() => readFile(join(root, ".pi", "fleet.json"), "utf-8"), /ENOENT/);
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig merges optional user config before project overrides", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-fleet-config-"));
+
+  try {
+    await withTempUserConfig(root, async () => {
+      await writeFile(
+        process.env.PI_FLEET_USER_CONFIG!,
+        JSON.stringify({ concurrency: 4, defaults: { engine: "codex" } }),
+        "utf-8",
+      );
+      await mkdir(join(root, ".pi"), { recursive: true });
+      await writeFile(
+        join(root, ".pi", "fleet.json"),
+        JSON.stringify({ concurrency: 1 }),
+        "utf-8",
+      );
+
+      const result = await loadConfigWithStatus(root);
+
+      assert.equal(result.config.concurrency, 1);
+      assert.equal(result.config.defaults.engine, "codex");
+      assert.deepEqual(result.sources, [
+        "built-in",
+        process.env.PI_FLEET_USER_CONFIG!,
+        join(root, ".pi", "fleet.json"),
+      ]);
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("writeDefaultUserConfig writes a complete user config", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-fleet-config-"));
+
+  try {
+    const userConfigPath = join(root, "nested", "fleet.json");
+    await writeDefaultUserConfig(userConfigPath);
+    const parsed = JSON.parse(await readFile(userConfigPath, "utf-8"));
+
     assert.equal(parsed.planPath, "PLAN.md");
     assert.equal(parsed.tasksDir, ".pi/tasks");
     assert.equal(parsed.defaults.engine, "claude");
@@ -31,10 +91,12 @@ test("loadConfig throws when .pi/fleet.json contains invalid JSON", async () => 
   const root = await mkdtemp(join(tmpdir(), "pi-fleet-config-"));
 
   try {
-    await mkdir(join(root, ".pi"), { recursive: true });
-    await writeFile(join(root, ".pi", "fleet.json"), "{ invalid json\n", "utf-8");
+    await withTempUserConfig(root, async () => {
+      await mkdir(join(root, ".pi"), { recursive: true });
+      await writeFile(join(root, ".pi", "fleet.json"), "{ invalid json\n", "utf-8");
 
-    await assert.rejects(() => loadConfig(root), /JSON|Unexpected token|Expected property name/);
+      await assert.rejects(() => loadConfig(root), /Invalid fleet config JSON|JSON|Unexpected token|Expected property name/);
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -44,24 +106,26 @@ test("loadConfig deep-merges profile engine mappings with defaults", async () =>
   const root = await mkdtemp(join(tmpdir(), "pi-fleet-config-"));
 
   try {
-    await mkdir(join(root, ".pi"), { recursive: true });
-    await writeFile(
-      join(root, ".pi", "fleet.json"),
-      JSON.stringify({
-        profiles: {
-          deep: {
-            codex: { model: "custom-codex", thinking: "high" },
+    await withTempUserConfig(root, async () => {
+      await mkdir(join(root, ".pi"), { recursive: true });
+      await writeFile(
+        join(root, ".pi", "fleet.json"),
+        JSON.stringify({
+          profiles: {
+            deep: {
+              codex: { model: "custom-codex", thinking: "high" },
+            },
           },
-        },
-      }),
-      "utf-8",
-    );
+        }),
+        "utf-8",
+      );
 
-    const config = await loadConfig(root);
+      const config = await loadConfig(root);
 
-    assert.equal(config.profiles?.deep?.codex?.model, "custom-codex");
-    assert.equal(config.profiles?.deep?.claude?.model, "sonnet");
-    assert.equal(config.profiles?.deep?.pi?.model, "openai-codex/gpt-5.4");
+      assert.equal(config.profiles?.deep?.codex?.model, "custom-codex");
+      assert.equal(config.profiles?.deep?.claude?.model, "sonnet");
+      assert.equal(config.profiles?.deep?.pi?.model, "openai-codex/gpt-5.4");
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -71,36 +135,38 @@ test("resolveTaskExecution uses merged claude profile mapping after repo overrid
   const root = await mkdtemp(join(tmpdir(), "pi-fleet-config-"));
 
   try {
-    await mkdir(join(root, ".pi"), { recursive: true });
-    await writeFile(
-      join(root, ".pi", "fleet.json"),
-      JSON.stringify({
-        profiles: {
-          fast: {
-            codex: { model: "custom-fast-codex", thinking: "low" },
+    await withTempUserConfig(root, async () => {
+      await mkdir(join(root, ".pi"), { recursive: true });
+      await writeFile(
+        join(root, ".pi", "fleet.json"),
+        JSON.stringify({
+          profiles: {
+            fast: {
+              codex: { model: "custom-fast-codex", thinking: "low" },
+            },
+            balanced: {
+              codex: { model: "custom-balanced-codex", thinking: "medium" },
+            },
+            deep: {
+              codex: { model: "custom-deep-codex", thinking: "high" },
+            },
           },
-          balanced: {
-            codex: { model: "custom-balanced-codex", thinking: "medium" },
-          },
-          deep: {
-            codex: { model: "custom-deep-codex", thinking: "high" },
-          },
-        },
-      }),
-      "utf-8",
-    );
+        }),
+        "utf-8",
+      );
 
-    const config = await loadConfig(root);
-    const resolved = resolveTaskExecution(config, {
-      id: "001",
-      name: "Audit current fleet widget rendering and progress data flow",
-      engine: "claude",
-      model: "",
-      profile: "deep",
+      const config = await loadConfig(root);
+      const resolved = resolveTaskExecution(config, {
+        id: "001",
+        name: "Audit current fleet widget rendering and progress data flow",
+        engine: "claude",
+        model: "",
+        profile: "deep",
+      });
+
+      assert.equal(resolved.model, "sonnet");
+      assert.equal(resolved.thinking, "high");
     });
-
-    assert.equal(resolved.model, "sonnet");
-    assert.equal(resolved.thinking, "high");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -110,32 +176,34 @@ test("resolveTaskExecution remaps deprecated OpenAI model aliases to supported 5
   const root = await mkdtemp(join(tmpdir(), "pi-fleet-config-"));
 
   try {
-    const config = await loadConfig(root);
+    await withTempUserConfig(root, async () => {
+      const config = await loadConfig(root);
 
-    const codexResolved = resolveTaskExecution(config, {
-      id: "002",
-      name: "Build widget",
-      engine: "codex",
-      model: "o3",
-    });
-    assert.equal(codexResolved.model, "gpt-5.3-codex");
-    assert.match(codexResolved.warnings[0] ?? "", /deprecated model "o3"/);
+      const codexResolved = resolveTaskExecution(config, {
+        id: "002",
+        name: "Build widget",
+        engine: "codex",
+        model: "o3",
+      });
+      assert.equal(codexResolved.model, "gpt-5.3-codex");
+      assert.match(codexResolved.warnings[0] ?? "", /deprecated model "o3"/);
 
-    const codexMiniResolved = resolveTaskExecution(config, {
-      id: "003",
-      name: "Fast lane",
-      engine: "codex",
-      model: "gpt-5.1-codex-mini",
-    });
-    assert.equal(codexMiniResolved.model, "gpt-5.3-codex-spark");
+      const codexMiniResolved = resolveTaskExecution(config, {
+        id: "003",
+        name: "Fast lane",
+        engine: "codex",
+        model: "gpt-5.1-codex-mini",
+      });
+      assert.equal(codexMiniResolved.model, "gpt-5.3-codex-spark");
 
-    const genericResolved = resolveTaskExecution(config, {
-      id: "004",
-      name: "Long running agent",
-      engine: "pi",
-      model: "gpt-5.2",
+      const genericResolved = resolveTaskExecution(config, {
+        id: "004",
+        name: "Long running agent",
+        engine: "pi",
+        model: "gpt-5.2",
+      });
+      assert.equal(genericResolved.model, "gpt-5.4");
     });
-    assert.equal(genericResolved.model, "gpt-5.4");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -145,38 +213,40 @@ test("resolveTaskExecution rejects Claude-family models for the pi engine", asyn
   const root = await mkdtemp(join(tmpdir(), "pi-fleet-config-"));
 
   try {
-    const config = await loadConfig(root);
+    await withTempUserConfig(root, async () => {
+      const config = await loadConfig(root);
 
-    const explicitClaudeModel = resolveTaskExecution(config, {
-      id: "005",
-      name: "Use pi with an explicit Claude model",
-      engine: "pi",
-      model: "anthropic/claude-sonnet-4-6",
-    });
-    assert.equal(explicitClaudeModel.model, "openai-codex/gpt-5.4");
-    assert.match(explicitClaudeModel.warnings[0] ?? "", /PI must not use Claude models/i);
+      const explicitClaudeModel = resolveTaskExecution(config, {
+        id: "005",
+        name: "Use pi with an explicit Claude model",
+        engine: "pi",
+        model: "anthropic/claude-sonnet-4-6",
+      });
+      assert.equal(explicitClaudeModel.model, "openai-codex/gpt-5.4");
+      assert.match(explicitClaudeModel.warnings[0] ?? "", /PI must not use Claude models/i);
 
-    const profileClaudeModel = resolveTaskExecution(
-      {
-        ...config,
-        profiles: {
-          ...(config.profiles ?? {}),
-          balanced: {
-            ...(config.profiles?.balanced ?? {}),
-            pi: { model: "anthropic/claude-sonnet-4-6", thinking: "medium" },
+      const profileClaudeModel = resolveTaskExecution(
+        {
+          ...config,
+          profiles: {
+            ...(config.profiles ?? {}),
+            balanced: {
+              ...(config.profiles?.balanced ?? {}),
+              pi: { model: "anthropic/claude-sonnet-4-6", thinking: "medium" },
+            },
           },
         },
-      },
-      {
-        id: "006",
-        name: "Use pi balanced profile with a Claude override",
-        engine: "pi",
-        model: "",
-        profile: "balanced",
-      },
-    );
-    assert.equal(profileClaudeModel.model, "openai-codex/gpt-5.4");
-    assert.match(profileClaudeModel.warnings[0] ?? "", /PI must not use Claude models/i);
+        {
+          id: "006",
+          name: "Use pi balanced profile with a Claude override",
+          engine: "pi",
+          model: "",
+          profile: "balanced",
+        },
+      );
+      assert.equal(profileClaudeModel.model, "openai-codex/gpt-5.4");
+      assert.match(profileClaudeModel.warnings[0] ?? "", /PI must not use Claude models/i);
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

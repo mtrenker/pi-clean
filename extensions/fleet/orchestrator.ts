@@ -160,6 +160,7 @@ export class Orchestrator extends EventEmitter {
 
     const prevStatus = state.status;
     state.status = "pending";
+    state.retries += 1;
     state.error = null;
     state.startedAt = null;
     state.completedAt = null;
@@ -487,10 +488,10 @@ export class Orchestrator extends EventEmitter {
       }
     } else if (state.retries < 1) {
       // First failure — move to retrying; recovery.ts will generate recovery.md
-      // and call orchestrator.retry()
+      // and call orchestrator.retry(). The retry counter is incremented in retry()
+      // when the new attempt is actually scheduled.
       const prevStatus = state.status;
       state.status = "retrying";
-      state.retries += 1;
       state.error = result.error ?? `Process exited with code ${result.exitCode}`;
 
       await this.onStatusChange(state, prevStatus);

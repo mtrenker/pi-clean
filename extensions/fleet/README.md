@@ -4,23 +4,29 @@ The fleet extension orchestrates parallel Claude Code / Codex / pi tasks, render
 
 ---
 
-## Fleet config bootstrapping
+## Fleet config
 
-Fleet reads project config from:
+Fleet config is layered so common model/profile preferences can live in one user-level file instead of being copied into every project:
 
 ```text
-.pi/fleet.json
+built-in defaults
+~/.pi/agent/fleet.json      # optional user config
+.pi/fleet.json              # optional project override
 ```
 
-When you run a fleet command that needs config and this file does not exist yet,
-fleet creates `.pi/fleet.json` from the built-in defaults and shows an info
-notification telling you to review it. This makes the active configuration
-visible and editable instead of relying on hidden defaults.
+Fleet no longer auto-creates `.pi/fleet.json` during normal commands. If either optional config exists but contains invalid JSON, fleet stops with an explicit error instead of silently falling back to defaults.
 
-If `.pi/fleet.json` already exists but contains invalid JSON, fleet stops with
-an error. It does not silently fall back to defaults in that case.
+Use `/fleet:config` to inspect or initialize config:
 
-The generated config is the place to adjust:
+```text
+/fleet:config show           # show effective merged config and source layers
+/fleet:config path           # show user and project config paths
+/fleet:config init-user      # write ~/.pi/agent/fleet.json from defaults
+/fleet:config init-project   # write .pi/fleet.json as an explicit override
+/fleet:config export-project # write the effective config to .pi/fleet.json
+```
+
+Config is the place to adjust:
 
 - engine commands and args
 - execution profiles (`fast`, `balanced`, `deep`)
@@ -91,6 +97,12 @@ Running: N  Done: N  Failed: N  Blocked: N  [Retrying: N]  │  Total tokens: X
 > **Note**: Both `pending` (waiting on completed deps) and `blocked` (waiting on unfinished deps) tasks appear under **Blocked** in the summary. The per-row Status column distinguishes them.
 
 ---
+
+## Plan validation
+
+### `/fleet:validate`
+
+Validates the configured plan path (default `PLAN.md`) against fleet's task format and canonicalizes it if needed, without creating task folders. Use this before `/fleet:split` when hand-writing or refining a plan.
 
 ## Running a demo
 
