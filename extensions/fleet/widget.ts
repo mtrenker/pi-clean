@@ -36,13 +36,13 @@ const COL = {
   // "● " prefix — symbol + space
   prefix: 2,
   // "001-explore-auth   " — id-name, padded
-  taskName: 20,
+  taskName: 30,
   sep1: 1,
   // "worker   " — agent name, padded
   agent: 9,
   sep2: 1,
   // "claude/sonnet  " — engine/model, padded
-  engineModel: 15,
+  engineModel: 24,
   sep3: 1,
   // "████░░░░" — progress bar
   bar: BAR_LEN,
@@ -51,7 +51,7 @@ const COL = {
   status: 9,
   // " 12.4k" — token count (with leading space) or empty
   tokensPad: 1,
-  tokens: 5,
+  tokens: 6,
 };
 
 /** Total line width including optional token column. */

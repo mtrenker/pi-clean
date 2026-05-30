@@ -63,12 +63,12 @@ Running: 1  Done: 1  Failed: 1  Blocked: 1  │  Total tokens: 12.4k
 | Column | Width | What it shows |
 |--------|------:|---------------|
 | Symbol | 2 | Status glyph: `●` running · `◌` pending · `✓` done · `✗` failed/retrying |
-| Task name | 20 | `<id>-<name>` — truncated with `...` if longer |
+| Task name | 30 | `<id>-<name>` — truncated with `...` if longer |
 | Agent | 9 | Profile name (`worker`, `reviewer`, `scout`, …) |
-| Engine/model | 15 | `<engine>/<model>` — truncated with `...` if longer |
+| Engine/model | 24 | `<engine>/<model>` — truncated with `...` if longer |
 | Progress bar | 8 | Running: fills one `█` per 30 s elapsed (max 7), last char always `░`; done: `████████`; failed: `████░░░░`; pending: `░░░░░░░░` |
 | Status | 9 | `running` · `done` · `failed` · `retrying` · `pending` · `blocked` |
-| Tokens | 6 | Per-task token total in `k` notation (`12.4k`); empty while 0 |
+| Tokens | 7 | Per-task token total in `k` notation (`12.4k`); empty while 0 |
 
 All columns are **fixed-width** — the widget width never changes as text updates, so your eye stays anchored on each column.
 

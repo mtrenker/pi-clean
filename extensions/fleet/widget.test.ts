@@ -7,17 +7,17 @@ import { FleetWidget } from "./widget.ts";
 
 const COL = {
   prefix: 2,
-  taskName: 20,
+  taskName: 30,
   sep1: 1,
   agent: 9,
   sep2: 1,
-  engineModel: 15,
+  engineModel: 24,
   sep3: 1,
   bar: 8,
   barTrail: 2,
   status: 9,
   tokensPad: 1,
-  tokens: 5,
+  tokens: 6,
 };
 
 const LINE_WIDTH =
@@ -143,17 +143,17 @@ test("fleet widget renders fixed-width rows with deterministic truncation", () =
   assert.equal(separator, "─".repeat(LINE_WIDTH));
 
   // Columns remain fixed-width and aligned regardless of content length.
-  assert.equal(rows[0]?.slice(22, 23), " ");
   assert.equal(rows[0]?.slice(32, 33), " ");
-  assert.equal(rows[0]?.slice(48, 49), " ");
+  assert.equal(rows[0]?.slice(42, 43), " ");
+  assert.equal(rows[0]?.slice(67, 68), " ");
 
-  assert.equal(rows[1]?.slice(2, 22).endsWith("..."), true);
-  assert.equal(rows[1]?.slice(23, 32).endsWith("..."), true);
-  assert.equal(rows[1]?.slice(33, 48).endsWith("..."), true);
+  assert.equal(rows[1]?.slice(2, 32).endsWith("..."), true);
+  assert.equal(rows[1]?.slice(33, 42).endsWith("..."), true);
+  assert.equal(rows[1]?.slice(43, 67).endsWith("..."), true);
 
   // Token column is always present as fixed width and uses compact M/k units.
-  assert.equal(rows[0]?.slice(69, 74), "     ");
-  assert.equal(rows[1]?.slice(69, 74), " 2.0M");
+  assert.equal(rows[0]?.slice(88, 94), "      ");
+  assert.equal(rows[1]?.slice(88, 94), "2.0M  ");
 
   widget.detach();
 });
@@ -185,7 +185,7 @@ test("fleet widget status column renders blocked/pending/running/done/failed/ret
   const summary = lines[7];
 
   assert.deepEqual(
-    rows.map((row) => row.slice(59, 68).trim()),
+    rows.map((row) => row.slice(78, 87).trim()),
     ["pending", "running", "done", "failed", "retrying", "blocked"],
   );
 
