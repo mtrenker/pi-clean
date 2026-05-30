@@ -5,7 +5,7 @@ import { createInterface } from "readline";
 import { createWriteStream, mkdirSync } from "fs";
 import { dirname } from "path";
 
-import type { EngineAdapter, EngineProcess, EngineResult, Usage } from "./types.js";
+import type { EngineAdapter, EngineProcess, EngineResult, EngineUsage } from "./types.js";
 import type { EngineConfig } from "../config.js";
 
 interface PiJsonEvent {
@@ -33,13 +33,13 @@ class PiJsonEngineProcess implements EngineProcess {
 
   private readonly proc: ReturnType<typeof nodeSpawn>;
   private readonly progressCbs: Array<(line: string) => void> = [];
-  private readonly usageCbs: Array<(usage: Usage) => void> = [];
+  private readonly usageCbs: Array<(usage: EngineUsage) => void> = [];
   private readonly completeCbs: Array<(result: EngineResult) => void> = [];
   private completed = false;
   private killTimer: ReturnType<typeof setTimeout> | undefined;
   private stderrBuffer = "";
   private lastProgress = "";
-  private accumulatedUsage: Usage = { inputTokens: 0, outputTokens: 0 };
+  private accumulatedUsage: EngineUsage = { inputTokens: 0, outputTokens: 0 };
 
   constructor(proc: ReturnType<typeof nodeSpawn>, outputJsonlPath: string) {
     this.proc = proc;
@@ -96,7 +96,7 @@ class PiJsonEngineProcess implements EngineProcess {
     this.progressCbs.push(cb);
   }
 
-  onUsageUpdate(cb: (usage: Usage) => void): void {
+  onUsageUpdate(cb: (usage: EngineUsage) => void): void {
     this.usageCbs.push(cb);
   }
 

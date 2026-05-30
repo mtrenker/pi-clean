@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import type { TaskState } from "./task.ts";
 import type { Orchestrator, TaskProgressEvent } from "./orchestrator.ts";
 import { FleetWidget } from "./widget.ts";
+import { normalizeUsage } from "./engines/types.ts";
 
 const COL = {
   prefix: 2,
@@ -51,7 +52,11 @@ function makeTask(partial: Partial<TaskState> & Pick<TaskState, "id" | "name" | 
     retries: partial.retries ?? 0,
     pid: partial.pid ?? null,
     error: partial.error ?? null,
-    usage: partial.usage ?? { inputTokens: 0, outputTokens: 0 },
+    lastHeartbeatAt: partial.lastHeartbeatAt ?? null,
+    lastOutputAt: partial.lastOutputAt ?? null,
+    lastProgressAt: partial.lastProgressAt ?? null,
+    staleAfterSeconds: partial.staleAfterSeconds ?? 300,
+    usage: normalizeUsage(partial.usage),
   };
 }
 
@@ -194,7 +199,7 @@ test("fleet widget status column renders blocked/pending/running/done/failed/ret
   }
 
   assert.equal(separator, "─".repeat(LINE_WIDTH));
-  assert.match(summary ?? "", /^Running: 1  Done: 1  Failed: 1  Blocked: 2  Retrying: 1  │  Total tokens: 0$/);
+  assert.match(summary ?? "", /^Running: 1  Done: 1  Failed: 1  Blocked: 2  Retrying: 1  │  Total tokens: 0  │  run legacy$/);
 
   widget.detach();
 });
@@ -426,7 +431,7 @@ test("fleet widget collapsed mode follows the active task and keeps the summary 
   assert.match(lines[2] ?? "", /^◌ 011-task-011/);
   assert.match(lines[3] ?? "", /^◌ 012-task-012/);
   assert.equal(lines[4], "─".repeat(LINE_WIDTH));
-  assert.match(lines[5] ?? "", /^Running: 1  Done: 9  Failed: 0  Blocked: 2  │  Total tokens: 0$/);
+  assert.match(lines[5] ?? "", /^Running: 1  Done: 9  Failed: 0  Blocked: 2  │  Total tokens: 0  │  run legacy$/);
 
   widget.detach();
 });
@@ -503,7 +508,7 @@ test("fleet widget default collapsed viewport stays within the interactive widge
 
   assert.ok(lines.length <= 10, `default widget output must stay within 10 lines, got ${lines.length}`);
   assert.equal(lines.at(-2), "─".repeat(LINE_WIDTH));
-  assert.match(lines.at(-1) ?? "", /^Running: 2  Done: 5  Failed: 0  Blocked: 5  │  Total tokens: 0$/);
+  assert.match(lines.at(-1) ?? "", /^Running: 2  Done: 5  Failed: 0  Blocked: 5  │  Total tokens: 0  │  run legacy$/);
 
   widget.detach();
 });

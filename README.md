@@ -24,10 +24,11 @@ Project config now lives in:
 .pi/fleet.json
 ```
 
-The first fleet command that needs config will create this file from defaults if
-it does not exist yet. Fleet then shows an info notification so you know where
-to adjust engines, profiles, agents, concurrency, and paths. If the file exists
-but contains invalid JSON, fleet fails loudly instead of silently falling back.
+Fleet no longer auto-creates this file. Config is layered (built-in defaults →
+`~/.pi/agent/fleet.json` → `.pi/fleet.json`); run `/fleet:config init-project`
+or `/fleet:config export-project` to write `.pi/fleet.json` when you want a
+project override. If either optional config file exists but contains invalid
+JSON, fleet fails loudly instead of silently falling back to defaults.
 
 Runtime task state, progress, and output remain under:
 

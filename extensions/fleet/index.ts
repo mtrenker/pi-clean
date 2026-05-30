@@ -31,10 +31,12 @@ import {
   userFleetConfigPath,
   writeDefaultProjectConfig,
   writeDefaultUserConfig,
+  type FleetConfig,
 } from "./config.js";
+import { readRunMetadata, startRunMetadata } from "./run.js";
 import { loadValidatedPlan } from "./plan.js";
 import { createTaskFolder, listTasks, readProgress, writeStatus, taskDir, syncTaskFolder } from "./task.js";
-import { buildAggregateState, writeAggregateState } from "./state.js";
+import { buildAggregateState, readAggregateState, writeAggregateState } from "./state.js";
 import {
   archiveTaskFolders,
   clearActiveTaskSummaries,
@@ -45,12 +47,13 @@ import {
 } from "./archive.js";
 import { Orchestrator } from "./orchestrator.js";
 import { handleFailure } from "./recovery.js";
+import { appendFleetEvent } from "./events.js";
 import { FleetWidget } from "./widget.js";
 import { createDemoRoot, cleanupDemoRoot, presetConfig, type DemoPreset } from "./demo.js";
 import { openFleetInspector } from "./inspect.js";
 import { extractClaudeUsageFromJsonl } from "./engines/claude-usage.js";
 import { extractLatestCodexUsageFromJsonl } from "./engines/codex-usage.js";
-import { totalUsageTokens, type Usage } from "./engines/types.js";
+import { totalUsageTokens, normalizeUsage, type EngineUsage } from "./engines/types.js";
 
 // ── Module-level singletons ───────────────────────────────────────────────────
 
@@ -125,17 +128,17 @@ async function backfillUsageFromOutput(cwd: string): Promise<{ updated: number; 
       continue;
     }
 
-    const usage = extractUsageForEngine(task.engine, content);
-    if (!usage) continue;
+    const engineUsage = extractUsageForEngine(task.engine, content);
+    if (!engineUsage) continue;
     scanned++;
 
-    if (usageEquals(usage, task.usage)) {
+    if (usageEquals(engineUsage, task.usage)) {
       continue;
     }
 
     await writeStatus(cwd, {
       ...task,
-      usage,
+      usage: normalizeUsage(engineUsage, task.engine),
     });
     updated++;
   }
@@ -147,7 +150,7 @@ async function backfillUsageFromOutput(cwd: string): Promise<{ updated: number; 
   return { updated, scanned };
 }
 
-function extractUsageForEngine(engine: string, content: string): Usage | null {
+function extractUsageForEngine(engine: string, content: string): EngineUsage | null {
   switch (engine) {
     case "claude":
       return extractClaudeUsageFromJsonl(content);
@@ -158,7 +161,7 @@ function extractUsageForEngine(engine: string, content: string): Usage | null {
   }
 }
 
-function usageEquals(left: Usage, right: Usage): boolean {
+function usageEquals(left: EngineUsage, right: EngineUsage): boolean {
   return (
     left.inputTokens === right.inputTokens &&
     left.outputTokens === right.outputTokens &&
@@ -168,8 +171,80 @@ function usageEquals(left: Usage, right: Usage): boolean {
 }
 
 function formatUsageTokens(tokens: number): string {
+  if (tokens <= 0) return "0";
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
   return `${(tokens / 1000).toFixed(1)}k`;
+}
+
+function shortRunId(runId: string | undefined): string {
+  if (!runId) return "legacy";
+  return runId.length > 8 ? runId.slice(0, 8) : runId;
+}
+
+function isTaskStale(task: { status: string; lastHeartbeatAt?: string | null; staleAfterSeconds?: number }): boolean {
+  if (task.status !== "running" || !task.lastHeartbeatAt) return false;
+  const heartbeatMs = new Date(task.lastHeartbeatAt).getTime();
+  if (!Number.isFinite(heartbeatMs)) return false;
+  const staleAfterSeconds = typeof task.staleAfterSeconds === "number" ? task.staleAfterSeconds : 300;
+  return Date.now() - heartbeatMs > staleAfterSeconds * 1000;
+}
+
+function compactAttentionLabel(attentionHints: Array<{ severity?: string; category?: string; taskId?: string }>): string {
+  const actionable = attentionHints.filter((hint) => hint.severity === "warning" || hint.severity === "error");
+  if (actionable.length === 0) return "attention: none";
+  const preview = actionable
+    .slice(0, 3)
+    .map((hint) => `${hint.severity}:${hint.category}${hint.taskId ? `#${hint.taskId}` : ""}`)
+    .join(", ");
+  const suffix = actionable.length > 3 ? ` +${actionable.length - 3}` : "";
+  return `attention: ${preview}${suffix}`;
+}
+
+async function loadOperatorContext(cwd: string): Promise<{
+  runId: string;
+  runStatus: string;
+  attentionHints: Array<{ severity?: string; category?: string; taskId?: string }>;
+}> {
+  const [run, aggregate] = await Promise.all([
+    readRunMetadata(cwd),
+    readAggregateState(cwd),
+  ]);
+
+  return {
+    runId: shortRunId(run?.runId),
+    runStatus: run?.status ?? "legacy",
+    attentionHints: Array.isArray(aggregate?.attentionHints) ? aggregate.attentionHints : [],
+  };
+}
+
+async function recordOperatorCommand(cwd: string, command: string, args?: string): Promise<void> {
+  await appendFleetEvent(cwd, {
+    type: "operator_command",
+    data: {
+      command,
+      args: args?.trim() || null,
+    },
+  }).catch((error) => {
+    console.warn("[fleet/events] Failed to append operator command event:", error);
+  });
+}
+
+async function recordPlanValidated(
+  cwd: string,
+  planPath: string,
+  taskCount: number,
+  normalized: boolean,
+): Promise<void> {
+  await appendFleetEvent(cwd, {
+    type: "plan_validated",
+    data: {
+      planPath,
+      taskCount,
+      normalized,
+    },
+  }).catch((error) => {
+    console.warn("[fleet/events] Failed to append plan validation event:", error);
+  });
 }
 
 // ── Extension factory ─────────────────────────────────────────────────────────
@@ -202,7 +277,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
       orchestrator,
       (id, lines) => ctx.ui.setWidget(id, lines),
       (id) => ctx.ui.setWidget(id, undefined),
-      { expanded: widgetExpanded },
+      { expanded: widgetExpanded, root: ctx.cwd },
     );
     widget.attach();
   }
@@ -266,9 +341,12 @@ const fleetExtension: ExtensionFactory = (pi) => {
     return result.config;
   }
 
-  async function ensureLiveOrchestrator(ctx: ExtensionContext): Promise<void> {
+  async function ensureLiveOrchestrator(
+    ctx: ExtensionContext,
+    preloadedConfig?: FleetConfig,
+  ): Promise<void> {
     if (!orchestrator) {
-      const config = await loadFleetConfigForCommand(ctx);
+      const config = preloadedConfig ?? (await loadFleetConfigForCommand(ctx));
       orchestrator = new Orchestrator(ctx.cwd, config);
     }
     activeRoot = ctx.cwd;
@@ -307,6 +385,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
       const filtered = params.taskId
         ? tasks.filter((t) => t.id === params.taskId)
         : tasks;
+      const operatorContext = await loadOperatorContext(ctx.cwd);
 
       if (filtered.length === 0) {
         return {
@@ -325,14 +404,22 @@ const fleetExtension: ExtensionFactory = (pi) => {
       const lines = filtered.map((t) => {
         const tokens = totalUsageTokens(t.usage);
         const tokenStr = tokens > 0 ? ` | ${formatUsageTokens(tokens)} tokens` : "";
+        const staleStr = isTaskStale(t) ? " | stale" : "";
         const thinkingStr = t.thinking ? `:${t.thinking}` : "";
         const profileStr = t.profile ? ` [${t.profile}]` : "";
-        return `${t.status.padEnd(10)} ${t.id}-${t.name.padEnd(25)} ${t.engine}/${t.model}${thinkingStr}${profileStr}${tokenStr}`;
+        return `${t.status.padEnd(10)} ${t.id}-${t.name.padEnd(25)} ${t.engine}/${t.model}${thinkingStr}${profileStr}${tokenStr}${staleStr}`;
       });
 
       return {
-        content: [{ type: "text" as const, text: `Fleet tasks:\n${lines.join("\n")}` }],
-        details: { tasks: filtered },
+        content: [{
+          type: "text" as const,
+          text: [
+            `Fleet tasks — run ${operatorContext.runId} (${operatorContext.runStatus})`,
+            compactAttentionLabel(operatorContext.attentionHints),
+            ...lines,
+          ].join("\n"),
+        }],
+        details: { tasks: filtered, run: operatorContext },
       };
     },
   });
@@ -496,10 +583,18 @@ const fleetExtension: ExtensionFactory = (pi) => {
     description: "Validate and canonicalize PLAN.md without creating task folders",
     async handler(_args, ctx) {
       try {
+        await recordOperatorCommand(ctx.cwd, "fleet:validate");
         const config = await loadFleetConfigForCommand(ctx);
         const validatedPlan = await loadValidatedPlan(ctx.cwd, config.planPath);
+        const normalized = validatedPlan.normalizedContent.trim() !== validatedPlan.sourceContent.trim();
+        await recordPlanValidated(
+          ctx.cwd,
+          config.planPath,
+          validatedPlan.document.tasks.length,
+          normalized,
+        );
 
-        if (validatedPlan.normalizedContent.trim() !== validatedPlan.sourceContent.trim()) {
+        if (normalized) {
           await fs.writeFile(validatedPlan.planPath, validatedPlan.normalizedContent, "utf-8");
           ctx.ui.notify(`PLAN.md valid and normalized (${validatedPlan.document.tasks.length} task(s)).`, "info");
         } else {
@@ -517,6 +612,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
     description: "Parse PLAN.md and create/update task folder structure under .pi/tasks/",
     async handler(_args, ctx) {
       try {
+        await recordOperatorCommand(ctx.cwd, "fleet:split");
         if (hasActiveExecution()) {
           throw new Error("Fleet is currently running. Stop it before splitting a new PLAN.md.");
         }
@@ -524,8 +620,10 @@ const fleetExtension: ExtensionFactory = (pi) => {
         const config = await loadFleetConfigForCommand(ctx);
         const validatedPlan = await loadValidatedPlan(ctx.cwd, config.planPath);
         const tasks = validatedPlan.document.tasks;
+        const normalized = validatedPlan.normalizedContent.trim() !== validatedPlan.sourceContent.trim();
+        await recordPlanValidated(ctx.cwd, config.planPath, tasks.length, normalized);
 
-        if (validatedPlan.normalizedContent.trim() !== validatedPlan.sourceContent.trim()) {
+        if (normalized) {
           await fs.writeFile(validatedPlan.planPath, validatedPlan.normalizedContent, "utf-8");
           ctx.ui.notify("Normalized PLAN.md to canonical fleet task format.", "info");
         }
@@ -632,6 +730,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
     description: "Write .pi/tasks/archive-summary.json from current task progress/status",
     async handler(_args, ctx) {
       try {
+        await recordOperatorCommand(ctx.cwd, "fleet:summarize");
         const tasks = await listTasks(ctx.cwd);
         if (tasks.length === 0) {
           ctx.ui.notify("No tasks found. Run /fleet:split first.", "info");
@@ -652,6 +751,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
     description: "Archive the current task set into .pi/archive/ and clear active task folders",
     async handler(_args, ctx) {
       try {
+        await recordOperatorCommand(ctx.cwd, "fleet:archive");
         if (hasActiveExecution()) {
           throw new Error("Fleet is currently running. Stop it before archiving tasks.");
         }
@@ -692,7 +792,16 @@ const fleetExtension: ExtensionFactory = (pi) => {
     description: "Start tasks whose dependencies are met (optionally specify a task ID)",
     async handler(args, ctx) {
       try {
-        await ensureLiveOrchestrator(ctx);
+        // Load config with full source tracking so we can write run.json.
+        const configResult = await loadConfigWithStatus(ctx.cwd);
+
+        // Write run.json before event capture so timeline events share this runId.
+        await startRunMetadata(ctx.cwd, configResult).catch((err: unknown) => {
+          console.warn("[fleet/run] Failed to write run.json:", err);
+        });
+        await recordOperatorCommand(ctx.cwd, "fleet:start", args);
+
+        await ensureLiveOrchestrator(ctx, configResult.config);
         await orchestrator!.start(args ? [args] : undefined);
         syncWidget(ctx);
 
@@ -709,6 +818,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
   pi.registerCommand("fleet:stop", {
     description: "Stop running agents (optionally specify a task ID)",
     async handler(args, ctx) {
+      await recordOperatorCommand(ctx.cwd, "fleet:stop", args);
       if (!orchestrator) {
         ctx.ui.notify("No fleet running", "info");
         return;
@@ -726,6 +836,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
     async handler(_args, ctx) {
       try {
         const tasks = await listTasks(ctx.cwd);
+        const operatorContext = await loadOperatorContext(ctx.cwd);
 
         if (tasks.length === 0) {
           ctx.ui.notify("No tasks found. Run /fleet:split first.", "info");
@@ -747,15 +858,22 @@ const fleetExtension: ExtensionFactory = (pi) => {
             tokens > 0
               ? ` ${formatUsageTokens(tokens)} tokens`
               : "";
+          const staleStr = isTaskStale(t) ? " stale" : "";
           const taskLabel = `${t.id}-${t.name}`.padEnd(26);
-          const statusLabel = t.status.padEnd(9);
+          const statusLabel = `${t.status}${staleStr}`.padEnd(15);
           const thinkingStr = t.thinking ? `:${t.thinking}` : "";
           const profileStr = t.profile ? ` [${t.profile}]` : "";
           const engineModel = `${t.engine}/${t.model}${thinkingStr}`;
           return `${symbol} ${taskLabel} ${statusLabel} ${engineModel}${profileStr}${tokenStr}`;
         });
 
-        const formattedStatus = `Fleet Status (${tasks.length} tasks)\n${lines.join("\n")}`;
+        const staleCount = tasks.filter((task) => isTaskStale(task)).length;
+        const totalTokens = tasks.reduce((sum, task) => sum + totalUsageTokens(task.usage), 0);
+        const formattedStatus = [
+          `Fleet Status (${tasks.length} tasks) — run ${operatorContext.runId} (${operatorContext.runStatus})`,
+          `running: ${tasks.filter((task) => task.status === "running").length}  stale: ${staleCount}  tokens: ${formatUsageTokens(totalTokens) || "0"}  ${compactAttentionLabel(operatorContext.attentionHints)}`,
+          ...lines,
+        ].join("\n");
 
         pi.sendMessage({
           customType: "fleet-status",
@@ -774,6 +892,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
     description: "Backfill missing Claude/Codex token usage from saved output.jsonl history",
     async handler(_args, ctx) {
       try {
+        await recordOperatorCommand(ctx.cwd, "fleet:repair-usage");
         if (hasActiveExecution()) {
           throw new Error("Fleet is currently running. Stop it before repairing historical usage.");
         }
@@ -797,6 +916,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
   pi.registerCommand("fleet:retry", {
     description: "Manually retry a failed task (specify task ID)",
     async handler(args, ctx) {
+      await recordOperatorCommand(ctx.cwd, "fleet:retry", args);
       if (!args) {
         ctx.ui.notify("Usage: /fleet:retry <task-id>", "error");
         return;
@@ -825,7 +945,15 @@ const fleetExtension: ExtensionFactory = (pi) => {
     description: "Run fleet in simulation mode — fires all events without spending tokens",
     async handler(args, ctx) {
       try {
-        const config = await loadFleetConfigForCommand(ctx);
+        // Load config with full source tracking so we can write run.json.
+        const configResult = await loadConfigWithStatus(ctx.cwd);
+        const config = configResult.config;
+
+        // Write run.json before event capture so timeline events share this runId.
+        await startRunMetadata(ctx.cwd, configResult).catch((err: unknown) => {
+          console.warn("[fleet/run] Failed to write run.json:", err);
+        });
+        await recordOperatorCommand(ctx.cwd, "fleet:simulate", args);
 
         // Always create a fresh orchestrator in simulate mode
         hideWidget();
@@ -1046,7 +1174,7 @@ const fleetExtension: ExtensionFactory = (pi) => {
             startedAt: null,
             completedAt: null,
             duration: null,
-            usage: { inputTokens: 0, outputTokens: 0 },
+            usage: normalizeUsage(undefined),
           });
         }
 

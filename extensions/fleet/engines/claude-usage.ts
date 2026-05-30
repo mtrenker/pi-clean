@@ -1,15 +1,15 @@
-import type { Usage } from "./types.js";
+import type { EngineUsage } from "./types.js";
 import { totalUsageTokens } from "./types.js";
 
-export function extractClaudeUsage(evt: Record<string, unknown>): Usage | null {
+export function extractClaudeUsage(evt: Record<string, unknown>): EngineUsage | null {
   const usageRaw = readUsageRaw(evt);
   if (!usageRaw) return null;
   const usage = parseClaudeUsage(usageRaw);
   return totalUsageTokens(usage) > 0 ? usage : null;
 }
 
-export function extractClaudeUsageFromJsonl(content: string): Usage | null {
-  let accumulated: Usage = { inputTokens: 0, outputTokens: 0 };
+export function extractClaudeUsageFromJsonl(content: string): EngineUsage | null {
+  let accumulated: EngineUsage = { inputTokens: 0, outputTokens: 0 };
   let sawUsage = false;
 
   for (const rawLine of content.split("\n")) {
@@ -43,8 +43,8 @@ function readUsageRaw(evt: Record<string, unknown>): Record<string, number> | nu
   return (evt["usage"] as Record<string, number> | undefined) ?? null;
 }
 
-function parseClaudeUsage(usageRaw: Record<string, number>): Usage {
-  const usage: Usage = {
+function parseClaudeUsage(usageRaw: Record<string, number>): EngineUsage {
+  const usage: EngineUsage = {
     inputTokens: usageRaw["input_tokens"] ?? 0,
     outputTokens: usageRaw["output_tokens"] ?? 0,
   };
@@ -57,8 +57,8 @@ function parseClaudeUsage(usageRaw: Record<string, number>): Usage {
   return usage;
 }
 
-function addUsage(left: Usage, right: Usage): Usage {
-  const next: Usage = {
+function addUsage(left: EngineUsage, right: EngineUsage): EngineUsage {
+  const next: EngineUsage = {
     inputTokens: left.inputTokens + right.inputTokens,
     outputTokens: left.outputTokens + right.outputTokens,
   };
@@ -71,8 +71,8 @@ function addUsage(left: Usage, right: Usage): Usage {
   return next;
 }
 
-function maxUsage(left: Usage, right: Usage): Usage {
-  const next: Usage = {
+function maxUsage(left: EngineUsage, right: EngineUsage): EngineUsage {
+  const next: EngineUsage = {
     inputTokens: Math.max(left.inputTokens, right.inputTokens),
     outputTokens: Math.max(left.outputTokens, right.outputTokens),
   };

@@ -3,7 +3,7 @@
 // manages engine processes, and emits typed events.
 
 import { EventEmitter } from "events";
-import { readFile } from "fs/promises";
+import { access, readFile } from "fs/promises";
 import { join } from "path";
 
 import type { FleetConfig } from "./config.js";
@@ -24,8 +24,12 @@ import {
 } from "./state.js";
 import { createEngineAdapter, createSimulateAdapter } from "./engines/index.js";
 import type { EngineProcess } from "./engines/index.js";
-import type { Usage } from "./engines/types.js";
+import type { EngineUsage } from "./engines/types.js";
+import { normalizeUsage } from "./engines/types.js";
 import { handleFailure } from "./recovery.js";
+import { appendFleetEvent, type FleetEventInput } from "./events.js";
+import { updateRunStatus, readRunMetadata } from "./run.js";
+import { deriveAllAttentionHints } from "./attention.js";
 
 // ── Event payload types ───────────────────────────────────────────────────────
 
@@ -46,9 +50,16 @@ export interface TaskProgressEvent {
   status: "running" | "done" | "error";
 }
 
-export interface TaskUsageEvent extends Usage {
+export interface TaskUsageEvent {
   id: string;
   name: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+  totalTokens: number;
+  source: string;
+  updatedAt: string;
 }
 
 export interface FleetDoneEvent {
@@ -101,6 +112,16 @@ export class Orchestrator extends EventEmitter {
   /** live engine processes keyed by task id */
   private processes = new Map<string, EngineProcess>();
 
+  /** prevents duplicate terminal fleet events when schedule checks repeat */
+  private fleetDoneEmitted = false;
+
+  /**
+   * Set to true when the operator's plan fails structural validation.
+   * Surfaced as a `plan_validation_failed` attention hint on every aggregate
+   * state refresh until the fleet is restarted with a valid plan.
+   */
+  private _planValidationFailed = false;
+
   constructor(
     private readonly cwd: string,
     private readonly config: FleetConfig,
@@ -117,6 +138,8 @@ export class Orchestrator extends EventEmitter {
    * If `taskIds` is provided, only those tasks will be started (deps must still be met).
    */
   async start(taskIds?: string[]): Promise<void> {
+    this.fleetDoneEmitted = false;
+
     // Refresh in-memory state from disk
     const diskStates = await listTasks(this.cwd);
     for (const s of diskStates) {
@@ -130,6 +153,18 @@ export class Orchestrator extends EventEmitter {
     }
 
     await this._refreshAggregateState();
+    if (taskIds === undefined || taskIds.length > 0) {
+      await this._recordEvent({
+        type: "fleet_started",
+        data: {
+          taskIds: taskIds ?? null,
+          taskCount: this.states.size,
+          concurrency: this.config.concurrency,
+          simulate: this.simulate,
+        },
+      });
+    }
+    if (taskIds && taskIds.length === 0) return;
     await this._scheduleReady(taskIds);
   }
 
@@ -138,6 +173,9 @@ export class Orchestrator extends EventEmitter {
    * Updates each killed task's status to "failed".
    */
   async stop(taskId?: string): Promise<void> {
+    const stoppedIds = taskId !== undefined
+      ? (this.processes.has(taskId) ? [taskId] : [])
+      : [...this.processes.keys()];
     if (taskId !== undefined) {
       await this._killTask(taskId);
     } else {
@@ -146,6 +184,15 @@ export class Orchestrator extends EventEmitter {
         await this._killTask(id);
       }
     }
+    if (stoppedIds.length === 0) return;
+    await updateRunStatus(this.cwd, "failed");
+    await this._recordEvent({
+      type: "fleet_stopped",
+      data: {
+        taskId: taskId ?? null,
+        stoppedTaskIds: stoppedIds,
+      },
+    });
   }
 
   /**
@@ -169,6 +216,15 @@ export class Orchestrator extends EventEmitter {
 
     await writeStatus(this.cwd, state);
     await this._refreshAggregateState();
+    await this._recordEvent({
+      type: "task_retried",
+      taskId: state.id,
+      data: {
+        name: state.name,
+        prevStatus,
+        retries: state.retries,
+      },
+    });
     this.emit("task:status", {
       id: state.id,
       name: state.name,
@@ -187,15 +243,60 @@ export class Orchestrator extends EventEmitter {
     return [...this.states.values()];
   }
 
+  /**
+   * Mark the current fleet plan as having failed structural validation.
+   * This surfaces a `plan_validation_failed` attention hint on every
+   * subsequent aggregate state refresh.
+   * Call from index.ts when the operator runs `/fleet validate` or
+   * `/fleet start` and the plan parser reports errors.
+   */
+  notifyPlanValidationFailed(): void {
+    this._planValidationFailed = true;
+  }
+
+  /**
+   * Clear the plan-validation-failed flag (e.g. when a new valid plan is loaded).
+   */
+  clearPlanValidationFailed(): void {
+    this._planValidationFailed = false;
+  }
+
   // ── Private helpers ───────────────────────────────────────────────────────
 
   /**
    * Recompute aggregate state from current in-memory data and write state.json.
+   * Also derives attention hints (sync + async) and embeds them in the state.
    */
   private async _refreshAggregateState(): Promise<void> {
     const tasks = [...this.states.values()];
     const aggregate = buildAggregateState(tasks, this.progressByTask);
+
+    // Derive attention hints — best-effort; never block state write on errors.
+    try {
+      const runMeta = await readRunMetadata(this.cwd);
+      const runId = runMeta?.runId;
+      aggregate.attentionHints = await deriveAllAttentionHints(
+        this.cwd,
+        aggregate.tasks,
+        {
+          runId,
+          planValidationFailed: this._planValidationFailed,
+        },
+      );
+    } catch (err) {
+      console.warn("[fleet/attention] Failed to derive attention hints:", err);
+      // attentionHints stays as [] — safe fallback
+    }
+
     await writeAggregateState(this.cwd, aggregate);
+  }
+
+  private async _recordEvent(input: FleetEventInput): Promise<void> {
+    try {
+      await appendFleetEvent(this.cwd, input);
+    } catch (error) {
+      console.warn("[fleet/events] Failed to append event:", error);
+    }
   }
 
   private _toRuntimeTaskState(state: TaskState): RuntimeTaskState {
@@ -249,6 +350,27 @@ export class Orchestrator extends EventEmitter {
     this.states.set(state.id, state);
     await writeStatus(this.cwd, state);
     await this._refreshAggregateState();
+    await this._recordEvent({
+      type: "task_status_changed",
+      taskId: state.id,
+      data: {
+        name: state.name,
+        status: state.status,
+        prevStatus,
+        retries: state.retries,
+      },
+    });
+    if (state.status === "failed") {
+      await this._recordEvent({
+        type: "task_failed",
+        taskId: state.id,
+        data: {
+          name: state.name,
+          error: state.error,
+          retries: state.retries,
+        },
+      });
+    }
     this.emit("task:status", {
       id: state.id,
       name: state.name,
@@ -408,6 +530,10 @@ export class Orchestrator extends EventEmitter {
       if (state) {
         state.latestProgressAt = entry.ts;
         state.latestProgressMessage = entry.step;
+        // Update heartbeat and output timestamps on every output line
+        state.lastOutputAt = now;
+        state.lastProgressAt = now;
+        state.lastHeartbeatAt = now;
       }
       const existing = this.progressByTask.get(task.id) ?? [];
       existing.push(entry);
@@ -429,22 +555,62 @@ export class Orchestrator extends EventEmitter {
         step,
         status: progressStatus,
       });
+      appendFleetEvent(this.cwd, {
+        type: "task_progress",
+        taskId: task.id,
+        data: {
+          name: task.name,
+          step,
+          status: progressStatus,
+        },
+      }).catch((error) => {
+        console.warn("[fleet/events] Failed to append progress event:", error);
+      });
     });
 
-    process.onUsageUpdate((usage) => {
-      // Update in-memory usage counters
+    process.onUsageUpdate((engineUsage: EngineUsage) => {
+      const now = new Date().toISOString();
+      // Normalize to full Usage envelope: add totalTokens, source, updatedAt
+      const normalized = normalizeUsage(engineUsage, task.engine, now);
+
+      // Update in-memory state
       const current = this.states.get(task.id);
       if (current) {
-        current.usage = { ...usage };
+        current.usage = normalized;
+        current.lastHeartbeatAt = now;
       }
+
+      // Persist usage to disk so Flightdeck sees live token movement.
+      // Fire-and-forget — don't block the event loop.
+      if (current) {
+        writeStatus(this.cwd, current).catch(() => {
+          // Ignore write errors for usage updates
+        });
+      }
+      this._refreshAggregateState().catch(() => {
+        // Ignore state refresh failures from usage updates
+      });
 
       this.emit("task:usage", {
         id: task.id,
         name: task.name,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        cacheCreationInputTokens: usage.cacheCreationInputTokens,
-        cacheReadInputTokens: usage.cacheReadInputTokens,
+        inputTokens: normalized.inputTokens,
+        outputTokens: normalized.outputTokens,
+        cacheCreationInputTokens: normalized.cacheCreationInputTokens,
+        cacheReadInputTokens: normalized.cacheReadInputTokens,
+        totalTokens: normalized.totalTokens,
+        source: normalized.source,
+        updatedAt: normalized.updatedAt,
+      });
+      appendFleetEvent(this.cwd, {
+        type: "task_usage_updated",
+        taskId: task.id,
+        data: {
+          name: task.name,
+          usage: normalized,
+        },
+      }).catch((error) => {
+        console.warn("[fleet/events] Failed to append usage event:", error);
       });
     });
 
@@ -478,6 +644,7 @@ export class Orchestrator extends EventEmitter {
       state.error = null;
 
       await this.onStatusChange(state, prevStatus);
+      await this._recordHandoffIfPresent(state);
 
       // Schedule newly unblocked tasks
       await this._scheduleReady();
@@ -526,6 +693,24 @@ export class Orchestrator extends EventEmitter {
     }
   }
 
+  private async _recordHandoffIfPresent(state: RuntimeTaskState): Promise<void> {
+    const relativePath = `.pi/tasks/${state.id}-${state.name}/handoff.md`;
+    try {
+      await access(join(taskDir(this.cwd, state.id, state.name), "handoff.md"));
+    } catch {
+      return;
+    }
+
+    await this._recordEvent({
+      type: "task_handoff_written",
+      taskId: state.id,
+      data: {
+        name: state.name,
+        path: relativePath,
+      },
+    });
+  }
+
   /**
    * Kill a single running task and mark it as failed.
    */
@@ -555,6 +740,8 @@ export class Orchestrator extends EventEmitter {
    * if so. Called after each process completion or kill.
    */
   private async _maybeEmitFleetDone(): Promise<void> {
+    if (this.fleetDoneEmitted) return;
+
     const allStates = [...this.states.values()];
 
     // If there are still running processes, we are not done
@@ -587,6 +774,14 @@ export class Orchestrator extends EventEmitter {
 
     // All tasks are done, failed, or permanently blocked → emit fleet:done
     const aggregate = buildAggregateState(allStates, this.progressByTask);
+    this.fleetDoneEmitted = true;
+    await updateRunStatus(this.cwd, aggregate.summary.failed > 0 ? "failed" : "done");
+    await this._recordEvent({
+      type: "fleet_completed",
+      data: {
+        summary: aggregate.summary,
+      },
+    });
     this.emit("fleet:done", { summary: aggregate.summary });
   }
 }

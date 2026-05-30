@@ -5,6 +5,7 @@ import { join } from "path";
 import type { TaskStatus, TaskState, ProgressEntry } from "./task.js";
 import type { Usage } from "./engines/types.js";
 import { totalUsageTokens } from "./engines/types.js";
+import type { AttentionHint } from "./attention.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -17,11 +18,22 @@ export interface AggregateState {
     engine: string;
     model: string;
     status: TaskStatus;
+    /** Number of retry attempts made so far; 0 on first run. */
+    retries: number;
     startedAt: string | null;
     completedAt: string | null;
+    error: string | null;
     latestProgressAt: string | null;       // latest progress entry timestamp
     latestProgressMessage: string | null;  // latest progress entry step text
     lastProgress: string | null;           // backwards-compatible alias
+    /** Mirrors latestProgressAt — exposed under the normalized field name. */
+    lastProgressAt: string | null;
+    /** Last time any engine signal (output, usage) was received; null for non-running tasks. */
+    lastHeartbeatAt: string | null;
+    /** Last time a raw output line was received; null for non-running tasks. */
+    lastOutputAt: string | null;
+    /** Number of seconds of silence after which this task is considered stale. */
+    staleAfterSeconds: number;
     blockedBy: string[] | null;    // task IDs blocking this one (if status=pending and deps not done)
     usage: Usage;
   }>;
@@ -38,6 +50,13 @@ export interface AggregateState {
     totalCacheReadInputTokens: number;
     totalTokens: number;
   };
+  /**
+   * High-confidence attention items derived from current task and fleet state.
+   * Populated by the orchestrator after each state refresh.  Starts as an
+   * empty array; consumers should treat an empty array as "nothing noteworthy
+   * right now" rather than "hints not supported".
+   */
+  attentionHints: AttentionHint[];
 }
 
 // ── Path helpers ──────────────────────────────────────────────────────────────
@@ -108,10 +127,14 @@ export function buildAggregateState(
       blockedBy = blocking.length > 0 ? blocking : null;
     }
 
-    // Last progress entry
+    // Last progress entry (derived from progress JSONL)
     const progressKey = `${task.id}-${task.name}`;
     const entries = progressMap.get(progressKey) ?? progressMap.get(task.id) ?? [];
     const { latestProgressAt, latestProgressMessage } = latestProgressFrom(entries);
+
+    // Prefer progress-entry-derived timestamp; fall back to task-state field for
+    // tasks whose progress map isn't loaded (e.g. after a reload from disk only).
+    const lastProgressAt = latestProgressAt ?? task.lastProgressAt ?? null;
 
     return {
       id: task.id,
@@ -120,11 +143,17 @@ export function buildAggregateState(
       engine: task.engine,
       model: task.model,
       status: task.status,
+      retries: task.retries,
       startedAt: task.startedAt,
       completedAt: task.completedAt,
+      error: task.error,
       latestProgressAt,
       latestProgressMessage,
       lastProgress: latestProgressMessage,
+      lastProgressAt,
+      lastHeartbeatAt: task.lastHeartbeatAt,
+      lastOutputAt: task.lastOutputAt,
+      staleAfterSeconds: task.staleAfterSeconds,
       blockedBy,
       usage: { ...task.usage },
     };
@@ -133,6 +162,9 @@ export function buildAggregateState(
   return {
     updatedAt: new Date().toISOString(),
     tasks: aggregateTasks,
+    // attentionHints starts empty; the orchestrator populates it after each
+    // _refreshAggregateState() call via deriveAllAttentionHints().
+    attentionHints: [],
     summary,
   };
 }

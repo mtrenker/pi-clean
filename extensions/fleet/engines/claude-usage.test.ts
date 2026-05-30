@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { extractClaudeUsage, extractClaudeUsageFromJsonl } from "./claude-usage.ts";
+import type { EngineUsage } from "./types.ts";
 
 test("extractClaudeUsage reads cache-aware usage from assistant events", () => {
   const usage = extractClaudeUsage({
@@ -16,12 +17,13 @@ test("extractClaudeUsage reads cache-aware usage from assistant events", () => {
     },
   });
 
-  assert.deepEqual(usage, {
+  const expected: EngineUsage = {
     inputTokens: 10,
     outputTokens: 5,
     cacheCreationInputTokens: 100,
     cacheReadInputTokens: 1000,
-  });
+  };
+  assert.deepEqual(usage, expected);
 });
 
 test("extractClaudeUsageFromJsonl sums assistant usage and treats result usage as aggregate fallback", () => {
@@ -40,10 +42,11 @@ test("extractClaudeUsageFromJsonl sums assistant usage and treats result usage a
     }),
   ].join("\n"));
 
-  assert.deepEqual(usage, {
+  const expected: EngineUsage = {
     inputTokens: 30,
     outputTokens: 3,
     cacheCreationInputTokens: 50,
     cacheReadInputTokens: 100,
-  });
+  };
+  assert.deepEqual(usage, expected);
 });

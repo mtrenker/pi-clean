@@ -6,6 +6,7 @@ import { join } from "path";
 
 import { readProgress, taskDir, type TaskState } from "./task.js";
 import type { Orchestrator } from "./orchestrator.js";
+import { deriveSyncHints, type AttentionHint } from "./attention.js";
 
 // ── Output text extraction ────────────────────────────────────────────────────
 
@@ -136,6 +137,37 @@ Review the progress and error output above before proceeding.
 // ── handleFailure ─────────────────────────────────────────────────────────────
 
 /**
+ * Derive the attention hints that apply to a task's current failure state.
+ * Exported so callers (e.g. index.ts notification handlers) can reference the
+ * same dedupeKey that Flightdeck uses.
+ */
+export function deriveFailureHints(
+  taskState: TaskState,
+  runId?: string,
+): AttentionHint[] {
+  // Build the minimal AttentionTaskInput from TaskState.
+  // Usage normalization guarantees totalTokens and source are present.
+  return deriveSyncHints(
+    [
+      {
+        id: taskState.id,
+        name: taskState.name,
+        status: taskState.status,
+        retries: taskState.retries,
+        error: taskState.error,
+        blockedBy: null, // not relevant for failure hints
+        lastHeartbeatAt: taskState.lastHeartbeatAt,
+        staleAfterSeconds: taskState.staleAfterSeconds,
+        usage: taskState.usage,
+        completedAt: taskState.completedAt,
+        startedAt: taskState.startedAt,
+      },
+    ],
+    { runId },
+  );
+}
+
+/**
  * Generate recovery.md for a failed task and trigger retry, OR notify the user
  * if this is already a retry failure.
  */
@@ -144,13 +176,21 @@ export async function handleFailure(opts: {
   taskState: TaskState;
   orchestrator: Orchestrator;
   onNotify: (message: string) => void;
+  runId?: string;
 }): Promise<void> {
-  const { cwd, taskState, orchestrator, onNotify } = opts;
+  const { cwd, taskState, orchestrator, onNotify, runId } = opts;
   const { id, name, retries } = taskState;
 
   if (retries >= 1) {
-    // Already retried once — notify user, do not write recovery.md again
-    onNotify(`Task ${id}-${name} failed after retry. Manual intervention required.`);
+    // Already retried once — permanently failed.  Derive the operator_review_needed
+    // attention hint so the notification includes the stable dedupeKey that
+    // Flightdeck uses to surface this issue.
+    const hints = deriveFailureHints(taskState, runId);
+    const reviewHint = hints.find((h) => h.category === "operator_review_needed");
+    const dedupeInfo = reviewHint ? ` [hint:${reviewHint.dedupeKey}]` : "";
+    onNotify(
+      `Task ${id}-${name} failed after retry. Manual intervention required.${dedupeInfo}`,
+    );
     return;
   }
 

@@ -6,7 +6,7 @@ import type { ChildProcess } from "child_process";
 import { createInterface } from "readline";
 import { createWriteStream, mkdirSync } from "fs";
 import { dirname } from "path";
-import type { Usage, EngineResult, EngineProcess } from "./types.js";
+import type { EngineUsage, EngineResult, EngineProcess } from "./types.js";
 
 // ── StreamJsonEngineProcess ───────────────────────────────────────────────────
 
@@ -26,12 +26,12 @@ export class StreamJsonEngineProcess implements EngineProcess {
 
   private readonly proc: ChildProcess;
   private readonly progressCbs: Array<(line: string) => void> = [];
-  private readonly usageCbs: Array<(usage: Usage) => void> = [];
+  private readonly usageCbs: Array<(usage: EngineUsage) => void> = [];
   private readonly completeCbs: Array<(result: EngineResult) => void> = [];
   private completed = false;
   private killTimer: ReturnType<typeof setTimeout> | undefined;
   private lastProgress = "";
-  private accumulatedUsage: Usage = { inputTokens: 0, outputTokens: 0 };
+  private accumulatedUsage: EngineUsage = { inputTokens: 0, outputTokens: 0 };
 
   constructor(proc: ChildProcess, outputJsonlPath: string) {
     this.proc = proc;
@@ -81,7 +81,7 @@ export class StreamJsonEngineProcess implements EngineProcess {
     this.progressCbs.push(cb);
   }
 
-  onUsageUpdate(cb: (usage: Usage) => void): void {
+  onUsageUpdate(cb: (usage: EngineUsage) => void): void {
     this.usageCbs.push(cb);
   }
 
@@ -157,8 +157,8 @@ export class StreamJsonEngineProcess implements EngineProcess {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function parseStreamUsage(usageRaw: Record<string, number>): Usage {
-  const usage: Usage = {
+function parseStreamUsage(usageRaw: Record<string, number>): EngineUsage {
+  const usage: EngineUsage = {
     inputTokens: usageRaw["input_tokens"] ?? 0,
     outputTokens: usageRaw["output_tokens"] ?? 0,
   };
@@ -171,7 +171,7 @@ function parseStreamUsage(usageRaw: Record<string, number>): Usage {
   return usage;
 }
 
-function usageDeltaIsZero(usage: Usage): boolean {
+function usageDeltaIsZero(usage: EngineUsage): boolean {
   return (
     usage.inputTokens === 0 &&
     usage.outputTokens === 0 &&
@@ -180,8 +180,8 @@ function usageDeltaIsZero(usage: Usage): boolean {
   );
 }
 
-function addUsage(left: Usage, right: Usage): Usage {
-  const next: Usage = {
+function addUsage(left: EngineUsage, right: EngineUsage): EngineUsage {
+  const next: EngineUsage = {
     inputTokens: left.inputTokens + right.inputTokens,
     outputTokens: left.outputTokens + right.outputTokens,
   };
@@ -194,8 +194,8 @@ function addUsage(left: Usage, right: Usage): Usage {
   return next;
 }
 
-function maxUsage(left: Usage, right: Usage): Usage {
-  const next: Usage = {
+function maxUsage(left: EngineUsage, right: EngineUsage): EngineUsage {
+  const next: EngineUsage = {
     inputTokens: Math.max(left.inputTokens, right.inputTokens),
     outputTokens: Math.max(left.outputTokens, right.outputTokens),
   };
@@ -208,7 +208,7 @@ function maxUsage(left: Usage, right: Usage): Usage {
   return next;
 }
 
-function usageEquals(left: Usage, right: Usage): boolean {
+function usageEquals(left: EngineUsage, right: EngineUsage): boolean {
   return (
     left.inputTokens === right.inputTokens &&
     left.outputTokens === right.outputTokens &&

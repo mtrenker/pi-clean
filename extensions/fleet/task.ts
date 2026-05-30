@@ -26,6 +26,27 @@ export interface TaskState {
   retries: number;
   pid: number | null;
   error: string | null;
+  /**
+   * Last time any signal (progress, output, or usage) was received from the
+   * running engine.  Null before the task starts or for tasks loaded from
+   * pre-004 status files.
+   */
+  lastHeartbeatAt: string | null;
+  /**
+   * Last time a raw output line was received from the engine.  Set at the
+   * same time as lastProgressAt in the current wire protocol; reserved as a
+   * separate field for finer-grained staleness detection in future adapters.
+   */
+  lastOutputAt: string | null;
+  /**
+   * Last time a structured progress entry (step/status JSONL) was received.
+   */
+  lastProgressAt: string | null;
+  /**
+   * Number of seconds of silence after which Flightdeck should treat this
+   * task as potentially stale.  Defaults to 300 (5 minutes).
+   */
+  staleAfterSeconds: number;
   usage: Usage;
 }
 
@@ -148,6 +169,9 @@ Before finishing, write \`${handoffRel}\` with:
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+/** Default initial value for the new heartbeat / timing fields. */
+const DEFAULT_STALE_AFTER_SECONDS = 300;
+
 /**
  * Creates the task folder, writes task.md, initial status.json, and empty
  * progress.jsonl / output.jsonl files.
@@ -176,10 +200,11 @@ export async function createTaskFolder(cwd: string, spec: TaskSpec): Promise<voi
     retries: 0,
     pid: null,
     error: null,
-    usage: {
-      inputTokens: 0,
-      outputTokens: 0,
-    },
+    lastHeartbeatAt: null,
+    lastOutputAt: null,
+    lastProgressAt: null,
+    staleAfterSeconds: DEFAULT_STALE_AFTER_SECONDS,
+    usage: normalizeUsage(undefined),
   };
   await writeFile(join(dir, "status.json"), JSON.stringify(initialState, null, 2), "utf-8");
 
@@ -229,10 +254,11 @@ export async function syncTaskFolder(cwd: string, spec: TaskSpec): Promise<void>
       retries: 0,
       pid: null,
       error: null,
-      usage: {
-        inputTokens: 0,
-        outputTokens: 0,
-      },
+      lastHeartbeatAt: null,
+      lastOutputAt: null,
+      lastProgressAt: null,
+      staleAfterSeconds: DEFAULT_STALE_AFTER_SECONDS,
+      usage: normalizeUsage(undefined),
     };
   }
 
@@ -245,12 +271,23 @@ export async function syncTaskFolder(cwd: string, spec: TaskSpec): Promise<void>
 
 /**
  * Reads status.json for the given task.
+ * Handles legacy files that pre-date the heartbeat / normalized-usage schema:
+ * missing fields are defaulted to null / 0 / "" rather than causing a parse error.
  */
 export async function readStatus(cwd: string, id: string, name: string): Promise<TaskState> {
   const content = await readFile(statusPath(cwd, id, name), "utf-8");
-  const parsed = JSON.parse(content) as TaskState;
-  parsed.usage = normalizeUsage(parsed.usage);
-  return parsed;
+  const raw = JSON.parse(content) as Partial<TaskState> & { usage?: unknown };
+
+  return {
+    ...(raw as TaskState),
+    // Normalize usage — handles old shape {inputTokens, outputTokens} and new full shape.
+    usage: normalizeUsage(raw.usage as Parameters<typeof normalizeUsage>[0]),
+    // Default new heartbeat fields for pre-004 status files.
+    lastHeartbeatAt: raw.lastHeartbeatAt ?? null,
+    lastOutputAt: raw.lastOutputAt ?? null,
+    lastProgressAt: raw.lastProgressAt ?? null,
+    staleAfterSeconds: raw.staleAfterSeconds ?? DEFAULT_STALE_AFTER_SECONDS,
+  };
 }
 
 /**

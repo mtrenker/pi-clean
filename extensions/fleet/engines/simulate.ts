@@ -4,7 +4,7 @@
 // behave identically during development/TUI testing.
 
 import { appendFile } from "fs/promises";
-import type { EngineAdapter, EngineProcess, EngineResult, Usage } from "./types.js";
+import type { EngineAdapter, EngineProcess, EngineResult, EngineUsage } from "./types.js";
 import type { SimulateConfig } from "../config.js";
 
 // ── Fake progress steps cycled through during simulation ──────────────────────
@@ -29,7 +29,7 @@ class SimulateEngineProcess implements EngineProcess {
   readonly pid: number;
 
   private progressCbs: Array<(line: string) => void> = [];
-  private usageCbs: Array<(usage: Usage) => void> = [];
+  private usageCbs: Array<(usage: EngineUsage) => void> = [];
   private completeCbs: Array<(result: EngineResult) => void> = [];
 
   private intervalHandle: ReturnType<typeof setInterval> | null = null;
@@ -54,7 +54,7 @@ class SimulateEngineProcess implements EngineProcess {
     this.progressCbs.push(cb);
   }
 
-  onUsageUpdate(cb: (usage: Usage) => void): void {
+  onUsageUpdate(cb: (usage: EngineUsage) => void): void {
     this.usageCbs.push(cb);
   }
 

@@ -44,6 +44,7 @@ The fleet widget renders a fixed-width table with one or two lines per task.
 - **Collapsed mode (default)** keeps the summary/status bar visible and automatically follows the currently active work, so large plans do not push the interesting rows out of view.
 - **Expanded mode** shows the full task list.
 - **Running / failed / retrying / pending tasks** can show a second progress sub-line.
+- The summary footer includes the current run id/status when `.pi/tasks/run.json` exists, plus compact stale/attention counters when a running task needs human review.
 - **Done tasks** collapse to a single row to keep the widget compact.
 - When there is **no active fleet execution**, the widget shows a small help panel instead of the live table.
 - Toggle the widget with `/fleet:widget` or **Ctrl+Alt+F**. Use `/fleet:widget expand` or `/fleet:widget collapse` to control the viewport mode.
@@ -55,7 +56,7 @@ The fleet widget renders a fixed-width table with one or two lines per task.
 ✓ 003-build-widget       worker    codex/gpt-5.3... ████████  done
 ✗ 004-review-changes     reviewer  claude/opus      ████░░░░  failed
 ──────────────────────────────────────────────────────────────────────────
-Running: 1  Done: 1  Failed: 1  Blocked: 1  │  Total tokens: 12.4k
+Running: 1  Done: 1  Failed: 1  Blocked: 1  Attention: 1  │  Total tokens: 12.4k  │  run 7b3f2a91 running
 ```
 
 ### Reading the columns (left to right)
@@ -91,10 +92,12 @@ When a task emits at least one progress step, a second line appears immediately 
 The last line below the separator reads:
 
 ```
-Running: N  Done: N  Failed: N  Blocked: N  [Retrying: N]  │  Total tokens: X
+Running: N  Done: N  Failed: N  Blocked: N  [Retrying: N]  [Stale: N]  [Attention: N]  │  Total tokens: X  │  run <id> <status>
 ```
 
 > **Note**: Both `pending` (waiting on completed deps) and `blocked` (waiting on unfinished deps) tasks appear under **Blocked** in the summary. The per-row Status column distinguishes them.
+
+`Total tokens` is the normalized total from `usage.totalTokens` when present, or the sum of input/output/cache token fields for older task status files.
 
 ---
 
@@ -160,10 +163,30 @@ Backfills missing token counts for historical **Claude** and **Codex** tasks by 
 Open the interactive inspector to drill into any task:
 
 - **↑ / ↓** — navigate tasks
-- **← / →** — cycle screens: `overview` · `progress` · `output` · `task` · `recovery`
+- **← / →** — cycle screens: `overview` · `attention` · `events` · `progress` · `output` · `task` · `recovery`
 - **Esc** — close
 
-The `overview` screen shows `progressAt` and `progressMsg` read live from `progress.jsonl`, so you can confirm the widget sub-line matches the underlying file.
+The `overview` screen shows run id/status from `.pi/tasks/run.json`, heartbeat/stale fields, normalized token totals, and `progressAt`/`progressMsg` read live from `progress.jsonl`.
+
+The `attention` screen shows matching entries from `state.json.attentionHints`. Use the `dedupeKey` to correlate a repeated warning across refreshes. The `events` screen tails matching entries from `.pi/tasks/events.jsonl` and includes each event's `runId`.
+
+## Run, event, and attention files
+
+Fleet writes operator-readable metadata under `.pi/tasks/`:
+
+- `run.json` — current run identity, status, config sources, concurrency, and best-effort git context.
+- `events.jsonl` — append-only timeline events. Each line has `ts`, `runId`, `type`, optional `taskId`, and a small `data` object.
+- `state.json` — aggregate task state, including `attentionHints`.
+
+Useful inspection commands:
+
+```bash
+jq '{runId, status, startedAt, planPath, concurrency, git}' .pi/tasks/run.json
+tail -n 40 .pi/tasks/events.jsonl | jq -c '.'
+jq '.attentionHints[]?' .pi/tasks/state.json
+```
+
+Older task trees may not have `run.json`, `events.jsonl`, heartbeat fields, or normalized usage. Fleet commands render those as `legacy`, `-`, or zero/default token values instead of failing.
 
 ---
 

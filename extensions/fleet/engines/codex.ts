@@ -4,7 +4,7 @@ import { spawn as nodeSpawn } from "child_process";
 import { createInterface } from "readline";
 import { createWriteStream, mkdirSync } from "fs";
 import { dirname } from "path";
-import type { EngineAdapter, EngineProcess, EngineResult, Usage } from "./types.js";
+import type { EngineAdapter, EngineProcess, EngineResult, EngineUsage } from "./types.js";
 import { extractCodexUsage } from "./codex-usage.js";
 import type { EngineConfig } from "../config.js";
 
@@ -26,7 +26,7 @@ class CodexEngineProcess implements EngineProcess {
 
   private readonly proc: ReturnType<typeof nodeSpawn>;
   private readonly progressCbs: Array<(line: string) => void> = [];
-  private readonly usageCbs: Array<(usage: Usage) => void> = [];
+  private readonly usageCbs: Array<(usage: EngineUsage) => void> = [];
   private readonly completeCbs: Array<(result: EngineResult) => void> = [];
   private completed = false;
   private killTimer: ReturnType<typeof setTimeout> | undefined;
@@ -79,7 +79,7 @@ class CodexEngineProcess implements EngineProcess {
     this.progressCbs.push(cb);
   }
 
-  onUsageUpdate(cb: (usage: Usage) => void): void {
+  onUsageUpdate(cb: (usage: EngineUsage) => void): void {
     this.usageCbs.push(cb);
   }
 

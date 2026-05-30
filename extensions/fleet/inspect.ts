@@ -4,10 +4,12 @@ import { Key, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from
 import type { TaskState } from "./task.js";
 import { listTasks } from "./task.js";
 import { totalUsageTokens } from "./engines/types.js";
+import { readRunMetadata } from "./run.js";
+import { readAggregateState } from "./state.js";
 
-type Screen = "overview" | "progress" | "output" | "task" | "recovery";
+type Screen = "overview" | "attention" | "events" | "progress" | "output" | "task" | "recovery";
 
-const SCREENS: Screen[] = ["overview", "progress", "output", "task", "recovery"];
+const SCREENS: Screen[] = ["overview", "attention", "events", "progress", "output", "task", "recovery"];
 
 async function readMaybe(path: string): Promise<string> {
   try {
@@ -23,6 +25,8 @@ async function loadScreen(root: string, task: TaskState, screen: Screen): Promis
     case "overview": {
       const total = totalUsageTokens(task.usage);
       const blocked = task.depends.length > 0 ? task.depends.join(", ") : "none";
+      const run = await readRunMetadata(root);
+      const stale = isTaskStale(task) ? "yes" : "no";
 
       // Derive latest-progress fields directly from progress.jsonl so an
       // operator can confirm the inspector view matches the underlying file.
@@ -64,16 +68,54 @@ async function loadScreen(root: string, task: TaskState, screen: Screen): Promis
         `startedAt:   ${task.startedAt ?? "-"}`,
         `completedAt: ${task.completedAt ?? "-"}`,
         `error:       ${task.error ?? "-"}`,
+        `heartbeat:   ${task.lastHeartbeatAt ?? "-"} (stale: ${stale}, threshold: ${task.staleAfterSeconds ?? 300}s)`,
+        `outputAt:    ${task.lastOutputAt ?? "-"}`,
         `tokens:      in ${task.usage.inputTokens} / out ${
           task.usage.outputTokens
         } / cache write ${task.usage.cacheCreationInputTokens ?? 0} / cache read ${
           task.usage.cacheReadInputTokens ?? 0
-        } / total ${total}`,
+        } / total ${total} / source ${task.usage.source || "-"} / updated ${task.usage.updatedAt || "-"}`,
+        "",
+        `── run ──`,
+        `runId:       ${run?.runId ?? "legacy"}`,
+        `runStatus:   ${run?.status ?? "legacy"}`,
+        `startedAt:   ${run?.startedAt ?? "-"}`,
         "",
         `── latest progress (from progress.jsonl) ──`,
         `progressAt:  ${latestProgressAt}`,
         `progressMsg: ${latestProgressMsg}`,
       ].join("\n");
+    }
+    case "attention": {
+      const aggregate = await readAggregateState(root);
+      const hints = (aggregate?.attentionHints ?? []).filter((hint) => !hint.taskId || hint.taskId === task.id);
+      if (hints.length === 0) return "(no attention hints for this task)";
+      return hints
+        .map((hint) => {
+          const taskLabel = hint.taskId ? ` task=${hint.taskId}` : "";
+          return `${hint.severity} ${hint.category}${taskLabel} ${hint.createdAt}\n${hint.message}\ndedupeKey: ${hint.dedupeKey}`;
+        })
+        .join("\n\n");
+    }
+    case "events": {
+      const eventsRaw = await readMaybe(join(root, ".pi", "tasks", "events.jsonl"));
+      if (!eventsRaw) return "(no events.jsonl)";
+      const eventLines = eventsRaw
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .map((line) => {
+          try {
+            const event = JSON.parse(line) as { ts?: unknown; runId?: unknown; type?: unknown; taskId?: unknown };
+            if (event.taskId && event.taskId !== task.id) return null;
+            const taskLabel = event.taskId ? ` task=${String(event.taskId)}` : "";
+            return `${String(event.ts ?? "-")} ${String(event.type ?? "event")} run=${String(event.runId ?? "legacy")}${taskLabel}`;
+          } catch {
+            return "(malformed event line)";
+          }
+        })
+        .filter((line): line is string => line !== null);
+      return eventLines.slice(-25).join("\n") || "(no events for this task)";
     }
     case "progress":
       return (await readMaybe(join(dir, "progress.jsonl"))) || "(no progress entries)";
@@ -84,6 +126,13 @@ async function loadScreen(root: string, task: TaskState, screen: Screen): Promis
     case "recovery":
       return (await readMaybe(join(dir, "recovery.md"))) || "(no recovery.md)";
   }
+}
+
+function isTaskStale(task: TaskState): boolean {
+  if (task.status !== "running" || !task.lastHeartbeatAt) return false;
+  const heartbeatMs = new Date(task.lastHeartbeatAt).getTime();
+  if (!Number.isFinite(heartbeatMs)) return false;
+  return Date.now() - heartbeatMs > (task.staleAfterSeconds ?? 300) * 1000;
 }
 
 function boxLines(width: number, title: string, body: string, footer: string): string[] {

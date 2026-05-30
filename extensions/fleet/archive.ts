@@ -13,9 +13,12 @@ import {
 import { dirname, join } from "path";
 
 import { parsePlan, type TaskSpec } from "./plan.js";
-import { buildAggregateState } from "./state.js";
+import { buildAggregateState, readAggregateState } from "./state.js";
 import { listTasks, readProgress, type TaskState } from "./task.js";
 import type { Usage } from "./engines/types.js";
+import type { AttentionHint } from "./attention.js";
+import { appendFleetEvent, fleetEventsPath } from "./events.js";
+import { readRunMetadata, runMetadataPath, type RunMetadata } from "./run.js";
 
 export interface PlanTaskSummary {
   id: string;
@@ -43,6 +46,16 @@ export interface PlanSummary {
 export interface ArchiveSummary {
   version: 1;
   summarizedAt: string;
+  run: {
+    runId: string | null;
+    cwd: string | null;
+    repoRoot: string | null;
+    branch: string | null;
+    planPath: string | null;
+    startedAt: string | null;
+    completedAt: string | null;
+    finalStatus: RunMetadata["status"] | "legacy" | "unknown";
+  };
   plan: {
     title: string;
     overview: string | null;
@@ -61,6 +74,30 @@ export interface ArchiveSummary {
     totalCacheCreationInputTokens: number;
     totalCacheReadInputTokens: number;
     totalTokens: number;
+  };
+  totalUsage: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationInputTokens: number;
+    cacheReadInputTokens: number;
+    totalTokens: number;
+  };
+  attention: {
+    total: number;
+    bySeverity: Record<AttentionHint["severity"], number>;
+    byCategory: Record<string, number>;
+  };
+  artifacts: {
+    run: {
+      sourcePath: string;
+      archivePath: string | null;
+      copied: boolean;
+    };
+    events: {
+      sourcePath: string;
+      archivePath: string | null;
+      copied: boolean;
+    };
   };
   tasks: Array<{
     id: string;
@@ -91,7 +128,11 @@ export interface ArchiveIndexEntry {
   taskCount: number;
   archivePath: string;
   taskFolders: string[];
+  run: ArchiveSummary["run"];
   summary: ArchiveSummary["summary"];
+  totalUsage: ArchiveSummary["totalUsage"];
+  attention: ArchiveSummary["attention"];
+  artifacts: ArchiveSummary["artifacts"];
 }
 
 interface ArchiveIndex {
@@ -151,6 +192,49 @@ async function copyIfExists(source: string, target: string): Promise<boolean> {
   await mkdir(dirname(target), { recursive: true });
   await copyFile(source, target);
   return true;
+}
+
+function maxIsoTimestamp(values: Array<string | null | undefined>): string | null {
+  const present = values.filter((value): value is string => typeof value === "string" && value.length > 0);
+  if (present.length === 0) return null;
+  return present.sort((a, b) => a.localeCompare(b)).at(-1) ?? null;
+}
+
+function summarizeAttention(hints: AttentionHint[]): ArchiveSummary["attention"] {
+  const bySeverity: Record<AttentionHint["severity"], number> = {
+    info: 0,
+    warning: 0,
+    error: 0,
+  };
+  const byCategory: Record<string, number> = {};
+
+  for (const hint of hints) {
+    bySeverity[hint.severity] = (bySeverity[hint.severity] ?? 0) + 1;
+    byCategory[hint.category] = (byCategory[hint.category] ?? 0) + 1;
+  }
+
+  return {
+    total: hints.length,
+    bySeverity,
+    byCategory,
+  };
+}
+
+function totalUsageFromSummary(summary: ArchiveSummary["summary"]): ArchiveSummary["totalUsage"] {
+  return {
+    inputTokens: summary.totalInputTokens,
+    outputTokens: summary.totalOutputTokens,
+    cacheCreationInputTokens: summary.totalCacheCreationInputTokens,
+    cacheReadInputTokens: summary.totalCacheReadInputTokens,
+    totalTokens: summary.totalTokens,
+  };
+}
+
+function inferFinalStatus(run: RunMetadata | null, aggregate: ReturnType<typeof buildAggregateState>): ArchiveSummary["run"]["finalStatus"] {
+  if (run?.status) return run.status;
+  if (aggregate.summary.failed > 0) return "failed";
+  if (aggregate.summary.total > 0 && aggregate.summary.done === aggregate.summary.total) return "done";
+  return run ? "unknown" : "legacy";
 }
 
 function slugifySegment(value: string): string {
@@ -232,11 +316,25 @@ export async function writeArchiveSummary(cwd: string): Promise<ArchiveSummary> 
 
   const aggregate = buildAggregateState(tasks, progressMap);
   const planSummary = await readPlanSummary(cwd);
+  const run = await readRunMetadata(cwd);
+  const persistedState = await readAggregateState(cwd);
+  const attention = summarizeAttention(persistedState?.attentionHints ?? aggregate.attentionHints);
   const stateById = new Map(tasks.map((task) => [task.id, task]));
+  const completedAt = maxIsoTimestamp(tasks.map((task) => task.completedAt));
 
   const summary: ArchiveSummary = {
     version: 1,
     summarizedAt: new Date().toISOString(),
+    run: {
+      runId: run?.runId ?? null,
+      cwd: run?.cwd ?? null,
+      repoRoot: run?.git.repoRoot ?? null,
+      branch: run?.git.branch ?? null,
+      planPath: run?.planPath ?? planSummary?.sourcePlanPath ?? null,
+      startedAt: run?.startedAt ?? null,
+      completedAt,
+      finalStatus: inferFinalStatus(run, aggregate),
+    },
     plan: planSummary
       ? {
           title: planSummary.title,
@@ -246,6 +344,20 @@ export async function writeArchiveSummary(cwd: string): Promise<ArchiveSummary> 
         }
       : null,
     summary: aggregate.summary,
+    totalUsage: totalUsageFromSummary(aggregate.summary),
+    attention,
+    artifacts: {
+      run: {
+        sourcePath: ".pi/tasks/run.json",
+        archivePath: null,
+        copied: false,
+      },
+      events: {
+        sourcePath: ".pi/tasks/events.jsonl",
+        archivePath: null,
+        copied: false,
+      },
+    },
     tasks: aggregate.tasks.map((task) => {
       const full = stateById.get(task.id);
       const progress = progressMap.get(`${task.id}-${task.name}`) ?? [];
@@ -324,6 +436,21 @@ export async function archiveTaskFolders(
   await mkdir(join(archivePath, "tasks"), { recursive: true });
 
   await copyIfExists(planSummaryPath(cwd), join(archivePath, "plan-summary.json"));
+  const copiedRun = await copyIfExists(runMetadataPath(cwd), join(archivePath, "run.json"));
+  const copiedEvents = await copyIfExists(fleetEventsPath(cwd), join(archivePath, "events.jsonl"));
+  archiveSummary.artifacts = {
+    run: {
+      sourcePath: ".pi/tasks/run.json",
+      archivePath: copiedRun ? `.pi/archive/${archiveId}/run.json` : null,
+      copied: copiedRun,
+    },
+    events: {
+      sourcePath: ".pi/tasks/events.jsonl",
+      archivePath: copiedEvents ? `.pi/archive/${archiveId}/events.jsonl` : null,
+      copied: copiedEvents,
+    },
+  };
+  await writeJsonAtomic(archiveSummaryPath(cwd), archiveSummary);
   await copyIfExists(archiveSummaryPath(cwd), join(archivePath, "archive-summary.json"));
   await copyIfExists(join(tasksRoot(cwd), "state.json"), join(archivePath, "state.json"));
   await copyIfExists(join(tasksRoot(cwd), "config.json"), join(archivePath, "config.json"));
@@ -346,11 +473,26 @@ export async function archiveTaskFolders(
     taskCount: folders.length,
     archivePath: `.pi/archive/${archiveId}`,
     taskFolders: [...folders],
+    run: archiveSummary.run,
     summary: archiveSummary.summary,
+    totalUsage: archiveSummary.totalUsage,
+    attention: archiveSummary.attention,
+    artifacts: archiveSummary.artifacts,
   };
 
   await writeJsonAtomic(join(archivePath, "archive-entry.json"), entry);
   await updateArchiveIndex(cwd, entry);
+  await appendFleetEvent(cwd, {
+    type: "archive_created",
+    data: {
+      archiveId,
+      reason,
+      taskCount: folders.length,
+      archivePath: entry.archivePath,
+    },
+  }).catch((error) => {
+    console.warn("[fleet/events] Failed to append archive event:", error);
+  });
   await removeTaskFolders(cwd, folders);
 
   return entry;

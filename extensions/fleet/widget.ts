@@ -11,7 +11,9 @@ import type {
   RuntimeTaskState,
 } from "./orchestrator.js";
 import type { TaskState, TaskStatus } from "./task.js";
-import { totalUsageTokens } from "./engines/types.js";
+import { totalUsageTokens, normalizeUsage } from "./engines/types.js";
+import { readRunMetadata } from "./run.js";
+import { readAggregateState } from "./state.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -164,6 +166,13 @@ function formatTokensColumn(totalTokens: number): string {
   return fit(" ", COL.tokensPad) + fit(formatTokens(totalTokens), COL.tokens);
 }
 
+function isStale(task: TaskState): boolean {
+  if (task.status !== "running" || !task.lastHeartbeatAt) return false;
+  const heartbeatMs = new Date(task.lastHeartbeatAt).getTime();
+  if (!Number.isFinite(heartbeatMs)) return false;
+  return Date.now() - heartbeatMs > task.staleAfterSeconds * 1000;
+}
+
 function formatTaskRow(task: TaskState, allTasks: Map<string, TaskState>): string {
   const symbolCol = fit(`${STATUS_SYMBOL[task.status]} `, COL.prefix);
   const totalTokens = totalUsageTokens(task.usage);
@@ -225,6 +234,7 @@ function displayStatus(
   task: TaskState,
   allTasks: Map<string, TaskState>,
 ): string {
+  if (isStale(task)) return "stale";
   if (task.status !== "pending") return task.status;
   const isBlocked = task.depends.some(
     (depId) => allTasks.get(depId)?.status !== "done",
@@ -243,6 +253,7 @@ interface ProgressEntry {
 interface FleetWidgetOptions {
   expanded?: boolean;
   maxVisibleLines?: number;
+  root?: string;
 }
 
 interface RenderedTaskBlock {
@@ -269,6 +280,9 @@ export class FleetWidget {
   private readonly clearWidget: (id: string) => void;
   private expanded: boolean;
   private readonly maxTaskLines: number;
+  private readonly root: string | undefined;
+  private runLabel = "run legacy";
+  private attentionCount = 0;
 
   constructor(
     orchestrator: Orchestrator,
@@ -280,6 +294,7 @@ export class FleetWidget {
     this.setWidget = setWidget;
     this.clearWidget = clearWidget;
     this.expanded = options.expanded ?? false;
+    this.root = options.root;
     const maxVisibleLines = options.maxVisibleLines ?? DEFAULT_MAX_VISIBLE_LINES;
     this.maxTaskLines = Math.max(1, maxVisibleLines - FOOTER_LINES);
     this._onStatus = (event: TaskStatusEvent) => {
@@ -307,12 +322,7 @@ export class FleetWidget {
     this._onUsage = (event: TaskUsageEvent) => {
       const state = this.tasks.get(event.id);
       if (state) {
-        state.usage = {
-          inputTokens: event.inputTokens,
-          outputTokens: event.outputTokens,
-          cacheCreationInputTokens: event.cacheCreationInputTokens,
-          cacheReadInputTokens: event.cacheReadInputTokens,
-        };
+        state.usage = normalizeUsage(event, event.source, event.updatedAt);
       }
       this.render();
     };
@@ -339,8 +349,11 @@ export class FleetWidget {
     this.orchestrator.on("task:usage", this._onUsage);
 
     // Periodic re-render so the running progress bar animates even without events
-    this.interval = setInterval(() => this.render(), 5_000);
+    this.interval = setInterval(() => {
+      void this.refreshMetadata().then(() => this.render());
+    }, 5_000);
 
+    void this.refreshMetadata().then(() => this.render());
     this.render();
   }
 
@@ -391,9 +404,11 @@ export class FleetWidget {
     let blocked = 0;
     let retrying = 0;
     let totalTokens = 0;
+    let stale = 0;
 
     for (const task of tasks) {
       totalTokens += totalUsageTokens(task.usage);
+      if (isStale(task)) stale++;
       switch (task.status) {
         case "running":
           running++;
@@ -418,11 +433,27 @@ export class FleetWidget {
     let summary =
       `Running: ${running}  Done: ${done}  Failed: ${failed}  Blocked: ${blocked}`;
     if (retrying > 0) summary += `  Retrying: ${retrying}`;
+    if (stale > 0) summary += `  Stale: ${stale}`;
+    if (this.attentionCount > 0) summary += `  Attention: ${this.attentionCount}`;
     summary += `  │  Total tokens: ${totalStr}`;
+    summary += `  │  ${this.runLabel}`;
 
     lines.push(summary);
 
     this.setWidget(WIDGET_ID, lines);
+  }
+
+  private async refreshMetadata(): Promise<void> {
+    if (!this.root) return;
+    const [run, aggregate] = await Promise.all([
+      readRunMetadata(this.root),
+      readAggregateState(this.root),
+    ]).catch(() => [null, null] as const);
+
+    this.runLabel = run?.runId ? `run ${run.runId.slice(0, 8)} ${run.status}` : "run legacy";
+    this.attentionCount = Array.isArray(aggregate?.attentionHints)
+      ? aggregate.attentionHints.filter((hint) => hint.severity === "warning" || hint.severity === "error").length
+      : 0;
   }
 
   private buildTaskBlock(task: TaskState): RenderedTaskBlock {

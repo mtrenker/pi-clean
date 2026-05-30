@@ -1,6 +1,6 @@
-import type { Usage } from "./types.js";
+import type { EngineUsage } from "./types.js";
 
-export function extractCodexUsage(evt: Record<string, unknown>): Usage | null {
+export function extractCodexUsage(evt: Record<string, unknown>): EngineUsage | null {
   const usageRaw = evt["usage"] as Record<string, number> | undefined;
   if (!usageRaw) return null;
 
@@ -10,8 +10,8 @@ export function extractCodexUsage(evt: Record<string, unknown>): Usage | null {
   };
 }
 
-export function extractLatestCodexUsageFromJsonl(content: string): Usage | null {
-  let latest: Usage | null = null;
+export function extractLatestCodexUsageFromJsonl(content: string): EngineUsage | null {
+  let latest: EngineUsage | null = null;
 
   for (const rawLine of content.split("\n")) {
     const line = rawLine.trim();
