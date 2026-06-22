@@ -136,8 +136,14 @@ export interface ActionGuardPolicy {
 
 export interface GuardPolicy {
   /**
-   * Path (relative to cwd) where audit events are written as newline-delimited
-   * JSON. The `/agent-guard` command tails this file for its status display.
+   * Path where audit events are written as newline-delimited JSON.
+   *
+   * Resolution rules:
+   * - absolute paths are used as-is
+   * - `~/...` paths are resolved relative to the user's home directory
+   * - relative paths are resolved relative to the session cwd
+   *
+   * The `/agent-guard` command tails this file for its status display.
    * All modules import this from DEFAULT_POLICY so the path is defined once.
    */
   auditLogPath: string;
@@ -157,7 +163,7 @@ export interface GuardPolicy {
 // ---------------------------------------------------------------------------
 
 export const DEFAULT_POLICY: GuardPolicy = {
-  auditLogPath: ".pi/agent-guard-audit.jsonl",
+  auditLogPath: "~/.pi/agent/agent-guard-audit.jsonl",
 
   // -------------------------------------------------------------------------
   // secretGuard defaults

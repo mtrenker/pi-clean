@@ -110,8 +110,8 @@ test("DEFAULT_POLICY.secretGuard.redactionPatterns covers all documented labels"
   }
 });
 
-test("DEFAULT_POLICY.auditLogPath points inside .pi directory", () => {
-  assert.ok(DEFAULT_POLICY.auditLogPath.startsWith(".pi/"));
+test("DEFAULT_POLICY.auditLogPath uses global pi agent directory", () => {
+  assert.equal(DEFAULT_POLICY.auditLogPath, "~/.pi/agent/agent-guard-audit.jsonl");
 });
 
 // ---------------------------------------------------------------------------
