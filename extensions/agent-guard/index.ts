@@ -89,6 +89,15 @@ function tailLines(filePath: string, n: number): string[] {
   }
 }
 
+function resolveAuditLogPath(cwd: string, auditLogPath: string): string {
+  if (path.isAbsolute(auditLogPath)) return auditLogPath;
+  if (auditLogPath === "~") return process.env.HOME ?? cwd;
+  if (auditLogPath.startsWith("~/")) {
+    return path.join(process.env.HOME ?? cwd, auditLogPath.slice(2));
+  }
+  return path.resolve(cwd, auditLogPath);
+}
+
 // ---------------------------------------------------------------------------
 // Extension factory
 // ---------------------------------------------------------------------------
@@ -104,14 +113,8 @@ export default function (pi: ExtensionAPI) {
   // -------------------------------------------------------------------------
   pi.on("session_start", async (_event, ctx) => {
     policy = loadPolicy(ctx.cwd);
-    const auditLogPath = path.resolve(ctx.cwd, policy.auditLogPath);
+    const auditLogPath = resolveAuditLogPath(ctx.cwd, policy.auditLogPath);
     log = createAuditLogger(auditLogPath);
-
-    await log({
-      ts: new Date().toISOString(),
-      guard: "system",
-      type: "session-start",
-    });
 
     const parts: string[] = [];
     if (policy.secretGuard.enabled) parts.push("env");
@@ -128,13 +131,6 @@ export default function (pi: ExtensionAPI) {
   // session_shutdown — clear status badge
   // -------------------------------------------------------------------------
   pi.on("session_shutdown", async (_event, ctx) => {
-    if (log) {
-      await log({
-        ts: new Date().toISOString(),
-        guard: "system",
-        type: "session-shutdown",
-      });
-    }
     ctx.ui.setStatus("agent-guard", undefined);
   });
 
@@ -286,7 +282,7 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      const auditLogPath = path.resolve(ctx.cwd, policy.auditLogPath);
+      const auditLogPath = resolveAuditLogPath(ctx.cwd, policy.auditLogPath);
       const recentLines = tailLines(auditLogPath, 30);
 
       const lines: string[] = [

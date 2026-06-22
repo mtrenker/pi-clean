@@ -69,10 +69,9 @@ actionGuard : enabled
   catastrophic patterns: 9
     rm-rf-root, rm-rf-home, fork-bomb, dd-to-block-device, …
 
-auditLog : .pi/agent-guard-audit.jsonl
+auditLog : ~/.pi/agent/agent-guard-audit.jsonl
 
 ━━━ recent audit events (last 30) ━━━
-  [2026-04-23T12:00:01.000Z] system/session-start
   [2026-04-23T12:01:15.432Z] actionGuard/action-blocked: rm-rf-root blocked … cmd=rm -rf /
   [2026-04-23T12:02:30.000Z] secretGuard/path-blocked path=~/.ssh/id_rsa
   [2026-04-23T12:03:00.000Z] secretGuard/redacted
@@ -82,8 +81,6 @@ auditLog : .pi/agent-guard-audit.jsonl
 
 | `guard/type` | Policy bucket | Trigger |
 |-------------|--------------|---------|
-| `system/session-start` | — | Session opened; guard loaded |
-| `system/session-shutdown` | — | Session closed normally |
 | `actionGuard/action-blocked` | `actionGuard.catastrophicPatterns` | A bash command matched a catastrophic pattern and was rejected |
 | `secretGuard/env-preamble-prepended` | `secretGuard.stripEnvPatterns` | Reserved historical event type from the earlier env-unset implementation; not expected while env stripping is disabled |
 | `secretGuard/path-blocked` | `secretGuard.hardBlockPaths` | A file-tool call was hard-blocked (access denied) |
@@ -92,24 +89,22 @@ auditLog : .pi/agent-guard-audit.jsonl
 
 ### 3 — Audit log file
 
-All guard events are written as JSON lines to:
+Actionable guard events are written as JSON lines to a global user log by default:
 
 ```
-<project-root>/.pi/agent-guard-audit.jsonl
+~/.pi/agent/agent-guard-audit.jsonl
 ```
 
-The path is relative to `ctx.cwd` (the working directory of the pi session).
-It can be overridden per-project by setting `auditLogPath` in
-`.pi/agent-guard.json` (see [Policy configuration](#policy-configuration) below).
+This avoids creating `.pi/agent-guard-audit.jsonl` inside every project just because a pi session was opened. The path can be overridden globally or per-project by setting `auditLogPath` in `~/.pi/agent/agent-guard.json` or `.pi/agent-guard.json` (see [Policy configuration](#policy-configuration) below). Absolute paths are used as-is, `~/...` paths resolve relative to the home directory, and relative paths resolve against the session cwd.
 
 **Log entry shape:**
 
 ```jsonc
 {
   "ts": "2026-04-23T12:34:56.789Z",   // ISO-8601 timestamp
-  "guard": "actionGuard" | "secretGuard" | "system",
+  "guard": "actionGuard" | "secretGuard",
   "type": "action-blocked" | "env-preamble-prepended" | "path-blocked"
-         | "path-warned" | "redacted" | "session-start" | "session-shutdown",
+         | "path-warned" | "redacted",
   "toolName": "bash",    // present for tool-level events
   "command": "…",        // present for bash events (first 60 chars shown in /agent-guard)
   "path": "…",           // present for path-guard events
@@ -121,7 +116,7 @@ It can be overridden per-project by setting `auditLogPath` in
 **Tail recent events from the shell:**
 
 ```sh
-tail -f .pi/agent-guard-audit.jsonl
+tail -f ~/.pi/agent/agent-guard-audit.jsonl
 ```
 
 **Pretty-print with jq:**
@@ -129,14 +124,14 @@ tail -f .pi/agent-guard-audit.jsonl
 ```sh
 # All blocked events
 jq 'select(.type == "action-blocked" or .type == "path-blocked")' \
-  .pi/agent-guard-audit.jsonl
+  ~/.pi/agent/agent-guard-audit.jsonl
 
 # All redaction events
-jq 'select(.type == "redacted")' .pi/agent-guard-audit.jsonl
+jq 'select(.type == "redacted")' ~/.pi/agent/agent-guard-audit.jsonl
 
 # Events from the current hour
 jq --arg h "$(date -u +%Y-%m-%dT%H)" 'select(.ts | startswith($h))' \
-  .pi/agent-guard-audit.jsonl
+  ~/.pi/agent/agent-guard-audit.jsonl
 ```
 
 ---
@@ -161,9 +156,11 @@ The active policy is the merge of (highest to lowest precedence):
 
 ```json
 {
-  "auditLogPath": "logs/agent-guard-audit.jsonl"
+  "auditLogPath": "~/logs/agent-guard-audit.jsonl"
 }
 ```
+
+Use a relative path only when you intentionally want per-project logs.
 
 **Current env-stripping status:**
 
@@ -221,7 +218,7 @@ coding agent sessions:
 | Warn-only paths | `~/.ssh/config`, `~/.ssh/known_hosts`, `~/.aws/config`, `**/.env.production`, `**/.env.staging`, `**/.env.development`, `**/.env.test` |
 | Catastrophic patterns | 9: `rm-rf-root`, `rm-rf-home`, `fork-bomb`, `dd-to-block-device`, `stdout-to-block-device`, `mkfs`, `format-disk-mac`, `shred-root`, `chmod-777-root` |
 | Redaction patterns | 6: `aws-access-key-id`, `anthropic-api-key`, `openai-api-key`, `github-pat`, `generic-api-key` (covers multiple token formats) |
-| Audit log path | `.pi/agent-guard-audit.jsonl` (relative to session `cwd`) |
+| Audit log path | `~/.pi/agent/agent-guard-audit.jsonl` |
 
 ---
 
