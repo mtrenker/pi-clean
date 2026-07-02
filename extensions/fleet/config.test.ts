@@ -123,8 +123,8 @@ test("loadConfig deep-merges profile engine mappings with defaults", async () =>
       const config = await loadConfig(root);
 
       assert.equal(config.profiles?.deep?.codex?.model, "custom-codex");
-      assert.equal(config.profiles?.deep?.claude?.model, "sonnet");
-      assert.equal(config.profiles?.deep?.pi?.model, "openai-codex/gpt-5.4");
+      assert.equal(config.profiles?.deep?.claude?.model, "claude-opus-4-8");
+      assert.equal(config.profiles?.deep?.pi?.model, "openai-codex/gpt-5.5");
     });
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -164,15 +164,63 @@ test("resolveTaskExecution uses merged claude profile mapping after repo overrid
         profile: "deep",
       });
 
-      assert.equal(resolved.model, "sonnet");
-      assert.equal(resolved.thinking, "high");
+      assert.equal(resolved.model, "claude-opus-4-8");
+      assert.equal(resolved.thinking, "xhigh");
     });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("resolveTaskExecution remaps deprecated OpenAI model aliases to supported 5.3+ models", async () => {
+test("resolveTaskExecution maps generic thinking levels to engine-native reasoning flags", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-fleet-config-"));
+
+  try {
+    await withTempUserConfig(root, async () => {
+      const config = await loadConfig(root);
+
+      const claudeXhigh = resolveTaskExecution(config, {
+        id: "reasoning-claude",
+        name: "Claude xhigh",
+        engine: "claude",
+        model: "claude-opus-4-8",
+        thinking: "xhigh",
+      });
+      assert.equal(claudeXhigh.thinking, "xhigh");
+
+      const claudeMax = resolveTaskExecution(config, {
+        id: "reasoning-claude-max",
+        name: "Claude max",
+        engine: "claude",
+        model: "claude-fable-5",
+        thinking: "max",
+      });
+      assert.equal(claudeMax.thinking, "max");
+
+      const codexNone = resolveTaskExecution(config, {
+        id: "reasoning-codex",
+        name: "Codex none",
+        engine: "codex",
+        model: "gpt-5.5",
+        thinking: "off",
+      });
+      assert.equal(codexNone.thinking, "none");
+
+      const piMax = resolveTaskExecution(config, {
+        id: "reasoning-pi",
+        name: "Pi max",
+        engine: "pi",
+        model: "openai-codex/gpt-5.5",
+        thinking: "max",
+      });
+      assert.equal(piMax.thinking, "xhigh");
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("resolveTaskExecution remaps deprecated OpenAI model aliases to current GPT-5 models", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-fleet-config-"));
 
   try {
@@ -185,7 +233,7 @@ test("resolveTaskExecution remaps deprecated OpenAI model aliases to supported 5
         engine: "codex",
         model: "o3",
       });
-      assert.equal(codexResolved.model, "gpt-5.3-codex");
+      assert.equal(codexResolved.model, "gpt-5.5");
       assert.match(codexResolved.warnings[0] ?? "", /deprecated model "o3"/);
 
       const codexMiniResolved = resolveTaskExecution(config, {
@@ -194,7 +242,7 @@ test("resolveTaskExecution remaps deprecated OpenAI model aliases to supported 5
         engine: "codex",
         model: "gpt-5.1-codex-mini",
       });
-      assert.equal(codexMiniResolved.model, "gpt-5.3-codex-spark");
+      assert.equal(codexMiniResolved.model, "gpt-5.4-mini");
 
       const genericResolved = resolveTaskExecution(config, {
         id: "004",
@@ -202,7 +250,7 @@ test("resolveTaskExecution remaps deprecated OpenAI model aliases to supported 5
         engine: "pi",
         model: "gpt-5.2",
       });
-      assert.equal(genericResolved.model, "gpt-5.4");
+      assert.equal(genericResolved.model, "gpt-5.5");
     });
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -222,7 +270,7 @@ test("resolveTaskExecution rejects Claude-family models for the pi engine", asyn
         engine: "pi",
         model: "anthropic/claude-sonnet-4-6",
       });
-      assert.equal(explicitClaudeModel.model, "openai-codex/gpt-5.4");
+      assert.equal(explicitClaudeModel.model, "openai-codex/gpt-5.5");
       assert.match(explicitClaudeModel.warnings[0] ?? "", /PI must not use Claude models/i);
 
       const profileClaudeModel = resolveTaskExecution(
@@ -244,7 +292,7 @@ test("resolveTaskExecution rejects Claude-family models for the pi engine", asyn
           profile: "balanced",
         },
       );
-      assert.equal(profileClaudeModel.model, "openai-codex/gpt-5.4");
+      assert.equal(profileClaudeModel.model, "openai-codex/gpt-5.5");
       assert.match(profileClaudeModel.warnings[0] ?? "", /PI must not use Claude models/i);
     });
   } finally {

@@ -14,7 +14,7 @@ export interface EngineConfig {
   args: string[];
 }
 
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ThinkingLevel = "off" | "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface EngineProfileConfig {
   model: string;
@@ -67,7 +67,7 @@ const DEFAULT_CONFIG: FleetConfig = {
   tasksDir: ".pi/tasks",
   defaults: {
     engine: "claude",
-    model: "sonnet",
+    model: "claude-opus-4-8",
     agent: "worker",
   },
   engines: {
@@ -87,18 +87,18 @@ const DEFAULT_CONFIG: FleetConfig = {
   profiles: {
     fast: {
       pi: { model: "openai-codex/gpt-5.4-mini", thinking: "low" },
-      claude: { model: "haiku", thinking: "low" },
-      codex: { model: "gpt-5.3-codex-spark", thinking: "low" },
+      claude: { model: "claude-haiku-4-5", thinking: "low" },
+      codex: { model: "gpt-5.4-mini", thinking: "low" },
     },
     balanced: {
-      pi: { model: "openai-codex/gpt-5.4", thinking: "medium" },
-      claude: { model: "sonnet", thinking: "medium" },
-      codex: { model: "gpt-5.3-codex", thinking: "medium" },
+      pi: { model: "openai-codex/gpt-5.5", thinking: "medium" },
+      claude: { model: "claude-sonnet-5", thinking: "medium" },
+      codex: { model: "gpt-5.5", thinking: "medium" },
     },
     deep: {
-      pi: { model: "openai-codex/gpt-5.4", thinking: "high" },
-      claude: { model: "sonnet", thinking: "high" },
-      codex: { model: "gpt-5.4", thinking: "high" },
+      pi: { model: "openai-codex/gpt-5.5", thinking: "high" },
+      claude: { model: "claude-opus-4-8", thinking: "xhigh" },
+      codex: { model: "gpt-5.5", thinking: "high" },
     },
   },
   agents: {
@@ -276,15 +276,17 @@ function normalizeThinkingLevel(value: string): ThinkingLevel {
   const normalized = value.trim().toLowerCase();
   switch (normalized) {
     case "off":
+    case "none":
     case "minimal":
     case "low":
     case "medium":
     case "high":
     case "xhigh":
+    case "max":
       return normalized;
     default:
       throw new Error(
-        `Unknown thinking level "${value}". Expected one of: off, minimal, low, medium, high, xhigh.`,
+        `Unknown thinking level "${value}". Expected one of: off, none, minimal, low, medium, high, xhigh, max.`,
       );
   }
 }
@@ -305,11 +307,13 @@ export interface ResolvedTaskExecution {
 }
 
 const DEPRECATED_MODEL_ALIASES: Record<string, string> = {
-  o3: "gpt-5.3-codex",
-  "gpt-5.1-codex-max": "gpt-5.3-codex",
-  "gpt-5.1-codex-mini": "gpt-5.3-codex-spark",
-  "gpt-5.2-codex": "gpt-5.3-codex",
-  "gpt-5.2": "gpt-5.4",
+  o3: "gpt-5.5",
+  "gpt-5.1-codex-max": "gpt-5.5",
+  "gpt-5.1-codex-mini": "gpt-5.4-mini",
+  "gpt-5.2-codex": "gpt-5.5",
+  "gpt-5.3-codex": "gpt-5.5",
+  "gpt-5.3-codex-spark": "gpt-5.4-mini",
+  "gpt-5.2": "gpt-5.5",
 };
 
 function normalizeModelAlias(model: string, task: TaskProfileInput, warnings: string[]): string {
@@ -332,7 +336,7 @@ function enforcePiModelPolicy(model: string, task: TaskProfileInput, warnings: s
   const normalized = trimmed.toLowerCase();
   if (!normalized.includes("claude")) return trimmed;
 
-  const replacement = "openai-codex/gpt-5.4";
+  const replacement = "openai-codex/gpt-5.5";
   warnings.push(
     `Task ${task.id} ("${task.name}") requested PI model "${trimmed}", but PI must not use Claude models because they bypass the subscription-max path and bill per token; using "${replacement}" instead.`,
   );
@@ -383,27 +387,42 @@ export function resolveTaskExecution(config: FleetConfig, task: TaskProfileInput
   const normalizedThinking = normalizeThinkingLevel(thinkingSource);
 
   switch (task.engine) {
-    case "pi":
-      return { model, thinking: normalizedThinking, warnings };
-    case "claude": {
-      const effortMap: Record<ThinkingLevel, string> = {
-        off: "low",
-        minimal: "low",
+    case "pi": {
+      const thinkingMap: Record<ThinkingLevel, string> = {
+        off: "off",
+        none: "off",
+        minimal: "minimal",
         low: "low",
         medium: "medium",
         high: "high",
-        xhigh: "max",
+        xhigh: "xhigh",
+        max: "xhigh",
       };
-      return { model, thinking: effortMap[normalizedThinking], warnings };
+      return { model, thinking: thinkingMap[normalizedThinking], warnings };
     }
-    case "codex": {
-      const reasoningMap: Record<ThinkingLevel, string> = {
+    case "claude": {
+      const effortMap: Record<ThinkingLevel, string> = {
         off: "low",
+        none: "low",
         minimal: "low",
         low: "low",
         medium: "medium",
         high: "high",
         xhigh: "xhigh",
+        max: "max",
+      };
+      return { model, thinking: effortMap[normalizedThinking], warnings };
+    }
+    case "codex": {
+      const reasoningMap: Record<ThinkingLevel, string> = {
+        off: "none",
+        none: "none",
+        minimal: "low",
+        low: "low",
+        medium: "medium",
+        high: "high",
+        xhigh: "xhigh",
+        max: "xhigh",
       };
       return { model, thinking: reasoningMap[normalizedThinking], warnings };
     }

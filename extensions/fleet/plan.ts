@@ -239,7 +239,7 @@ function orderTasksByDependencies(tasks: TaskSpec[]): TaskSpec[] {
  *
  *   - **engine**: claude
  *   - **profile**: balanced
- *   - **model**: sonnet
+ *   - **model**: claude-sonnet-5
  *   - **thinking**: high
  *   - **agent**: worker
  *   - **depends**: none

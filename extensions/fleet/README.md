@@ -29,7 +29,7 @@ Use `/fleet:config` to inspect or initialize config:
 Config is the place to adjust:
 
 - engine commands and args
-- execution profiles (`fast`, `balanced`, `deep`)
+- execution profiles (`fast`, `balanced`, `deep`) and their model / reasoning-effort mappings
 - agent prompts and allowed tools
 - concurrency
 - plan/task paths
@@ -50,11 +50,11 @@ The fleet widget renders a fixed-width table with one or two lines per task.
 - Toggle the widget with `/fleet:widget` or **Ctrl+Alt+F**. Use `/fleet:widget expand` or `/fleet:widget collapse` to control the viewport mode.
 
 ```
-● 001-discover-context   scout     pi/sonnet       ░░░░░░░░  running   12.4k
+● 001-discover-context   scout     pi/openai-cod... ░░░░░░░░  running   12.4k
   11:42:07 Scanning extensions/fleet/ for module exports and p...
-◌ 002-implement-core     worker    claude/sonnet    ░░░░░░░░  blocked
-✓ 003-build-widget       worker    codex/gpt-5.3... ████████  done
-✗ 004-review-changes     reviewer  claude/opus      ████░░░░  failed
+◌ 002-implement-core     worker    claude/claude... ░░░░░░░░  blocked
+✓ 003-build-widget       worker    codex/gpt-5.5    ████████  done
+✗ 004-review-changes     reviewer  claude/claude... ████░░░░  failed
 ──────────────────────────────────────────────────────────────────────────
 Running: 1  Done: 1  Failed: 1  Blocked: 1  Attention: 1  │  Total tokens: 12.4k  │  run 7b3f2a91 running
 ```
@@ -72,6 +72,18 @@ Running: 1  Done: 1  Failed: 1  Blocked: 1  Attention: 1  │  Total tokens: 12.
 | Tokens | 7 | Per-task token total in `k` notation (`12.4k`); empty while 0 |
 
 All columns are **fixed-width** — the widget width never changes as text updates, so your eye stays anchored on each column.
+
+### Current default profiles
+
+Fleet's built-in profiles track the current public model guidance from OpenAI and Anthropic:
+
+| Profile | pi | Claude Code | Codex CLI | Reasoning intent |
+|---------|----|-------------|-----------|------------------|
+| `fast` | `openai-codex/gpt-5.4-mini` | `claude-haiku-4-5` | `gpt-5.4-mini` | `low` |
+| `balanced` | `openai-codex/gpt-5.5` | `claude-sonnet-5` | `gpt-5.5` | `medium` |
+| `deep` | `openai-codex/gpt-5.5` | `claude-opus-4-8` | `gpt-5.5` | high / xhigh |
+
+Thinking values are normalized per engine: Claude Code receives `--effort`, Codex receives `model_reasoning_effort`, and pi receives `--thinking`.
 
 ### Progress sub-line
 

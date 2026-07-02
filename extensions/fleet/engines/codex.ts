@@ -172,7 +172,7 @@ export class CodexEngineAdapter implements EngineAdapter {
     ];
 
     if (opts.thinking) {
-      args.push("-c", `reasoning_level=\"${opts.thinking}\"`);
+      args.push("-c", `model_reasoning_effort=\"${opts.thinking}\"`);
     }
 
     args.push(combinedPrompt);

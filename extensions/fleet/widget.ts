@@ -43,7 +43,7 @@ const COL = {
   // "worker   " — agent name, padded
   agent: 9,
   sep2: 1,
-  // "claude/sonnet  " — engine/model, padded
+  // "claude/claude..." — engine/model, padded
   engineModel: 24,
   sep3: 1,
   // "████░░░░" — progress bar
