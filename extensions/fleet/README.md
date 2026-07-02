@@ -75,15 +75,17 @@ All columns are **fixed-width** — the widget width never changes as text updat
 
 ### Current default profiles
 
-Fleet's built-in profiles track the current public model guidance from OpenAI and Anthropic:
+Fleet's built-in profiles keep Claude execution on Opus/Fable while using current OpenAI models for pi/Codex:
 
 | Profile | pi | Claude Code | Codex CLI | Reasoning intent |
 |---------|----|-------------|-----------|------------------|
-| `fast` | `openai-codex/gpt-5.4-mini` | `claude-haiku-4-5` | `gpt-5.4-mini` | `low` |
-| `balanced` | `openai-codex/gpt-5.5` | `claude-sonnet-5` | `gpt-5.5` | `medium` |
-| `deep` | `openai-codex/gpt-5.5` | `claude-opus-4-8` | `gpt-5.5` | high / xhigh |
+| `fast` | `openai-codex/gpt-5.4-mini` | `claude-opus-4-8` | `gpt-5.4-mini` | `low` |
+| `balanced` | `openai-codex/gpt-5.5` | `claude-opus-4-8` | `gpt-5.5` | `medium` |
+| `deep` | `openai-codex/gpt-5.5` | `claude-fable-5` | `gpt-5.5` | high / xhigh |
 
 Thinking values are normalized per engine: Claude Code receives `--effort`, Codex receives `model_reasoning_effort`, and pi receives `--thinking`.
+
+Fleet intentionally prevents the `pi` engine from running Claude/Anthropic-family models (`claude-*`, `anthropic/*`, `opus`, `sonnet`, `haiku`, `fable`, etc.). Those are remapped to `openai-codex/gpt-5.5` so Claude usage stays on Claude Code subscription paths instead of API billing.
 
 ### Progress sub-line
 

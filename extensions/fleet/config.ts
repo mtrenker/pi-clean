@@ -87,17 +87,17 @@ const DEFAULT_CONFIG: FleetConfig = {
   profiles: {
     fast: {
       pi: { model: "openai-codex/gpt-5.4-mini", thinking: "low" },
-      claude: { model: "claude-haiku-4-5", thinking: "low" },
+      claude: { model: "claude-opus-4-8", thinking: "low" },
       codex: { model: "gpt-5.4-mini", thinking: "low" },
     },
     balanced: {
       pi: { model: "openai-codex/gpt-5.5", thinking: "medium" },
-      claude: { model: "claude-sonnet-5", thinking: "medium" },
+      claude: { model: "claude-opus-4-8", thinking: "medium" },
       codex: { model: "gpt-5.5", thinking: "medium" },
     },
     deep: {
       pi: { model: "openai-codex/gpt-5.5", thinking: "high" },
-      claude: { model: "claude-opus-4-8", thinking: "xhigh" },
+      claude: { model: "claude-fable-5", thinking: "xhigh" },
       codex: { model: "gpt-5.5", thinking: "high" },
     },
   },
@@ -329,16 +329,28 @@ function normalizeModelAlias(model: string, task: TaskProfileInput, warnings: st
   return replacement;
 }
 
+const CLAUDE_MODEL_ALIASES = new Set(["claude", "opus", "sonnet", "haiku", "fable", "mythos"]);
+
+function isClaudeFamilyModel(model: string): boolean {
+  const normalized = model.trim().toLowerCase();
+  return (
+    CLAUDE_MODEL_ALIASES.has(normalized) ||
+    normalized.startsWith("anthropic/") ||
+    normalized.startsWith("claude-") ||
+    normalized.includes("/claude-") ||
+    /(?:^|[-/])(opus|sonnet|haiku|fable|mythos)(?:$|[-/:])/.test(normalized)
+  );
+}
+
 function enforcePiModelPolicy(model: string, task: TaskProfileInput, warnings: string[]): string {
   const trimmed = model.trim();
   if (task.engine !== "pi" || !trimmed) return trimmed;
 
-  const normalized = trimmed.toLowerCase();
-  if (!normalized.includes("claude")) return trimmed;
+  if (!isClaudeFamilyModel(trimmed)) return trimmed;
 
   const replacement = "openai-codex/gpt-5.5";
   warnings.push(
-    `Task ${task.id} ("${task.name}") requested PI model "${trimmed}", but PI must not use Claude models because they bypass the subscription-max path and bill per token; using "${replacement}" instead.`,
+    `Task ${task.id} ("${task.name}") requested PI model "${trimmed}", but PI must not use Claude/Anthropic models because they bypass Claude Code subscription usage and bill through API credentials; using "${replacement}" instead.`,
   );
   return replacement;
 }

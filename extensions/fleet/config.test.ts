@@ -123,7 +123,7 @@ test("loadConfig deep-merges profile engine mappings with defaults", async () =>
       const config = await loadConfig(root);
 
       assert.equal(config.profiles?.deep?.codex?.model, "custom-codex");
-      assert.equal(config.profiles?.deep?.claude?.model, "claude-opus-4-8");
+      assert.equal(config.profiles?.deep?.claude?.model, "claude-fable-5");
       assert.equal(config.profiles?.deep?.pi?.model, "openai-codex/gpt-5.5");
     });
   } finally {
@@ -164,7 +164,7 @@ test("resolveTaskExecution uses merged claude profile mapping after repo overrid
         profile: "deep",
       });
 
-      assert.equal(resolved.model, "claude-opus-4-8");
+      assert.equal(resolved.model, "claude-fable-5");
       assert.equal(resolved.thinking, "xhigh");
     });
   } finally {
@@ -264,14 +264,23 @@ test("resolveTaskExecution rejects Claude-family models for the pi engine", asyn
     await withTempUserConfig(root, async () => {
       const config = await loadConfig(root);
 
-      const explicitClaudeModel = resolveTaskExecution(config, {
-        id: "005",
-        name: "Use pi with an explicit Claude model",
-        engine: "pi",
-        model: "anthropic/claude-sonnet-4-6",
-      });
-      assert.equal(explicitClaudeModel.model, "openai-codex/gpt-5.5");
-      assert.match(explicitClaudeModel.warnings[0] ?? "", /PI must not use Claude models/i);
+      for (const model of [
+        "anthropic/claude-sonnet-4-6",
+        "claude-fable-5",
+        "opus",
+        "sonnet",
+        "haiku",
+        "fable",
+      ]) {
+        const explicitClaudeModel = resolveTaskExecution(config, {
+          id: "005",
+          name: `Use pi with ${model}`,
+          engine: "pi",
+          model,
+        });
+        assert.equal(explicitClaudeModel.model, "openai-codex/gpt-5.5");
+        assert.match(explicitClaudeModel.warnings[0] ?? "", /PI must not use Claude\/Anthropic models/i);
+      }
 
       const profileClaudeModel = resolveTaskExecution(
         {
@@ -280,7 +289,7 @@ test("resolveTaskExecution rejects Claude-family models for the pi engine", asyn
             ...(config.profiles ?? {}),
             balanced: {
               ...(config.profiles?.balanced ?? {}),
-              pi: { model: "anthropic/claude-sonnet-4-6", thinking: "medium" },
+              pi: { model: "claude-fable-5", thinking: "medium" },
             },
           },
         },
@@ -293,7 +302,7 @@ test("resolveTaskExecution rejects Claude-family models for the pi engine", asyn
         },
       );
       assert.equal(profileClaudeModel.model, "openai-codex/gpt-5.5");
-      assert.match(profileClaudeModel.warnings[0] ?? "", /PI must not use Claude models/i);
+      assert.match(profileClaudeModel.warnings[0] ?? "", /PI must not use Claude\/Anthropic models/i);
     });
   } finally {
     await rm(root, { recursive: true, force: true });
