@@ -123,7 +123,7 @@ test("loadConfig deep-merges profile engine mappings with defaults", async () =>
       const config = await loadConfig(root);
 
       assert.equal(config.profiles?.deep?.codex?.model, "custom-codex");
-      assert.equal(config.profiles?.deep?.claude?.model, "claude-fable-5");
+      assert.equal(config.profiles?.deep?.claude?.model, "claude-opus-4-8");
       assert.equal(config.profiles?.deep?.pi?.model, "openai-codex/gpt-5.5");
     });
   } finally {
@@ -164,8 +164,8 @@ test("resolveTaskExecution uses merged claude profile mapping after repo overrid
         profile: "deep",
       });
 
-      assert.equal(resolved.model, "claude-fable-5");
-      assert.equal(resolved.thinking, "xhigh");
+      assert.equal(resolved.model, "claude-opus-4-8");
+      assert.equal(resolved.thinking, "medium");
     });
   } finally {
     await rm(root, { recursive: true, force: true });

@@ -67,7 +67,7 @@ const DEFAULT_CONFIG: FleetConfig = {
   tasksDir: ".pi/tasks",
   defaults: {
     engine: "claude",
-    model: "claude-opus-4-8",
+    model: "claude-haiku-4-5",
     agent: "worker",
   },
   engines: {
@@ -87,18 +87,23 @@ const DEFAULT_CONFIG: FleetConfig = {
   profiles: {
     fast: {
       pi: { model: "openai-codex/gpt-5.4-mini", thinking: "low" },
-      claude: { model: "claude-opus-4-8", thinking: "low" },
+      claude: { model: "claude-haiku-4-5" },
       codex: { model: "gpt-5.4-mini", thinking: "low" },
     },
     balanced: {
       pi: { model: "openai-codex/gpt-5.5", thinking: "medium" },
-      claude: { model: "claude-opus-4-8", thinking: "medium" },
+      claude: { model: "claude-sonnet-5", thinking: "low" },
       codex: { model: "gpt-5.5", thinking: "medium" },
     },
     deep: {
       pi: { model: "openai-codex/gpt-5.5", thinking: "high" },
-      claude: { model: "claude-fable-5", thinking: "xhigh" },
+      claude: { model: "claude-opus-4-8", thinking: "medium" },
       codex: { model: "gpt-5.5", thinking: "high" },
+    },
+    frontier: {
+      pi: { model: "openai-codex/gpt-5.5", thinking: "xhigh" },
+      claude: { model: "claude-fable-5", thinking: "xhigh" },
+      codex: { model: "gpt-5.5", thinking: "xhigh" },
     },
   },
   agents: {
