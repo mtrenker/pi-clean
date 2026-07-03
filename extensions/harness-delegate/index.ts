@@ -9,6 +9,7 @@ type Provider = "claude" | "codex";
 type RunState = "running" | "success" | "error" | "aborted";
 type CodexSandbox = "read-only" | "workspace-write" | "danger-full-access";
 type ClaudePermissionMode = "default" | "acceptEdits" | "bypassPermissions" | "dontAsk" | "plan" | "auto";
+type ReasoningLevel = "low" | "medium" | "high" | "xhigh" | "max";
 
 interface UsageStats {
   input: number;
@@ -48,6 +49,8 @@ interface HarnessRunDetails {
   cwd: string;
   state: RunState;
   model?: string;
+  reasoning?: ReasoningLevel;
+  reasoningDisplay?: string;
   sessionId?: string;
   commandLine: string[];
   items: DisplayItem[];
@@ -75,6 +78,11 @@ const ClaudePermissionModeSchema = StringEnum(
   },
 );
 
+const ReasoningLevelSchema = StringEnum(["low", "medium", "high", "xhigh", "max"] as const, {
+  description:
+    "Optional reasoning/effort level. Claude uses --effort directly; Codex uses model_reasoning_effort (max maps to xhigh).",
+});
+
 const DelegateHarnessParams = Type.Object({
   provider: ProviderSchema,
   prompt: Type.String({ description: "The task/prompt to execute in the delegated harness." }),
@@ -82,6 +90,7 @@ const DelegateHarnessParams = Type.Object({
     Type.String({ description: "Working directory for the delegated harness. Defaults to the current project." }),
   ),
   model: Type.Optional(Type.String({ description: "Optional model override for the selected harness." })),
+  reasoning: Type.Optional(ReasoningLevelSchema),
   appendSystemPrompt: Type.Optional(
     Type.String({ description: "Optional extra system instructions to append for the delegated harness." }),
   ),
@@ -123,6 +132,15 @@ function formatUsage(usage: UsageStats, model?: string): string {
   if (usage.cost) parts.push(`$${usage.cost.toFixed(4)}`);
   if (model) parts.push(model);
   return parts.join(" ");
+}
+
+function resolveReasoning(provider: Provider, reasoning?: ReasoningLevel): { value: string; display: string } | undefined {
+  if (!reasoning) return undefined;
+  if (provider === "claude") return { value: reasoning, display: `effort=${reasoning}` };
+
+  const value = reasoning === "max" ? "xhigh" : reasoning;
+  const display = value === reasoning ? `reasoning=${value}` : `reasoning=${value} (requested ${reasoning})`;
+  return { value, display };
 }
 
 function formatClaudeToolCall(name: string, input: Record<string, unknown>): string {
@@ -195,6 +213,7 @@ function buildCommandLine(params: {
   prompt: string;
   cwd: string;
   model?: string;
+  reasoning?: ReasoningLevel;
   appendSystemPrompt?: string;
   allowedTools?: string[];
   permissionMode?: ClaudePermissionMode;
@@ -212,6 +231,8 @@ function buildCommandLine(params: {
       params.permissionMode ?? "bypassPermissions",
     ];
     if (params.model) args.push("--model", params.model);
+    const resolvedReasoning = resolveReasoning(params.provider, params.reasoning);
+    if (resolvedReasoning) args.push("--effort", resolvedReasoning.value);
     if (params.allowedTools && params.allowedTools.length > 0) args.push("--tools", params.allowedTools.join(","));
     if (params.appendSystemPrompt) args.push("--append-system-prompt", params.appendSystemPrompt);
     if (params.extraArgs) args.push(...params.extraArgs);
@@ -223,6 +244,8 @@ function buildCommandLine(params: {
   if (params.sandbox === "read-only") args.push("--sandbox", "read-only");
   else if (params.sandbox === "danger-full-access") args.push("--dangerously-bypass-approvals-and-sandbox");
   else args.push("--full-auto");
+  const resolvedReasoning = resolveReasoning(params.provider, params.reasoning);
+  if (resolvedReasoning) args.push("-c", `model_reasoning_effort=\"${resolvedReasoning.value}\"`);
   if (params.extraArgs) args.push(...params.extraArgs);
   args.push(params.prompt);
   return { command: "codex", args, promptViaStdin: false };
@@ -234,6 +257,7 @@ async function runHarness(
     prompt: string;
     cwd: string;
     model?: string;
+    reasoning?: ReasoningLevel;
     appendSystemPrompt?: string;
     allowedTools?: string[];
     permissionMode?: ClaudePermissionMode;
@@ -250,6 +274,8 @@ async function runHarness(
     cwd: params.cwd,
     state: "running",
     model: params.model,
+    reasoning: params.reasoning,
+    reasoningDisplay: resolveReasoning(params.provider, params.reasoning)?.display,
     commandLine: [invocation.command, ...invocation.args],
     items: [],
     usage: createEmptyUsage(),
@@ -452,7 +478,7 @@ function renderDetails(details: HarnessRunDetails, expanded: boolean, theme: any
         : details.state === "aborted"
           ? theme.fg("warning", "◼")
           : theme.fg("error", "✗");
-  const title = `${icon} ${theme.fg("toolTitle", theme.bold(details.provider))}${details.model ? theme.fg("muted", ` ${details.model}`) : ""}`;
+  const title = `${icon} ${theme.fg("toolTitle", theme.bold(details.provider))}${details.model ? theme.fg("muted", ` ${details.model}`) : ""}${details.reasoningDisplay ? theme.fg("muted", ` ${details.reasoningDisplay}`) : ""}`;
   const usage = formatUsage(details.usage, undefined);
 
   if (!expanded) {
@@ -519,6 +545,7 @@ export default function (pi: ExtensionAPI) {
     promptGuidelines: [
       "Use delegate_harness when the user explicitly asks to run Claude Code or Codex directly, or when subscription/policy constraints require the first-party CLI.",
       "Use provider=claude for Claude Code and provider=codex for OpenAI Codex CLI.",
+      "Use the reasoning parameter for requested reasoning/effort depth instead of only putting that request in the prompt.",
       "Tell the user which harness you delegated to and summarize the delegated result when it finishes.",
     ],
     parameters: DelegateHarnessParams,
@@ -531,6 +558,7 @@ export default function (pi: ExtensionAPI) {
           prompt: params.prompt,
           cwd,
           model: params.model,
+          reasoning: params.reasoning,
           appendSystemPrompt: params.appendSystemPrompt,
           allowedTools: params.allowedTools,
           permissionMode: params.permissionMode,
@@ -565,7 +593,8 @@ export default function (pi: ExtensionAPI) {
       const line1 =
         theme.fg("toolTitle", theme.bold("delegate_harness ")) +
         theme.fg("accent", args.provider) +
-        (args.model ? theme.fg("muted", ` ${args.model}`) : "");
+        (args.model ? theme.fg("muted", ` ${args.model}`) : "") +
+        (args.reasoning ? theme.fg("muted", ` ${resolveReasoning(args.provider, args.reasoning)?.display}`) : "");
       const line2 = theme.fg("dim", shorten(args.prompt || "", 100));
       return new Text(`${line1}\n  ${line2}`, 0, 0);
     },

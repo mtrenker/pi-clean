@@ -49,11 +49,12 @@ The prompt is passed as the final CLI argument.
 - `prompt`: delegated task
 - `cwd?`: working directory override
 - `model?`: optional model override
+- `reasoning?`: optional reasoning/effort level (`low`, `medium`, `high`, `xhigh`, `max`); Claude uses `--effort`, Codex uses `model_reasoning_effort` (`max` maps to `xhigh`)
 - `appendSystemPrompt?`: Claude-only extra system prompt
 - `allowedTools?`: Claude-only tool allow-list
 - `permissionMode?`: Claude permission mode override
 - `sandbox?`: Codex sandbox mode override (`read-only`, `workspace-write`, `danger-full-access`)
-- `extraArgs?`: raw extra CLI args for advanced usage
+- `extraArgs?`: raw extra CLI args for advanced usage; appended after pi-clean defaults and first-class `reasoning`, so it can still override advanced CLI settings
 
 ## Usage examples
 
