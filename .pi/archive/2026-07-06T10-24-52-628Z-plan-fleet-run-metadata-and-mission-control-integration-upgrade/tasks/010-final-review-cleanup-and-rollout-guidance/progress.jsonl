@@ -1,0 +1,49 @@
+{"ts":"2026-05-30T10:35:40.063Z","step":"I'll start by reading the dependency handoffs and task state files to ground my review.","status":"running"}
+{"ts":"2026-05-30T10:35:41.079Z","step":"Using Bash: List task directories","status":"running"}
+{"ts":"2026-05-30T10:35:41.168Z","step":"Using Read","status":"running"}
+{"ts":"2026-05-30T10:35:42.859Z","step":"Let me read the two upstream handoffs and status files in parallel.","status":"running"}
+{"ts":"2026-05-30T10:35:43.927Z","step":"Using Read","status":"running"}
+{"ts":"2026-05-30T10:35:46.099Z","step":"Using Bash: Read upstream status files","status":"running"}
+{"ts":"2026-05-30T10:35:49.006Z","step":"Both upstream tasks completed successfully. Let me record initial progress and inspect the actual code and docs director","status":"running"}
+{"ts":"2026-05-30T10:35:50.992Z","step":"Using Bash: List fleet and docs directories","status":"running"}
+{"ts":"2026-05-30T12:36:00Z","step":"Read upstream 008/009 handoffs, statuses, and own task.md","status":"done"}
+{"ts":"2026-05-30T10:35:55.550Z","step":"Let me run the test suite to verify the 84/84 claim while reading the core source files.","status":"running"}
+{"ts":"2026-05-30T10:35:56.966Z","step":"Using Bash: Run full fleet test suite","status":"running"}
+{"ts":"2026-05-30T10:35:57.908Z","step":"Using Read","status":"running"}
+{"ts":"2026-05-30T10:36:03.729Z","step":"Tests pass 84/84. Now let me examine the transcript-persistence concern and the event emitters, plus the live state file","status":"running"}
+{"ts":"2026-05-30T10:36:04.738Z","step":"Using Grep: appendFleetEvent","status":"running"}
+{"ts":"2026-05-30T10:36:06.845Z","step":"Using Bash: Inspect live state files","status":"running"}
+{"ts":"2026-05-30T10:36:13.360Z","step":"`run.json`/`events.jsonl` don't exist in the live tree — confirming this meta-orchestration is running the OLD (pre-upgr","status":"running"}
+{"ts":"2026-05-30T10:36:13.862Z","step":"Using Read","status":"running"}
+{"ts":"2026-05-30T10:36:20.484Z","step":"Let me see how `step` is derived in the progress handler (the key transcript concern) and check state.ts/attention.ts sc","status":"running"}
+{"ts":"2026-05-30T10:36:20.543Z","step":"Using Read","status":"running"}
+{"ts":"2026-05-30T10:36:32.171Z","step":"Key finding: `task_progress` events store only the parsed `step` field, truncated to 500 chars by `sanitizeValue` — no f","status":"running"}
+{"ts":"2026-05-30T10:36:33.166Z","step":"Using Read","status":"running"}
+{"ts":"2026-05-30T10:36:42.308Z","step":"Let me confirm the legacy normalization in `task.ts` readStatus and skim the existing docs to ground the rollout guide.","status":"running"}
+{"ts":"2026-05-30T10:36:43.731Z","step":"Using Grep: export async function readStatus|export async function writeStatus|export async function listTasks","status":"running"}
+{"ts":"2026-05-30T10:36:44.259Z","step":"Using Read","status":"running"}
+{"ts":"2026-05-30T10:36:52.776Z","step":"Code review is solid. Let me check the operator surfaces and gather the reload/loading context from README and the exist","status":"running"}
+{"ts":"2026-05-30T10:36:53.941Z","step":"Using Bash: Read README head","status":"running"}
+{"ts":"2026-05-30T10:36:55.050Z","step":"Using Grep: git|install|load|reload|\\.pi/extensions|extensions/fleet","status":"running"}
+{"ts":"2026-05-30T10:36:59.143Z","step":"Let me read the README's state-files/reload section and check how the extension is git-loaded (top-level repo context).","status":"running"}
+{"ts":"2026-05-30T10:37:00.125Z","step":"Using Read","status":"running"}
+{"ts":"2026-05-30T10:37:01.774Z","step":"Using Bash: Inspect repo root and extension layout","status":"running"}
+{"ts":"2026-05-30T10:37:07.717Z","step":"Using Bash: Read root README for load/reload mechanism","status":"running"}
+{"ts":"2026-05-30T10:37:18.495Z","step":"Let me quickly confirm the config auto-create behavior to validate a doc discrepancy I noticed between the root README a","status":"running"}
+{"ts":"2026-05-30T10:37:19.484Z","step":"Using Grep: auto-create|writeFile|init|create.*fleet\\.json|ensureConfig|does not exist","status":"running"}
+{"ts":"2026-05-30T10:37:28.615Z","step":"Confirmed: `config.ts:222` says fleet **never** auto-creates `.pi/fleet.json`, but the root README still claims the firs","status":"running"}
+{"ts":"2026-05-30T10:37:32.033Z","step":"Using Edit","status":"running"}
+{"ts":"2026-05-30T10:37:35.556Z","step":"Using Bash: Append progress lines","status":"running"}
+{"ts":"2026-05-30T12:40:00Z","step":"Reviewed run.ts/events.ts/git-context.ts/state.ts/task.ts/attention.ts and event emitters; confirmed additive+backward-compatible schema and 500-char truncation guard in events sanitizer","status":"done"}
+{"ts":"2026-05-30T12:41:00Z","step":"Ran full fleet suite: 84/84 pass; verified no regressions to widget/inspect/status surfaces","status":"done"}
+{"ts":"2026-05-30T12:42:00Z","step":"Cleanup: fixed stale root README claim that fleet auto-creates .pi/fleet.json (config.ts:222 confirms it never does)","status":"done"}
+{"ts":"2026-05-30T10:37:38.837Z","step":"Using Read","status":"running"}
+{"ts":"2026-05-30T10:37:43.161Z","step":"Using Edit","status":"running"}
+{"ts":"2026-05-30T10:37:47.698Z","step":"All context gathered. Now writing the acceptance deliverable — the rollout guide.","status":"running"}
+{"ts":"2026-05-30T10:38:45.567Z","step":"Using Write","status":"running"}
+{"ts":"2026-05-30T10:38:47.110Z","step":"Now the completion handoff and final progress lines.","status":"running"}
+{"ts":"2026-05-30T10:39:10.412Z","step":"Using Write","status":"running"}
+{"ts":"2026-05-30T10:39:15.032Z","step":"Using Bash: Append final progress lines","status":"running"}
+{"ts":"2026-05-30T12:45:00Z","step":"Wrote acceptance deliverable docs/fleet-mission-control/10-rollout.md (reload steps, Flightdeck read order, pi-clean vs Hub Flightdeck follow-up split, reviewer sign-off)","status":"done"}
+{"ts":"2026-05-30T12:46:00Z","step":"Wrote handoff.md; final review approved for rollout with no blocking issues","status":"done"}
+{"ts":"2026-05-30T10:39:27.901Z","step":"## Final review complete — approved for rollout\n\nI reviewed the fleet Mission Control work (Tasks 002–009) across `exten","status":"running"}

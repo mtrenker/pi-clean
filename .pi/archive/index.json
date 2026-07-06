@@ -111,6 +111,77 @@
         "totalCacheReadInputTokens": 0,
         "totalTokens": 142970
       }
+    },
+    {
+      "id": "2026-07-06T10-24-52-628Z-plan-fleet-run-metadata-and-mission-control-integration-upgrade",
+      "archivedAt": "2026-07-06T10:24:52.628Z",
+      "reason": "manual",
+      "title": "Plan: Fleet run metadata and Mission Control integration upgrade",
+      "taskCount": 10,
+      "archivePath": ".pi/archive/2026-07-06T10-24-52-628Z-plan-fleet-run-metadata-and-mission-control-integration-upgrade",
+      "taskFolders": [
+        "001-map-current-fleet-state-files-and-flightdeck-handoff-requirements",
+        "002-add-run-metadata-config-source-tracking-and-git-project-context",
+        "003-add-append-only-fleet-timeline-events",
+        "004-normalize-task-usage-and-heartbeat-timestamps",
+        "005-add-human-attention-hint-derivation-to-fleet-state",
+        "006-strengthen-archive-summaries-with-run-history-metadata",
+        "007-update-operator-surfaces-for-run-metadata-events-and-attention",
+        "008-add-backward-compatible-tests-and-fixtures-for-old-and-new-fleet-formats",
+        "009-validate-with-simulation-and-document-mission-control-ingestion-expectations",
+        "010-final-review-cleanup-and-rollout-guidance"
+      ],
+      "run": {
+        "runId": null,
+        "cwd": null,
+        "repoRoot": null,
+        "branch": null,
+        "planPath": "PLAN.md",
+        "startedAt": null,
+        "completedAt": "2026-05-30T10:39:28.238Z",
+        "finalStatus": "done"
+      },
+      "summary": {
+        "total": 10,
+        "pending": 0,
+        "running": 0,
+        "done": 10,
+        "failed": 0,
+        "retrying": 0,
+        "totalInputTokens": 5057442,
+        "totalOutputTokens": 199236,
+        "totalCacheCreationInputTokens": 1674366,
+        "totalCacheReadInputTokens": 31150235,
+        "totalTokens": 38081279
+      },
+      "totalUsage": {
+        "inputTokens": 5057442,
+        "outputTokens": 199236,
+        "cacheCreationInputTokens": 1674366,
+        "cacheReadInputTokens": 31150235,
+        "totalTokens": 38081279
+      },
+      "attention": {
+        "total": 0,
+        "bySeverity": {
+          "info": 0,
+          "warning": 0,
+          "error": 0
+        },
+        "byCategory": {}
+      },
+      "artifacts": {
+        "run": {
+          "sourcePath": ".pi/tasks/run.json",
+          "archivePath": null,
+          "copied": false
+        },
+        "events": {
+          "sourcePath": ".pi/tasks/events.jsonl",
+          "archivePath": ".pi/archive/2026-07-06T10-24-52-628Z-plan-fleet-run-metadata-and-mission-control-integration-upgrade/events.jsonl",
+          "copied": true
+        }
+      }
     }
   ]
 }

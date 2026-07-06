@@ -1,0 +1,29 @@
+{
+  "id": "005",
+  "name": "add-human-attention-hint-derivation-to-fleet-state",
+  "status": "done",
+  "engine": "claude",
+  "model": "sonnet",
+  "profile": "balanced",
+  "thinking": "medium",
+  "agent": "worker",
+  "depends": [
+    "002",
+    "003",
+    "004"
+  ],
+  "startedAt": "2026-05-30T10:10:37.897Z",
+  "completedAt": "2026-05-30T10:19:14.963Z",
+  "duration": 517066,
+  "retries": 0,
+  "pid": 406284,
+  "error": null,
+  "usage": {
+    "inputTokens": 64,
+    "outputTokens": 28896,
+    "cacheCreationInputTokens": 151168,
+    "cacheReadInputTokens": 3302401
+  },
+  "latestProgressAt": "2026-05-30T10:19:14.337Z",
+  "latestProgressMessage": "Here's a summary of what was implemented:\n\n## Task 005 Complete: Human-Attention Hint Derivation\n\n### What was built\n\n**"
+}

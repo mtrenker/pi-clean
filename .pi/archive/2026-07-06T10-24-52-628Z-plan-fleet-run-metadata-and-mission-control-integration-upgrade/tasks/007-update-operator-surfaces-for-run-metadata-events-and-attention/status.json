@@ -1,0 +1,28 @@
+{
+  "id": "007",
+  "name": "update-operator-surfaces-for-run-metadata-events-and-attention",
+  "status": "done",
+  "engine": "codex",
+  "model": "gpt-5.5",
+  "profile": "balanced",
+  "thinking": "medium",
+  "agent": "worker",
+  "depends": [
+    "002",
+    "003",
+    "004",
+    "005"
+  ],
+  "startedAt": "2026-05-30T10:19:14.983Z",
+  "completedAt": "2026-05-30T10:23:16.042Z",
+  "duration": 241059,
+  "retries": 0,
+  "pid": 408676,
+  "error": null,
+  "usage": {
+    "inputTokens": 1769953,
+    "outputTokens": 10724
+  },
+  "latestProgressAt": null,
+  "latestProgressMessage": null
+}

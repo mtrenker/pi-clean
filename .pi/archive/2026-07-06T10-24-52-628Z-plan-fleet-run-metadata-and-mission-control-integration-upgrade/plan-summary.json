@@ -1,0 +1,170 @@
+{
+  "version": 1,
+  "title": "Plan: Fleet run metadata and Mission Control integration upgrade",
+  "overview": "This plan upgrades the existing `extensions/fleet/` implementation so each fleet execution exposes stable, machine-readable run context for Flightdeck/Mission Control while preserving the current operator workflow. The work is scoped as an internal reliability and observability upgrade for pi-clean: fleet should still read `PLAN.md`, split tasks into `.pi/tasks/`, run Claude/Codex/pi engines, render the widget, and archive task folders exactly as before, but the state it writes should become easier for a long-lived dashboard to ingest.\n\nThe key architectural decision is to make all changes additive and backwards-compatible. Existing files such as `.pi/tasks/state.json`, per-task `status.json`, `progress.jsonl`, `output.jsonl`, and `handoff.md` must continue to work, while new files like `.pi/tasks/run.json` and `.pi/tasks/events.jsonl` provide stable run identity, project/git context, heartbeat timestamps, normalized usage, attention hints, and timeline events.\n\nThis is not yet the full Flightdeck application and it does not add mutating web controls for starting or stopping agents. It only prepares fleet's local state model so Flightdeck can consume both historical and active runs more accurately, including degraded support for old task folders that predate these fields.",
+  "splitAt": "2026-05-30T09:39:13.583Z",
+  "sourcePlanPath": "PLAN.md",
+  "taskCount": 10,
+  "tasks": [
+    {
+      "id": "001",
+      "slug": "map-current-fleet-state-files-and-flightdeck-handoff-requirements",
+      "name": "Map current fleet state files and Flightdeck handoff requirements",
+      "engine": "claude",
+      "model": "claude-opus-4-8",
+      "profile": "deep",
+      "thinking": "high",
+      "agent": "scout",
+      "depends": [],
+      "description": "Inspect `extensions/fleet/orchestrator.ts`, `extensions/fleet/state.ts`, `extensions/fleet/task.ts`, `extensions/fleet/archive.ts`, `extensions/fleet/inspect.ts`, `extensions/fleet/widget.ts`, `extensions/fleet/config.ts`, and `/home/martin/ai/hub/apps/flightdeck/docs/PI_CLEAN_FLEET_UPGRADE_HANDOFF.md`, then create `docs/fleet-mission-control/01-current-state.md`. The document must name every current `.pi/tasks/` file, summarize the fields Flightdeck can read today, identify where run identity and project context are missing, and define acceptance criteria for the later implementation tasks."
+    },
+    {
+      "id": "002",
+      "slug": "add-run-metadata-config-source-tracking-and-git-project-context",
+      "name": "Add run metadata, config-source tracking, and git project context",
+      "engine": "claude",
+      "model": "sonnet",
+      "profile": "balanced",
+      "thinking": "medium",
+      "agent": "worker",
+      "depends": [
+        "001"
+      ],
+      "description": "Use Task 001's current-state map to implement run metadata in new files such as `extensions/fleet/run.ts` and `extensions/fleet/git-context.ts`, then wire it through `extensions/fleet/orchestrator.ts` and `extensions/fleet/index.ts`. The implementation must write `.pi/tasks/run.json` when `/fleet:start` or `/fleet:simulate` begins, include `schemaVersion`, `runId`, `startedAt`, `status`, `cwd`, `planPath`, config source layers from `loadConfigWithStatus()`, concurrency, and best-effort git fields like repo root, remote, branch, worktree path, head SHA, and dirty-at-start; acceptance requires missing git metadata to produce null fields plus a warning rather than blocking fleet startup."
+    },
+    {
+      "id": "003",
+      "slug": "add-append-only-fleet-timeline-events",
+      "name": "Add append-only fleet timeline events",
+      "engine": "codex",
+      "model": "gpt-5.5",
+      "profile": "balanced",
+      "thinking": "medium",
+      "agent": "worker",
+      "depends": [
+        "001",
+        "002"
+      ],
+      "description": "Use Task 001's file inventory and Task 002's `runId` output to add an append-only event writer, likely `extensions/fleet/events.ts`, and integrate it with `extensions/fleet/orchestrator.ts`, `extensions/fleet/task.ts`, and archive flows. The new `.pi/tasks/events.jsonl` stream must record `fleet_started`, `fleet_completed`, `fleet_stopped`, `task_status_changed`, `task_progress`, `task_usage_updated`, `task_failed`, `task_retried`, `task_handoff_written` when detectable, `archive_created`, `plan_validated`, and `operator_command` where practical; acceptance requires each event to include `ts`, `runId`, `type`, optional `taskId`, and a small `data` object without storing full raw agent transcripts."
+    },
+    {
+      "id": "004",
+      "slug": "normalize-task-usage-and-heartbeat-timestamps",
+      "name": "Normalize task usage and heartbeat timestamps",
+      "engine": "claude",
+      "model": "sonnet",
+      "profile": "balanced",
+      "thinking": "medium",
+      "agent": "worker",
+      "depends": [
+        "001",
+        "002",
+        "003"
+      ],
+      "description": "Use Task 001's schema notes, Task 002's run metadata, and Task 003's event writer to update `extensions/fleet/engines/types.ts`, `extensions/fleet/task.ts`, `extensions/fleet/state.ts`, and `extensions/fleet/orchestrator.ts` with a stable usage and heartbeat model. Each task state and aggregate task entry must expose `lastHeartbeatAt`, `lastOutputAt`, `lastProgressAt`, `staleAfterSeconds`, and a normalized `usage` envelope with numeric `inputTokens`, `outputTokens`, `cacheCreationInputTokens`, `cacheReadInputTokens`, `totalTokens`, `source`, and `updatedAt`; acceptance requires old status files with the previous usage shape to still load as zero/default values and live usage updates to persist often enough for Flightdeck to show active token movement."
+    },
+    {
+      "id": "005",
+      "slug": "add-human-attention-hint-derivation-to-fleet-state",
+      "name": "Add human-attention hint derivation to fleet state",
+      "engine": "claude",
+      "model": "sonnet",
+      "profile": "balanced",
+      "thinking": "medium",
+      "agent": "worker",
+      "depends": [
+        "002",
+        "003",
+        "004"
+      ],
+      "description": "Use Task 002's run context, Task 003's event types, and Task 004's heartbeat fields to implement attention hint generation in a new `extensions/fleet/attention.ts` module and wire it into `extensions/fleet/state.ts`, `extensions/fleet/recovery.ts`, and `extensions/fleet/orchestrator.ts`. Task-level and aggregate state should expose high-confidence attention items for `task_failed`, `task_retrying`, `task_blocked`, `missing_handoff`, `stale_running_task`, `usage_unavailable`, `plan_validation_failed`, and `operator_review_needed`; acceptance requires each item to have `category`, `severity`, `message`, `createdAt`, and enough task/run identifiers for Flightdeck to dedupe without fleet owning Flightdeck's lifecycle state."
+    },
+    {
+      "id": "006",
+      "slug": "strengthen-archive-summaries-with-run-history-metadata",
+      "name": "Strengthen archive summaries with run history metadata",
+      "engine": "codex",
+      "model": "gpt-5.5",
+      "profile": "balanced",
+      "thinking": "medium",
+      "agent": "worker",
+      "depends": [
+        "002",
+        "003",
+        "004",
+        "005"
+      ],
+      "description": "Use Task 002's `run.json`, Task 003's `events.jsonl`, Task 004's usage totals, and Task 005's attention hints to update `extensions/fleet/archive.ts` and any archive-related tests. Archive summaries and `.pi/archive/index.json` entries must preserve `runId`, cwd, repo root, branch, plan path, started/completed timestamps, final status, total usage, attention counts, and paths to copied run/event files; acceptance requires existing archive behavior to keep working for old task folders while new archives contain enough metadata for Flightdeck history views."
+    },
+    {
+      "id": "007",
+      "slug": "update-operator-surfaces-for-run-metadata-events-and-attention",
+      "name": "Update operator surfaces for run metadata, events, and attention",
+      "engine": "codex",
+      "model": "gpt-5.5",
+      "profile": "balanced",
+      "thinking": "medium",
+      "agent": "worker",
+      "depends": [
+        "002",
+        "003",
+        "004",
+        "005"
+      ],
+      "description": "Use Task 002's run metadata, Task 003's event stream, Task 004's heartbeat/usage fields, and Task 005's attention hints to update `extensions/fleet/index.ts`, `extensions/fleet/inspect.ts`, `extensions/fleet/widget.ts`, and `extensions/fleet/README.md`. `/fleet:status`, `/fleet:inspect`, the widget, and the `fleet_status` tool should remain compact but surface run id, stale/running indicators, attention warnings, and normalized token totals where useful; acceptance requires old `.pi/tasks/state.json` files to render without crashes and the README to explain how a human can inspect `run.json`, `events.jsonl`, and attention hints."
+    },
+    {
+      "id": "008",
+      "slug": "add-backward-compatible-tests-and-fixtures-for-old-and-new-fleet-formats",
+      "name": "Add backward-compatible tests and fixtures for old and new fleet formats",
+      "engine": "claude",
+      "model": "claude-opus-4-8",
+      "profile": "deep",
+      "thinking": "high",
+      "agent": "worker",
+      "depends": [
+        "002",
+        "003",
+        "004",
+        "005",
+        "006",
+        "007"
+      ],
+      "description": "Use the implementation outputs from Tasks 002 through 007 to add regression tests and fixtures under `extensions/fleet/` for run metadata, git-context fallback, event writing, usage normalization, heartbeat updates, attention derivation, archive metadata, and old-format compatibility. The tests should cover both fresh runs and historical task folders missing new fields, and acceptance requires `node --test extensions/fleet/config.test.ts extensions/fleet/plan.test.ts extensions/fleet/state.test.ts extensions/fleet/task.test.ts extensions/fleet/widget.test.ts extensions/fleet/engines/codex.test.ts` to pass or to document any pre-existing unrelated failures clearly in a handoff note."
+    },
+    {
+      "id": "009",
+      "slug": "validate-with-simulation-and-document-mission-control-ingestion-expectations",
+      "name": "Validate with simulation and document Mission Control ingestion expectations",
+      "engine": "claude",
+      "model": "sonnet",
+      "profile": "balanced",
+      "thinking": "medium",
+      "agent": "reviewer",
+      "depends": [
+        "003",
+        "004",
+        "005",
+        "006",
+        "007",
+        "008"
+      ],
+      "description": "Use Task 003's event stream, Task 004's heartbeat/usage model, Task 005's attention hints, Task 006's archive metadata, Task 007's operator surfaces, and Task 008's fixtures to run `/fleet:validate`, `/fleet:split`, and `/fleet:simulate` against a small safe plan. Create `docs/fleet-mission-control/09-validation.md` with commands run, files produced, sample `run.json` and `events.jsonl` snippets, Flightdeck ingestion notes, and known limitations; acceptance requires the validation document to prove that a read-only dashboard can consume both current active state and archive history without needing a live pi session."
+    },
+    {
+      "id": "010",
+      "slug": "final-review-cleanup-and-rollout-guidance",
+      "name": "Final review, cleanup, and rollout guidance",
+      "engine": "claude",
+      "model": "claude-opus-4-8",
+      "profile": "deep",
+      "thinking": "high",
+      "agent": "reviewer",
+      "depends": [
+        "008",
+        "009"
+      ],
+      "description": "Use Task 008's test results and Task 009's validation document to perform a final review across `extensions/fleet/`, `docs/fleet-mission-control/`, and the generated `.pi/tasks/` state files. Verify backward compatibility, additive schema changes, no accidental transcript persistence in `events.jsonl`, no regressions to widget/inspect/status commands, and clear operator documentation; acceptance requires a final `docs/fleet-mission-control/10-rollout.md` that tells Martin how to reload the git-loaded extension, what files Flightdeck should read first, and which follow-up work belongs in the Hub Flightdeck app rather than pi-clean."
+    }
+  ]
+}

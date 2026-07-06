@@ -1,0 +1,27 @@
+{
+  "id": "002",
+  "name": "add-run-metadata-config-source-tracking-and-git-project-context",
+  "status": "done",
+  "engine": "claude",
+  "model": "sonnet",
+  "profile": "balanced",
+  "thinking": "medium",
+  "agent": "worker",
+  "depends": [
+    "001"
+  ],
+  "startedAt": "2026-05-30T09:45:21.624Z",
+  "completedAt": "2026-05-30T09:48:52.990Z",
+  "duration": 211366,
+  "retries": 0,
+  "pid": 398886,
+  "error": null,
+  "usage": {
+    "inputTokens": 6071,
+    "outputTokens": 10172,
+    "cacheCreationInputTokens": 160089,
+    "cacheReadInputTokens": 1656901
+  },
+  "latestProgressAt": "2026-05-30T09:48:52.645Z",
+  "latestProgressMessage": "Task 002 is complete. Here's a summary of what was implemented:\n\n## What was done\n\n### New files created\n\n**`extensions/"
+}

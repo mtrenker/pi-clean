@@ -1,0 +1,28 @@
+{
+  "id": "010",
+  "name": "final-review-cleanup-and-rollout-guidance",
+  "status": "done",
+  "engine": "claude",
+  "model": "claude-opus-4-8",
+  "profile": "deep",
+  "thinking": "high",
+  "agent": "reviewer",
+  "depends": [
+    "008",
+    "009"
+  ],
+  "startedAt": "2026-05-30T10:35:36.727Z",
+  "completedAt": "2026-05-30T10:39:28.238Z",
+  "duration": 231511,
+  "retries": 0,
+  "pid": 418404,
+  "error": null,
+  "usage": {
+    "inputTokens": 9095,
+    "outputTokens": 16818,
+    "cacheCreationInputTokens": 186923,
+    "cacheReadInputTokens": 2944072
+  },
+  "latestProgressAt": "2026-05-30T10:39:27.901Z",
+  "latestProgressMessage": "## Final review complete — approved for rollout\n\nI reviewed the fleet Mission Control work (Tasks 002–009) across `exten"
+}

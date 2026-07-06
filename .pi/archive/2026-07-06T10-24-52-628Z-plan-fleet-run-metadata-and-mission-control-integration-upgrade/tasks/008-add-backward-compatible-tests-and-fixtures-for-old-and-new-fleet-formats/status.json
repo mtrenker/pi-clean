@@ -1,0 +1,32 @@
+{
+  "id": "008",
+  "name": "add-backward-compatible-tests-and-fixtures-for-old-and-new-fleet-formats",
+  "status": "done",
+  "engine": "claude",
+  "model": "claude-opus-4-8",
+  "profile": "deep",
+  "thinking": "high",
+  "agent": "worker",
+  "depends": [
+    "002",
+    "003",
+    "004",
+    "005",
+    "006",
+    "007"
+  ],
+  "startedAt": "2026-05-30T10:23:16.059Z",
+  "completedAt": "2026-05-30T10:29:36.133Z",
+  "duration": 380074,
+  "retries": 0,
+  "pid": 411750,
+  "error": null,
+  "usage": {
+    "inputTokens": 13281,
+    "outputTokens": 27708,
+    "cacheCreationInputTokens": 336634,
+    "cacheReadInputTokens": 5687592
+  },
+  "latestProgressAt": "2026-05-30T10:29:35.777Z",
+  "latestProgressMessage": "I've completed the task. Here's a summary of what I did.\n\n## What was done\n\nI added backward-compatible regression tests"
+}
