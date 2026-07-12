@@ -10,6 +10,9 @@
     "type": "git",
     "url": "git@github.com:mtrenker/pi-clean.git"
   },
+  "scripts": {
+    "test:github-work": "node --test scripts/github-work.test.mjs"
+  },
   "dependencies": {
     "playwright": "^1.52.0"
   },

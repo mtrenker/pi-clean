@@ -1,0 +1,34 @@
+name: Maintenance
+description: Track refactoring, tooling, documentation, or dependency work
+title: "[Maintenance]: "
+body:
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: What maintainability, reliability, or operational problem should improve?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and non-goals
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] The intended maintenance outcome is measurable
+        - [ ] Existing behavior remains covered
+        - [ ] Relevant documentation is updated
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation
+      description: Commands or checks that must pass.
+    validations:
+      required: true

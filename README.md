@@ -46,6 +46,30 @@ Requires Playwright browser binaries:
 npx playwright install chromium
 ```
 
+## GitHub issue and pull request workflow
+
+The package includes two reusable skills:
+
+- `github-issues` for searching, creating, grooming, and preparing issues.
+- `github-pull-requests` for opening PRs, independent reviews, checks, merge preparation, and cleanup.
+
+Issue implementation and independent reviews run in isolated worktrees managed by Herdr:
+
+```bash
+node scripts/github-work.mjs start-issue 123 --agent pi
+node scripts/github-work.mjs review-pr 456 --reviewer claude
+node scripts/github-work.mjs status
+node scripts/github-work.mjs cleanup-pr 456
+node scripts/github-work.mjs finish-issue 123 --delete-branch
+```
+
+Worktrees are stored outside project folders under
+`~/.local/share/agent-worktrees/github.com/<owner>/<repo>/`. Set
+`FLIGHTDECK_TELEMETRY_FILE` to emit compatible worktree and agent-start events to Flightdeck's
+JSONL telemetry input. Repository-specific policy remains in each project's `AGENTS.md`.
+See [the GitHub workflow guide](docs/github-workflow.md) for lifecycle, safety, Herdr, and
+Flightdeck details.
+
 ## Structure
 
 ```
@@ -68,7 +92,8 @@ pi-clean/
 │   ├── widget.ts          # Live fleet dashboard widget
 │   ├── inspect.ts         # Interactive task inspector overlay
 │   └── README.md          # Operator guide for fleet workflows
-├── skills/                # Custom skills, including fleet-planner doctrine
+├── skills/                # Custom skills, including GitHub workflows and fleet doctrine
+├── scripts/               # Shared workflow helpers such as github-work.mjs
 ├── prompts/               # Prompt templates
 └── themes/                # Theme customizations
 ```
