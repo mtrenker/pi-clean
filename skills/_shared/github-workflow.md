@@ -2,7 +2,12 @@
 
 ## Sources of truth
 
-- GitHub issue: intent, scope, acceptance criteria, and durable discussion.
+- Product notes and architecture docs: research, vision, and durable decisions.
+- GitHub parent issue: product or architecture outcome and child progress.
+- GitHub child issue: one independently deliverable unit with intent, scope, acceptance criteria, and durable discussion.
+- Native issue dependencies: execution ordering and blockers.
+- GitHub milestone: a concrete release or externally meaningful outcome.
+- GitHub Project: operational priority, readiness, status, and focused views; never a duplicate issue store.
 - GitHub pull request: delivered change, validation evidence, and review history.
 - Git worktree: isolated filesystem for one author or reviewer role.
 - Herdr: live workspace, panes, and agent processes. Herdr IDs are ephemeral.
@@ -32,8 +37,9 @@ gh repo view --json nameWithOwner,defaultBranchRef
 git status --short --branch
 ```
 
-Read the repository's `AGENTS.md`, `.github/ISSUE_TEMPLATE/`, and pull request template. Local
-repository policy overrides generic formatting guidance in these skills.
+Read the repository's `AGENTS.md`, `.github/ISSUE_TEMPLATE/`, and pull request template. Inspect its relevant GitHub Project when planning, prioritizing, or selecting work. Local repository policy overrides generic formatting guidance in these skills.
+
+When a repository defines Ready and agent-ready states, start implementation only from unblocked child issues that satisfy those gates. Parent outcomes, Inbox items, and Backlog items are not implementation work. Human review capacity bounds agent and fleet concurrency.
 
 ## Isolated work
 

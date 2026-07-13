@@ -50,7 +50,7 @@ npx playwright install chromium
 
 The package includes two reusable skills:
 
-- `github-issues` for searching, creating, grooming, and preparing issues.
+- `github-issues` for Projects, issue hierarchy, dependencies, milestones, grooming, and human/agent/fleet readiness.
 - `github-pull-requests` for opening PRs, independent reviews, checks, merge preparation, and cleanup.
 
 Issue implementation and independent reviews run in isolated worktrees managed by Herdr:
@@ -67,8 +67,8 @@ Worktrees are stored outside project folders under
 `~/.local/share/agent-worktrees/github.com/<owner>/<repo>/`. Set
 `FLIGHTDECK_TELEMETRY_FILE` to emit compatible worktree and agent-start events to Flightdeck's
 JSONL telemetry input. Repository-specific policy remains in each project's `AGENTS.md`.
-See [the GitHub workflow guide](docs/github-workflow.md) for lifecycle, safety, Herdr, and
-Flightdeck details.
+See [the GitHub workflow guide](docs/github-workflow.md) for Project-based work admission,
+issue hierarchy, cognitive-budget limits, lifecycle, safety, Herdr, and Flightdeck details.
 
 ## Structure
 

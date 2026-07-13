@@ -1,6 +1,6 @@
 ---
 name: github-issues
-description: Manage GitHub issues with the gh CLI, including searching, creating, grooming, labeling, prioritizing, and preparing issues for implementation. Use when work involves GitHub issues, issue numbers, backlog maintenance, or turning findings into tracked work.
+description: Manage GitHub issues and Projects with the gh CLI, including searching, creating, grooming, hierarchy, dependencies, labels, milestones, prioritization, and preparing work for humans, agents, or fleets. Use for issue work, backlog/project maintenance, or turning findings into tracked execution.
 compatibility: Requires git and an authenticated GitHub CLI (gh).
 ---
 
@@ -10,13 +10,16 @@ Read [the shared workflow policy](../_shared/github-workflow.md) before acting.
 
 ## Inspect before mutation
 
-Resolve the current repository and inspect its issue forms and labels:
+Resolve the current repository and inspect its issue forms, labels, milestones, open work, and relevant Project when one exists:
 
 ```bash
 gh repo view --json nameWithOwner,defaultBranchRef
 gh label list --limit 100 --json name,description,color
-gh issue list --state open --limit 100 --json number,title,labels,url
+gh issue list --state open --limit 100 --json number,title,labels,milestone,url
+gh api repos/{owner}/{repo}/milestones?state=all --paginate
 ```
+
+When the task involves planning, prioritization, agent readiness, or a Project, read [the Project-aware workflow reference](references/project-workflow.md) and inspect the existing Project before proposing mutations. Prefer one relevant Project with focused views over duplicate Projects.
 
 Search for duplicates using meaningful words from the proposed title and behavior. Inspect likely
 matches with `gh issue view <number> --json number,title,body,labels,state,comments,url`.
@@ -34,8 +37,9 @@ A useful issue normally contains:
 - validation expectations.
 
 Do not invent labels. Use only labels returned by `gh label list`. Prefer `--body-file` over shell
-inline Markdown. Show the title, body, and labels before `gh issue create` unless already explicitly
-authorized.
+inline Markdown. Show the title, body, labels, parent, dependencies, milestone, and Project placement before `gh issue create` unless already explicitly authorized.
+
+Use parent issues for outcomes and child issues for independently deliverable units. Use native dependency relationships for blocking order. Create only the first executable wave rather than publishing a speculative full roadmap.
 
 ## Groom an issue
 
@@ -45,12 +49,18 @@ appropriately scoped, and implementable without guessing. A ready issue has:
 - a concrete outcome rather than a prescribed implementation where alternatives remain open;
 - bounded scope and named non-goals;
 - testable acceptance criteria;
-- known dependencies and blockers;
+- known parent, dependencies, and blockers;
 - repository-valid labels;
+- architecture constraints and validation expectations;
 - enough context for an agent starting in a fresh worktree.
 
-Propose edits and label changes before applying them. Preserve useful original context rather than
-silently replacing it.
+Treat `agent-ready` as a strict admission gate when the repository uses it: a cold agent must not need to reconstruct chat history or make unresolved product, architecture, visual, security, or migration decisions. Use `needs-human` when human judgment is the next work. Never move work into Ready solely because it exists.
+
+Propose issue, relationship, label, milestone, and Project-field changes before applying them. Preserve useful original context rather than silently replacing it.
+
+## Select work
+
+When a repository uses the recommended Project workflow, implementation candidates come from unblocked Ready issues. Agent or fleet work additionally requires the repository's agent-readiness marker. Respect Project WIP and human review limits; do not start parent issues, Backlog items, or multiple tasks likely to edit the same boundary.
 
 ## Start implementation
 

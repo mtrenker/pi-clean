@@ -4,7 +4,12 @@ This package separates durable project state from live execution:
 
 | Layer | Responsibility |
 | --- | --- |
-| GitHub issues | Intent, scope, acceptance criteria, and backlog state |
+| Product and architecture docs | Research, vision, and durable decisions |
+| GitHub parent issues | Outcomes and sub-issue progress |
+| GitHub child issues | Independently deliverable intent, scope, acceptance criteria, and discussion |
+| Native issue dependencies | Blocking order between work units |
+| Milestones | Concrete releases or externally meaningful outcomes |
+| GitHub Project | Operational priority, readiness, status, and focused views |
 | GitHub pull requests | Delivered changes, checks, and durable review history |
 | Git worktrees | Isolated filesystems for authors and independent reviewers |
 | Herdr | Live workspaces, agents, tests, servers, and logs |
@@ -12,6 +17,25 @@ This package separates durable project state from live execution:
 
 The `github-issues` and `github-pull-requests` skills define the agent workflow. The
 `scripts/github-work.mjs` helper owns worktree and Herdr lifecycle mechanics.
+
+## Project planning and work admission
+
+Use one lightweight Project for a product or repository ecosystem rather than separate Projects for each team, milestone, or architecture area. Keep issue bodies as the durable source of truth; Project fields only schedule and expose the work.
+
+The recommended minimum is:
+
+- **Status:** Inbox, Backlog, Ready, In progress, In review, Done
+- **Priority:** P0 urgent, P1 active outcome, P2 next, P3 later
+- **Size:** XS, S, M, L; split L before Ready
+- **Hierarchy:** one parent outcome and independently deliverable child issues
+- **Dependencies:** native blocked-by/blocking relationships
+- **Agent admission:** unblocked Ready child issues explicitly marked `agent-ready`
+
+A Ready issue names its outcome, scope, non-goals, acceptance criteria, relationships, architecture constraints, and validation. `agent-ready` additionally means a cold agent can execute from a fresh worktree without reconstructing chat history or making unresolved product, architecture, visual, security, or migration decisions.
+
+Treat human review as the bottleneck: one human implementation, initially two or three parallel agents, and no more than two PRs awaiting human review. Fleet candidates must be unblocked siblings with low expected file overlap. Do not start parent outcomes, Inbox items, or Backlog items.
+
+See [`skills/github-issues/references/project-workflow.md`](../skills/github-issues/references/project-workflow.md) for fields, views, automation, inspection commands, rollout, and web-UI limitations.
 
 ## Prerequisites
 

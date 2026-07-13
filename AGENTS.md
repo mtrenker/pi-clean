@@ -5,8 +5,10 @@
 Use the `github-issues` skill for issue management and `github-pull-requests` for pull requests
 and reviews.
 
-- Search for duplicates before creating an issue.
-- Non-trivial issues need bounded scope and testable acceptance criteria.
+- Search for duplicates and inspect the relevant GitHub Project before creating or prioritizing issues.
+- Parent issues describe outcomes; independently deliverable child issues carry bounded scope and testable acceptance criteria.
+- Start agent or fleet implementation only from unblocked Ready child issues explicitly marked `agent-ready` when the repository uses that gate.
+- Respect repository WIP and human review limits; do not parallelize work with likely file or architecture-boundary overlap.
 - Implement issues only in worktrees created by `scripts/github-work.mjs`; keep the primary
   checkout clean as the control plane.
 - Branch names use `issue/<number>-<slug>`.
