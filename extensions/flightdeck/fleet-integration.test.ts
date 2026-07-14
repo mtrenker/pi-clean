@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { defaultFleetConfig } from "../fleet/config.ts";
-import { Orchestrator } from "../fleet/orchestrator.ts";
-import { createTaskFolder } from "../fleet/task.ts";
-import { subscribeTaskLifecycle } from "./lifecycle.ts";
-import { FlightdeckTelemetryAdapter } from "./telemetry.ts";
+import { defaultFleetConfig } from "../fleet/config.js";
+import { Orchestrator } from "../fleet/orchestrator.js";
+import { createTaskFolder } from "../fleet/task.js";
+import { subscribeTaskLifecycle } from "./lifecycle.js";
+import { FlightdeckTelemetryAdapter } from "./telemetry.js";
 
 test("Fleet Claude/Codex transitions use the canonical Fleet run and task IDs", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-fleet-flightdeck-"));

@@ -11,25 +11,23 @@
     "url": "git@github.com:mtrenker/pi-clean.git"
   },
   "scripts": {
-    "test:flightdeck": "node --import tsx --test extensions/flightdeck/*.test.ts",
+    "test:flightdeck": "node scripts/test-flightdeck.mjs",
     "test:github-work": "node --test scripts/github-work.test.mjs"
   },
   "dependencies": {
     "playwright": "^1.52.0"
   },
   "devDependencies": {
-    "@mariozechner/jiti": "^2.6.5",
-    "@mariozechner/pi-agent-core": "^0.66.1",
     "@mariozechner/pi-ai": "^0.66.1",
+    "@mariozechner/pi-agent-core": "^0.66.1",
     "@mariozechner/pi-coding-agent": "^0.66.1",
     "@mariozechner/pi-tui": "^0.66.1",
     "@sinclair/typebox": "^0.34.49",
-    "tsx": "^4.23.1",
     "typescript": "^5.7.0"
   },
   "peerDependencies": {
-    "@mariozechner/pi-agent-core": "*",
     "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-agent-core": "*",
     "@mariozechner/pi-coding-agent": "*",
     "@mariozechner/pi-tui": "*",
     "@sinclair/typebox": "*"

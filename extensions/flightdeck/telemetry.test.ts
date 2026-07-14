@@ -8,8 +8,8 @@ import {
   createTaskLifecycleReporter,
   readFlightdeckWorkContext,
   subscribeTaskLifecycle,
-} from "./lifecycle.ts";
-import { FlightdeckTelemetryAdapter } from "./telemetry.ts";
+} from "./lifecycle.js";
+import { FlightdeckTelemetryAdapter } from "./telemetry.js";
 
 async function readEvents(path: string): Promise<Array<Record<string, any>>> {
   return (await readFile(path, "utf8"))

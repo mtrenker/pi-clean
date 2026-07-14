@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import test from "node:test";
 import { createJiti } from "@mariozechner/jiti";
 
-import type * as LifecycleModule from "./lifecycle.ts";
+import type * as LifecycleModule from "./lifecycle.js";
 
 test("lifecycle registry is shared across Pi-style jiti module-cache boundaries", async () => {
-  const lifecyclePath = fileURLToPath(new URL("./lifecycle.ts", import.meta.url));
+  const lifecyclePath = join(process.cwd(), "extensions/flightdeck/lifecycle.ts");
   const subscriberLoader = createJiti(import.meta.url, { moduleCache: false });
   const producerLoader = createJiti(import.meta.url, { moduleCache: false });
   const subscriber = await subscriberLoader.import(lifecyclePath) as typeof LifecycleModule;

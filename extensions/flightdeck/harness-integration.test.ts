@@ -2,16 +2,15 @@ import assert from "node:assert/strict";
 import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { createJiti } from "@mariozechner/jiti";
 
-import type * as HarnessDelegateModule from "../harness-delegate/index.ts";
-import { subscribeTaskLifecycle } from "./lifecycle.ts";
-import { FlightdeckTelemetryAdapter } from "./telemetry.ts";
+import type * as HarnessDelegateModule from "../harness-delegate/index.js";
+import { subscribeTaskLifecycle } from "./lifecycle.js";
+import { FlightdeckTelemetryAdapter } from "./telemetry.js";
 
 test("delegate_harness success, failure, and abort each produce one truthful terminal lifecycle", async () => {
-  const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
+  const packageRoot = process.cwd();
   const jiti = createJiti(import.meta.url, {
     moduleCache: false,
     alias: {
