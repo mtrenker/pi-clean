@@ -4,7 +4,7 @@
 
 import { EventEmitter } from "events";
 import { access, readFile } from "fs/promises";
-import { join } from "path";
+import { basename, join } from "path";
 
 import type { FleetConfig } from "./config.js";
 import { resolveAgentPrompt } from "./config.js";
@@ -30,6 +30,13 @@ import { handleFailure } from "./recovery.js";
 import { appendFleetEvent, type FleetEventInput } from "./events.js";
 import { updateRunStatus, readRunMetadata } from "./run.js";
 import { deriveAllAttentionHints } from "./attention.js";
+import {
+  createTaskLifecycleReporter,
+  readFlightdeckWorkContext,
+  stableLocalId,
+  type TaskLifecycleReporter,
+  type TaskProvider,
+} from "../flightdeck/lifecycle.js";
 
 // ── Event payload types ───────────────────────────────────────────────────────
 
@@ -111,6 +118,9 @@ export class Orchestrator extends EventEmitter {
 
   /** live engine processes keyed by task id */
   private processes = new Map<string, EngineProcess>();
+
+  /** best-effort Flightdeck reporters keyed by task id for the active attempt */
+  private lifecycleReporters = new Map<string, TaskLifecycleReporter>();
 
   /** prevents duplicate terminal fleet events when schedule checks repeat */
   private fleetDoneEmitted = false;
@@ -494,6 +504,19 @@ export class Orchestrator extends EventEmitter {
 
     this.processes.set(task.id, process);
 
+    let lifecycleReporter: TaskLifecycleReporter | null = null;
+    try {
+      lifecycleReporter = await this._createLifecycleReporter(task, engineName, model);
+      if (lifecycleReporter) {
+        this.lifecycleReporters.set(task.id, lifecycleReporter);
+        await lifecycleReporter.start();
+      }
+    } catch {
+      // Telemetry is observational; malformed legacy metadata or adapter
+      // failures must never prevent the already-spawned task from running.
+      lifecycleReporter = null;
+    }
+
     // Update status → running
     const prevStatus = task.status;
     task.status = "running";
@@ -504,6 +527,7 @@ export class Orchestrator extends EventEmitter {
 
     // Wire up callbacks
     process.onProgress((line) => {
+      this.lifecycleReporters.get(task.id)?.heartbeat();
       // Best-effort parse; fall back to raw line as step text
       let step = line.trim();
       let progressStatus: "running" | "done" | "error" = "running";
@@ -570,6 +594,12 @@ export class Orchestrator extends EventEmitter {
 
     process.onUsageUpdate((engineUsage: EngineUsage) => {
       const now = new Date().toISOString();
+      this.lifecycleReporters.get(task.id)?.usage({
+        inputTokens: engineUsage.inputTokens,
+        outputTokens: engineUsage.outputTokens,
+        cacheReadTokens: engineUsage.cacheReadInputTokens,
+        cacheWriteTokens: engineUsage.cacheCreationInputTokens,
+      }, model);
       // Normalize to full Usage envelope: add totalTokens, source, updatedAt
       const normalized = normalizeUsage(engineUsage, task.engine, now);
 
@@ -630,6 +660,9 @@ export class Orchestrator extends EventEmitter {
     result: { success: boolean; exitCode: number; error?: string },
   ): Promise<void> {
     this.processes.delete(task.id);
+    const lifecycleReporter = this.lifecycleReporters.get(task.id);
+    this.lifecycleReporters.delete(task.id);
+    await lifecycleReporter?.terminal(result.success ? "completed" : "failed", { exitCode: result.exitCode });
 
     // Re-read the latest in-memory state (usage may have been updated)
     const state = this.states.get(task.id) ?? task;
@@ -693,6 +726,38 @@ export class Orchestrator extends EventEmitter {
     }
   }
 
+  private async _createLifecycleReporter(
+    task: RuntimeTaskState,
+    engineName: string,
+    model: string,
+  ): Promise<TaskLifecycleReporter | null> {
+    if (this.simulate || (engineName !== "claude" && engineName !== "codex")) return null;
+    if ((process.env.FLIGHTDECK_FLEET_TELEMETRY_OWNER ?? "extension") === "scanner") return null;
+
+    const run = await readRunMetadata(this.cwd);
+    const runId = run?.runId ?? stableLocalId("fleet:legacy", this.cwd);
+    const attempt = task.retries;
+    const context = readFlightdeckWorkContext(this.cwd);
+    context.projectSlug ??= basename(run?.git?.repoRoot ?? this.cwd);
+    context.repoRoot ??= run?.git?.repoRoot ?? this.cwd;
+    context.worktreePath ??= run?.git?.worktreePath ?? this.cwd;
+    context.repository ??= repositoryFromRemote(run?.git?.remote);
+    context.branch ??= run?.git?.branch ?? undefined;
+
+    const lifecycleId = `fleet:${runId}:task:${task.id}:attempt:${attempt}`;
+    return createTaskLifecycleReporter({
+      lifecycleId,
+      agentId: lifecycleId,
+      runId,
+      taskId: task.id,
+      provider: engineName as TaskProvider,
+      model,
+      source: "fleet",
+      context,
+      staleAfterSeconds: task.staleAfterSeconds,
+    });
+  }
+
   private async _recordHandoffIfPresent(state: RuntimeTaskState): Promise<void> {
     const relativePath = `.pi/tasks/${state.id}-${state.name}/handoff.md`;
     try {
@@ -720,6 +785,9 @@ export class Orchestrator extends EventEmitter {
 
     proc.kill();
     this.processes.delete(taskId);
+    const lifecycleReporter = this.lifecycleReporters.get(taskId);
+    this.lifecycleReporters.delete(taskId);
+    await lifecycleReporter?.terminal("aborted");
 
     const state = this.states.get(taskId);
     if (state) {
@@ -784,4 +852,15 @@ export class Orchestrator extends EventEmitter {
     });
     this.emit("fleet:done", { summary: aggregate.summary });
   }
+}
+
+function repositoryFromRemote(remote: string | null | undefined): string | undefined {
+  if (!remote) return undefined;
+  const normalized = remote
+    .replace(/^git@[^:]+:/, "")
+    .replace(/^https?:\/\/[^/]+\//, "")
+    .replace(/^ssh:\/\/git@[^/]+\//, "")
+    .replace(/\.git$/, "")
+    .replace(/^\/+|\/+$/g, "");
+  return normalized.includes("/") ? normalized : undefined;
 }

@@ -113,7 +113,7 @@ test("fleet widget renders fixed-width rows with deterministic truncation", () =
       agent: "worker",
       engine: "codex",
       model: "gpt-5.3-codex",
-      usage: { inputTokens: 0, outputTokens: 0 },
+      usage: normalizeUsage({ inputTokens: 0, outputTokens: 0 }),
     }),
     makeTask({
       id: "002",
@@ -123,7 +123,7 @@ test("fleet widget renders fixed-width rows with deterministic truncation", () =
       agent: "subagent-with-a-very-long-name",
       engine: "engine-with-a-very-long-name",
       model: "model-with-a-very-long-name",
-      usage: { inputTokens: 1_500_000, outputTokens: 499_999 },
+      usage: normalizeUsage({ inputTokens: 1_500_000, outputTokens: 499_999 }),
     }),
   ];
 

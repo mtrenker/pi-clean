@@ -4,12 +4,30 @@ import { StringEnum } from "@mariozechner/pi-ai";
 import { getMarkdownTheme, type ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
 import { Type } from "@sinclair/typebox";
+import {
+  createTaskLifecycleReporter,
+  readFlightdeckWorkContext,
+  stableLocalId,
+} from "../flightdeck/lifecycle.js";
 
 type Provider = "claude" | "codex";
 type RunState = "running" | "success" | "error" | "aborted";
 type CodexSandbox = "read-only" | "workspace-write" | "danger-full-access";
 type ClaudePermissionMode = "default" | "acceptEdits" | "bypassPermissions" | "dontAsk" | "plan" | "auto";
 type ReasoningLevel = "low" | "medium" | "high" | "xhigh" | "max";
+
+export interface HarnessParams {
+  provider: Provider;
+  prompt: string;
+  cwd: string;
+  model?: string;
+  reasoning?: ReasoningLevel;
+  appendSystemPrompt?: string;
+  allowedTools?: string[];
+  permissionMode?: ClaudePermissionMode;
+  sandbox?: CodexSandbox;
+  extraArgs?: string[];
+}
 
 interface UsageStats {
   input: number;
@@ -208,18 +226,7 @@ function updateOrInsert(items: DisplayItem[], indexById: Map<string, number>, it
   }
 }
 
-function buildCommandLine(params: {
-  provider: Provider;
-  prompt: string;
-  cwd: string;
-  model?: string;
-  reasoning?: ReasoningLevel;
-  appendSystemPrompt?: string;
-  allowedTools?: string[];
-  permissionMode?: ClaudePermissionMode;
-  sandbox?: CodexSandbox;
-  extraArgs?: string[];
-}): { command: string; args: string[]; promptViaStdin: boolean } {
+function buildCommandLine(params: HarnessParams): { command: string; args: string[]; promptViaStdin: boolean } {
   if (params.provider === "claude") {
     const args = [
       "-p",
@@ -251,19 +258,8 @@ function buildCommandLine(params: {
   return { command: "codex", args, promptViaStdin: false };
 }
 
-async function runHarness(
-  params: {
-    provider: Provider;
-    prompt: string;
-    cwd: string;
-    model?: string;
-    reasoning?: ReasoningLevel;
-    appendSystemPrompt?: string;
-    allowedTools?: string[];
-    permissionMode?: ClaudePermissionMode;
-    sandbox?: CodexSandbox;
-    extraArgs?: string[];
-  },
+export async function runHarness(
+  params: HarnessParams,
   signal: AbortSignal | undefined,
   onUpdate: ((details: HarnessRunDetails) => void) | undefined,
 ): Promise<HarnessRunDetails> {
@@ -304,12 +300,14 @@ async function runHarness(
   }
 
   let aborted = false;
+  let killTimer: ReturnType<typeof setTimeout> | undefined;
   const killProc = () => {
     aborted = true;
     proc.kill("SIGTERM");
-    setTimeout(() => {
+    killTimer = setTimeout(() => {
       if (!proc.killed) proc.kill("SIGKILL");
     }, 3000);
+    killTimer.unref?.();
   };
   if (signal) {
     if (signal.aborted) killProc();
@@ -438,6 +436,8 @@ async function runHarness(
       emit();
     });
     proc.on("close", (code) => {
+      if (killTimer) clearTimeout(killTimer);
+      killTimer = undefined;
       if (stdoutBuffer.trim()) {
         try {
           if (params.provider === "codex") parseCodexLine(stdoutBuffer.trim());
@@ -457,6 +457,8 @@ async function runHarness(
       resolve();
     });
     proc.on("error", (error) => {
+      if (killTimer) clearTimeout(killTimer);
+      killTimer = undefined;
       details.exitCode = 1;
       details.state = "error";
       details.errorMessage = error.message;
@@ -466,6 +468,52 @@ async function runHarness(
   });
 
   return details;
+}
+
+export async function runHarnessWithLifecycle(options: {
+  toolCallId: string;
+  params: HarnessParams;
+  signal?: AbortSignal;
+  onUpdate?: (details: HarnessRunDetails) => void;
+}): Promise<HarnessRunDetails> {
+  const { toolCallId, params, signal, onUpdate } = options;
+  const context = readFlightdeckWorkContext(params.cwd);
+  const taskId = `delegate:${toolCallId}`;
+  const runId = context.workId
+    ? `${context.workId}:delegate:${toolCallId}`
+    : stableLocalId("pi:delegate", `${params.cwd}:${toolCallId}`);
+  const reporter = createTaskLifecycleReporter({
+    lifecycleId: `${runId}:${taskId}`,
+    agentId: `harness:${params.provider}:${toolCallId}`,
+    runId,
+    taskId,
+    provider: params.provider,
+    model: params.model,
+    source: "delegate",
+    context,
+  });
+
+  await reporter.start();
+  try {
+    const details = await runHarness(params, signal, (partial) => {
+      reporter.heartbeat();
+      reporter.usage({
+        inputTokens: partial.usage.input,
+        outputTokens: partial.usage.output,
+        cacheReadTokens: partial.usage.cacheRead,
+        cacheWriteTokens: partial.usage.cacheWrite,
+      }, partial.model);
+      onUpdate?.(partial);
+    });
+    await reporter.terminal(
+      details.state === "success" ? "completed" : details.state === "aborted" ? "aborted" : "failed",
+      { exitCode: details.exitCode },
+    );
+    return details;
+  } catch (error) {
+    await reporter.terminal("failed", { exitCode: 1 });
+    throw error;
+  }
 }
 
 function renderDetails(details: HarnessRunDetails, expanded: boolean, theme: any) {
@@ -550,10 +598,11 @@ export default function (pi: ExtensionAPI) {
     ],
     parameters: DelegateHarnessParams,
 
-    async execute(_toolCallId, params, signal, onUpdate, ctx) {
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
       const cwd = path.resolve(params.cwd ?? ctx.cwd);
-      const details = await runHarness(
-        {
+      const details = await runHarnessWithLifecycle({
+        toolCallId,
+        params: {
           provider: params.provider,
           prompt: params.prompt,
           cwd,
@@ -566,7 +615,7 @@ export default function (pi: ExtensionAPI) {
           extraArgs: params.extraArgs,
         },
         signal,
-        onUpdate
+        onUpdate: onUpdate
           ? (partial) => {
               const summary = partial.finalOutput || partial.errorMessage || "Running delegated harness...";
               onUpdate({
@@ -575,7 +624,7 @@ export default function (pi: ExtensionAPI) {
               });
             }
           : undefined,
-      );
+      });
 
       const text =
         details.state === "success"
