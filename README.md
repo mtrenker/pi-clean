@@ -36,6 +36,10 @@ Runtime task state, progress, and output remain under:
 .pi/tasks/
 ```
 
+### 🛫 [Flightdeck telemetry](extensions/flightdeck/README.md)
+
+Reports live `delegate_harness` and Fleet Claude/Codex child-task lifecycle, heartbeat, and cumulative usage events to a configured Flightdeck JSONL sink. It includes a compact footer status and `/flightdeck:status` command; telemetry is best-effort and excludes prompts and raw output.
+
 ### 🌐 [Browser](extensions/browser/README.md)
 
 Gives the agent a real web browser via Playwright — navigate pages, click links, fill forms, take screenshots, and run JavaScript. Features a persistent profile, visual overlay in headed mode, and a mission briefing gate for domain trust.
@@ -92,6 +96,7 @@ pi-clean/
 │   ├── widget.ts          # Live fleet dashboard widget
 │   ├── inspect.ts         # Interactive task inspector overlay
 │   └── README.md          # Operator guide for fleet workflows
+├── extensions/flightdeck/ # Live Claude/Codex task telemetry adapter + status
 ├── skills/                # Custom skills, including GitHub workflows and fleet doctrine
 ├── scripts/               # Shared workflow helpers such as github-work.mjs
 ├── prompts/               # Prompt templates

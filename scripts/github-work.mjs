@@ -5,6 +5,7 @@ import { homedir, hostname } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 const AGENTS = new Set(["pi", "claude", "codex", "none"]);
 
@@ -90,7 +91,24 @@ async function startIssue(number, options) {
 
   const labelPrefix = `${context.repoName} · #${issue.number} ·`;
   const label = `${labelPrefix} ${truncate(issue.title, 42)}`;
-  const runtime = createHerdrWorkspace(path, label, agent, `Work on GitHub issue #${issue.number} in ${context.nameWithOwner}. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge.`, labelPrefix);
+  const runtime = createHerdrWorkspace(
+    path,
+    label,
+    agent,
+    `Work on GitHub issue #${issue.number} in ${context.nameWithOwner}. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge.`,
+    labelPrefix,
+    flightdeckLaunchEnvironment({
+      workId,
+      projectSlug: context.repoName,
+      repoRoot: context.repoRoot,
+      repository: context.nameWithOwner,
+      worktreePath: path,
+      role: "author",
+      runtime: "herdr",
+      workspaceLabel: label,
+      branch
+    })
+  );
 
   if (createdWorktree) await emit("worktree.created", "Issue worktree created", {
     worktreeId: workId,
@@ -149,7 +167,25 @@ async function reviewPr(number, options) {
   }
 
   const label = `${context.repoName} · PR #${pr.number} · review/${reviewer}`;
-  const runtime = createHerdrWorkspace(path, label, reviewer, `Independently review GitHub pull request #${pr.number} in ${context.nameWithOwner}. Inspect the issue context, full diff, tests, regressions, and security. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization.`);
+  const runtime = createHerdrWorkspace(
+    path,
+    label,
+    reviewer,
+    `Independently review GitHub pull request #${pr.number} in ${context.nameWithOwner}. Inspect the issue context, full diff, tests, regressions, and security. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization.`,
+    label,
+    flightdeckLaunchEnvironment({
+      workId,
+      projectSlug: context.repoName,
+      repoRoot: context.repoRoot,
+      repository: context.nameWithOwner,
+      worktreePath: path,
+      role: "reviewer",
+      reviewer,
+      runtime: "herdr",
+      workspaceLabel: label,
+      branch: pr.headRefName
+    })
+  );
 
   if (createdWorktree) await emit("worktree.created", "Pull request review worktree created", {
     worktreeId: workId,
@@ -260,7 +296,7 @@ function closeHerdrWorkspaces(repoName, kind, number) {
   }
 }
 
-function createHerdrWorkspace(path, label, agent, prompt, labelPrefix = label) {
+function createHerdrWorkspace(path, label, agent, prompt, labelPrefix = label, launchEnvironment = {}) {
   if (process.env.HERDR_ENV !== "1") {
     if (agent && agent !== "none") throw new Error("HERDR_ENV=1 is required to start an agent; pass --agent none to create only the worktree");
     return { runtime: "none", workspaceLabel: label, createdWorkspace: false, agentStarted: false };
@@ -290,7 +326,10 @@ function createHerdrWorkspace(path, label, agent, prompt, labelPrefix = label) {
   let agentStarted = false;
   if (agent && agent !== "none") {
     if (!AGENTS.has(agent)) throw new Error("--agent must be pi, claude, codex, or none");
-    const launch = `${agent} ${shellQuote(prompt)}`;
+    const environment = Object.entries(launchEnvironment)
+      .map(([key, value]) => `${key}=${shellQuote(value)}`)
+      .join(" ");
+    const launch = `${environment ? `env ${environment} ` : ""}${agent} ${shellQuote(prompt)}`;
     run("herdr", ["pane", "run", paneId, launch], { capture: true });
     agentStarted = true;
   }
@@ -388,6 +427,26 @@ function parseOptions(args, allowed) {
   return options;
 }
 
+export function flightdeckLaunchEnvironment(context) {
+  const names = {
+    workId: "FLIGHTDECK_WORK_ID",
+    projectSlug: "FLIGHTDECK_PROJECT_SLUG",
+    repoRoot: "FLIGHTDECK_REPO_ROOT",
+    repository: "FLIGHTDECK_REPOSITORY",
+    worktreePath: "FLIGHTDECK_WORKTREE_PATH",
+    role: "FLIGHTDECK_ROLE",
+    reviewer: "FLIGHTDECK_REVIEWER",
+    runtime: "FLIGHTDECK_RUNTIME",
+    workspaceLabel: "FLIGHTDECK_WORKSPACE_LABEL",
+    branch: "FLIGHTDECK_BRANCH"
+  };
+  return Object.fromEntries(
+    Object.entries(names)
+      .map(([key, name]) => [name, context[key]])
+      .filter(([, value]) => typeof value === "string" && value.length > 0)
+  );
+}
+
 function worktreeRoot() {
   return process.env.GITHUB_WORKTREE_ROOT || join(homedir(), ".local", "share", "agent-worktrees");
 }
@@ -434,4 +493,6 @@ function printHelp(code) {
   process.exitCode = code;
 }
 
-await main();
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  await main();
+}

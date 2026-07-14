@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": false,
+    "isolatedModules": false,
+    "noEmit": false,
+    "outDir": ".tmp-flightdeck-tests",
+    "sourceMap": false
+  },
+  "include": ["extensions/flightdeck/*.test.ts"]
+}

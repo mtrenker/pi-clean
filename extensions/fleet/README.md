@@ -203,6 +203,15 @@ jq '.attentionHints[]?' .pi/tasks/state.json
 
 Older task trees may not have `run.json`, `events.jsonl`, heartbeat fields, or normalized usage. Fleet commands render those as `legacy`, `-`, or zero/default token values instead of failing.
 
+## Flightdeck live telemetry ownership
+
+Fleet's canonical state remains `.pi/tasks`. The package's [Flightdeck extension](../flightdeck/README.md) can additionally emit live child-process lifecycle, heartbeat, and cumulative usage events for Claude/Codex task attempts. Set `FLIGHTDECK_TELEMETRY_FILE` and choose exactly one Fleet lifecycle owner:
+
+- `FLIGHTDECK_FLEET_TELEMETRY_OWNER=extension` (default) for live in-process events;
+- `FLIGHTDECK_FLEET_TELEMETRY_OWNER=scanner` to suppress these events when scanner-derived telemetry owns the run.
+
+Simulation and Pi-engine tasks are not reported as Claude/Codex executions. Fleet progress text and raw engine output are never copied to the telemetry sink.
+
 ---
 
 ## Locally verifying widget behaviour

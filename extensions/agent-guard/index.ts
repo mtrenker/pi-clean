@@ -268,7 +268,7 @@ export default function (pi: ExtensionAPI) {
       count: totalCount,
     });
 
-    return { content: newContent };
+    return { content: newContent as typeof event.content };
   });
 
   // -------------------------------------------------------------------------

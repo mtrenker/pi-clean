@@ -68,6 +68,10 @@ You can also inspect installed harnesses with:
 
 - `/harnesses`
 
+## Flightdeck telemetry
+
+When the package's [Flightdeck extension](../flightdeck/README.md) is loaded, every delegated process attempt emits one best-effort child-task lifecycle. Set `FLIGHTDECK_TELEMETRY_FILE` before starting Pi to append Flightdeck-compatible JSONL. Prompts, streamed output, tool data, and stderr are never included.
+
 ## Notes
 
 - This extension assumes `claude` and/or `codex` are already installed and authenticated locally.
