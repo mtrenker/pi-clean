@@ -1,0 +1,8 @@
+{
+  "validLabels": ["bug", "enhancement"],
+  "requiredIssueFormFields": ["Desired outcome", "Acceptance criteria"],
+  "existingIssues": [
+    {"number": 42, "title": "Add deterministic deployment reports", "url": "https://github.example/octo-org/service-alpha/issues/42", "state": "OPEN"},
+    {"number": 50, "title": "Unrelated cache cleanup", "url": "https://github.example/octo-org/service-alpha/issues/50", "state": "CLOSED"}
+  ]
+}

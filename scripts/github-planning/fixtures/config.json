@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "defaults": {
+    "limits": {
+      "inProgress": 1,
+      "inReview": 1
+    }
+  },
+  "portfolios": {
+    "example": {
+      "repositories": [
+        "octo-org/service-alpha",
+        "octo-org/service-beta"
+      ],
+      "projects": [
+        {
+          "owner": "octo-org",
+          "number": 10,
+          "repositories": ["octo-org/service-alpha"]
+        },
+        {
+          "owner": "octo-org",
+          "number": 20,
+          "repositories": ["octo-org/service-beta"]
+        }
+      ]
+    }
+  }
+}

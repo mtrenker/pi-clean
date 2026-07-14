@@ -1,0 +1,145 @@
+{
+  "capturedAt": "2026-01-02T03:04:05.000Z",
+  "errors": [],
+  "repositories": [
+    {
+      "name": "octo-org/service-alpha",
+      "issues": [
+        {
+          "number": 1,
+          "itemType": "ISSUE",
+          "title": "Large parent blocked work",
+          "url": "https://github.example/octo-org/service-alpha/issues/1",
+          "state": "OPEN",
+          "labels": ["agent-ready", "needs-human"],
+          "assignees": ["octocat"],
+          "hasChildren": true,
+          "parentAvailability": "available",
+          "blockersAvailability": "available",
+          "blockers": [
+            {
+              "repository": "octo-org/service-alpha",
+              "number": 99,
+              "title": "Architecture decision",
+              "state": "OPEN",
+              "url": "https://github.example/octo-org/service-alpha/issues/99"
+            }
+          ],
+          "updatedAt": "2026-01-01T00:00:00Z"
+        },
+        {
+          "number": 2,
+          "itemType": "ISSUE",
+          "title": "Current alpha work",
+          "state": "OPEN",
+          "labels": [],
+          "blockersAvailability": "available",
+          "blockers": [],
+          "updatedAt": "2026-01-01T01:00:00Z"
+        },
+        {
+          "number": 3,
+          "itemType": "ISSUE",
+          "title": "Extra alpha work",
+          "state": "OPEN",
+          "labels": [],
+          "blockersAvailability": "available",
+          "blockers": [],
+          "updatedAt": "2026-01-01T02:00:00Z"
+        },
+        {
+          "number": 10,
+          "itemType": "ISSUE",
+          "title": "Ready alpha candidate",
+          "state": "OPEN",
+          "labels": ["agent-ready"],
+          "hasChildren": false,
+          "blockersAvailability": "available",
+          "blockers": [],
+          "updatedAt": "2026-01-01T03:00:00Z"
+        }
+      ],
+      "pullRequests": [
+        {
+          "number": 7,
+          "itemType": "PULL_REQUEST",
+          "title": "Fix alpha checks",
+          "state": "OPEN",
+          "labels": [],
+          "review": {"decision": "CHANGES_REQUESTED", "attention": ["CHANGES_REQUESTED"]},
+          "checks": {"status": "FAILURE", "failed": ["unit"]},
+          "updatedAt": "2026-01-01T04:00:00Z"
+        }
+      ]
+    },
+    {
+      "name": "octo-org/service-beta",
+      "issues": [
+        {
+          "number": 5,
+          "itemType": "ISSUE",
+          "title": "Beta review one",
+          "state": "OPEN",
+          "labels": [],
+          "blockersAvailability": "available",
+          "blockers": []
+        },
+        {
+          "number": 6,
+          "itemType": "ISSUE",
+          "title": "Beta review two",
+          "state": "OPEN",
+          "labels": [],
+          "blockersAvailability": "available",
+          "blockers": []
+        },
+        {
+          "number": 11,
+          "itemType": "ISSUE",
+          "title": "Ready beta candidate with missing field",
+          "state": "OPEN",
+          "labels": ["agent-ready"],
+          "blockersAvailability": "available",
+          "blockers": []
+        }
+      ],
+      "pullRequests": []
+    }
+  ],
+  "projects": [
+    {
+      "owner": "octo-org",
+      "number": 10,
+      "id": "PVT_alpha",
+      "title": "Alpha delivery",
+      "url": "https://github.example/orgs/octo-org/projects/10",
+      "fields": [
+        {"id": "F_status_a", "name": "Status", "options": [{"id": "ready", "name": "Ready"}]},
+        {"id": "F_priority_a", "name": "Priority", "options": [{"id": "p1", "name": "P1"}]},
+        {"id": "F_size_a", "name": "Size", "options": [{"id": "m", "name": "M"}, {"id": "l", "name": "L"}]}
+      ],
+      "items": [
+        {"id": "I1", "content": {"repository": "octo-org/service-alpha", "number": 1, "itemType": "ISSUE"}, "fieldValues": [{"fieldName": "Status", "value": "Ready"}, {"fieldName": "Priority", "value": "P0"}, {"fieldName": "Size", "value": "L"}]},
+        {"id": "I2", "content": {"repository": "octo-org/service-alpha", "number": 2, "itemType": "ISSUE"}, "fieldValues": [{"fieldName": "Status", "value": "In progress"}, {"fieldName": "Priority", "value": "P1"}, {"fieldName": "Size", "value": "S"}]},
+        {"id": "I3", "content": {"repository": "octo-org/service-alpha", "number": 3, "itemType": "ISSUE"}, "fieldValues": [{"fieldName": "Status", "value": "In progress"}, {"fieldName": "Priority", "value": "P2"}, {"fieldName": "Size", "value": "M"}]},
+        {"id": "I10", "content": {"repository": "octo-org/service-alpha", "number": 10, "itemType": "ISSUE"}, "fieldValues": [{"fieldName": "Status", "value": "Ready"}, {"fieldName": "Priority", "value": "P1"}, {"fieldName": "Size", "value": "M"}]}
+      ]
+    },
+    {
+      "owner": "octo-org",
+      "number": 20,
+      "id": "PVT_beta",
+      "title": "Beta delivery",
+      "url": "https://github.example/orgs/octo-org/projects/20",
+      "fields": [
+        {"id": "F_status_b", "name": "Status", "options": [{"id": "review", "name": "In review"}]},
+        {"id": "F_priority_b", "name": "Priority", "options": [{"id": "p1", "name": "P1"}]}
+      ],
+      "items": [
+        {"id": "I5", "content": {"repository": "octo-org/service-beta", "number": 5, "itemType": "ISSUE"}, "fieldValues": [{"fieldName": "Status", "value": "In review"}, {"fieldName": "Priority", "value": "P1"}]},
+        {"id": "I6", "content": {"repository": "octo-org/service-beta", "number": 6, "itemType": "ISSUE"}, "fieldValues": [{"fieldName": "Status", "value": "In review"}, {"fieldName": "Priority", "value": "P2"}]},
+        {"id": "I11", "content": {"repository": "octo-org/service-beta", "number": 11, "itemType": "ISSUE"}, "fieldValues": [{"fieldName": "Status", "value": "Ready"}, {"fieldName": "Priority", "value": "P0"}]}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "repository": "octo-org/service-alpha",
+  "title": "Deployment report",
+  "body": "## Desired outcome\nMake a report.\n\n## Scope\nReports only.",
+  "labels": ["not-a-real-label"]
+}
