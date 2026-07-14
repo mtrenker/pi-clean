@@ -19,14 +19,24 @@ gh issue list --state open --limit 100 --json number,title,labels,milestone,url
 gh api repos/{owner}/{repo}/milestones?state=all --paginate
 ```
 
+For configured cross-repository inspection, use the deterministic planning CLI instead of rebuilding Project queries and structural checks from prose. Resolve `../../scripts/github-planning.mjs` against this `SKILL.md` directory, then run one of:
+
+```bash
+node /resolved/pi-clean/scripts/github-planning.mjs snapshot [portfolio] --format json
+node /resolved/pi-clean/scripts/github-planning.mjs groom [portfolio] --format json
+node /resolved/pi-clean/scripts/github-planning.mjs daily [portfolio] --format json
+node /resolved/pi-clean/scripts/github-planning.mjs validate-draft [portfolio] --draft <path>
+```
+
+The CLI is read-only and fails rather than presenting partial data as clean. Treat its stable finding codes as deterministic evidence, not semantic priority or a readiness score. See [`../../docs/github-planning.md`](../../docs/github-planning.md) for the configuration contract, schema, ordering, reason codes, and failure behavior.
+
 When the task involves planning, prioritization, agent readiness, or a Project, read [the Project-aware workflow reference](references/project-workflow.md) and inspect the existing Project before proposing mutations. Prefer one relevant Project with focused views over duplicate Projects.
 
-Search for duplicates using meaningful words from the proposed title and behavior. Inspect likely
-matches with `gh issue view <number> --json number,title,body,labels,state,comments,url`.
+Search for duplicates using the CLI's draft result and meaningful words from the proposed title and behavior. Inspect likely matches with `gh issue view <number> --json number,title,body,labels,state,comments,url`.
 
 ## Create an issue
 
-Draft the complete issue before publishing it. Follow the repository's issue form where present.
+Draft the complete issue as JSON and run `github-planning.mjs validate-draft` before publishing it. The result must show repository issue-form expectations, valid-label findings, plausible duplicate candidates, and the complete `proposedMutation`. Follow the repository's issue form where present.
 A useful issue normally contains:
 
 - problem or desired outcome;
@@ -36,8 +46,7 @@ A useful issue normally contains:
 - constraints, dependencies, and risks;
 - validation expectations.
 
-Do not invent labels. Use only labels returned by `gh label list`. Prefer `--body-file` over shell
-inline Markdown. Show the title, body, labels, parent, dependencies, milestone, and Project placement before `gh issue create` unless already explicitly authorized.
+Do not invent labels. Use only labels accepted by draft validation. Prefer `--body-file` over shell inline Markdown. Show the title, body, labels, assignees, parent, dependencies, milestone, and every Project field change before `gh issue create` unless already explicitly authorized. Draft validation never authorizes or performs publication.
 
 Use parent issues for outcomes and child issues for independently deliverable units. Use native dependency relationships for blocking order. Create only the first executable wave rather than publishing a speculative full roadmap.
 

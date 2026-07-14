@@ -57,6 +57,16 @@ The package includes two reusable skills:
 - `github-issues` for Projects, issue hierarchy, dependencies, milestones, grooming, and human/agent/fleet readiness.
 - `github-pull-requests` for opening PRs, independent reviews, checks, merge preparation, and cleanup.
 
+The package also provides deterministic, read-only cross-repository planning. User portfolio configuration lives in `~/.pi/agent/github-workflow.json` (override with `PI_GITHUB_WORKFLOW_CONFIG`); the package never creates it during inspection. Use `/github-add`, `/github-groom`, or `/github-daily`, or run:
+
+```bash
+node scripts/github-planning.mjs snapshot <portfolio> --format json
+node scripts/github-planning.mjs groom <portfolio>
+node scripts/github-planning.mjs daily <portfolio>
+```
+
+See [the deterministic planning guide](docs/github-planning.md) and its placeholder-only [configuration example](docs/github-workflow.example.json).
+
 Issue implementation and independent reviews run in isolated worktrees managed by Herdr:
 
 ```bash

@@ -12,6 +12,7 @@
   },
   "scripts": {
     "test:flightdeck": "node scripts/test-flightdeck.mjs",
+    "test:github-planning": "node --test scripts/github-planning.test.mjs",
     "test:github-work": "node --test scripts/github-work.test.mjs"
   },
   "dependencies": {

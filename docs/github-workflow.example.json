@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "defaults": {
+    "fields": {
+      "status": ["Status", "Workflow status"],
+      "priority": ["Priority"],
+      "size": ["Size", "Effort"]
+    },
+    "options": {
+      "status": {
+        "inbox": ["Inbox"],
+        "backlog": ["Backlog"],
+        "ready": ["Ready"],
+        "inProgress": ["In progress"],
+        "inReview": ["In review"],
+        "done": ["Done"]
+      },
+      "priority": ["P0", "P1", "P2", "P3"],
+      "size": ["XS", "S", "M", "L"]
+    },
+    "labels": {
+      "agentReady": ["agent-ready"],
+      "needsHuman": ["needs-human"]
+    },
+    "limits": {
+      "inProgress": 3,
+      "inReview": 2
+    },
+    "staleDays": 30
+  },
+  "portfolios": {
+    "example-portfolio": {
+      "repositories": [
+        "example-owner/example-api",
+        "example-owner/example-web"
+      ],
+      "projects": [
+        {
+          "owner": "example-owner",
+          "number": 101,
+          "repositories": ["example-owner/example-api"]
+        },
+        {
+          "owner": "example-owner",
+          "number": 202,
+          "repositories": ["example-owner/example-web"]
+        }
+      ]
+    }
+  }
+}

@@ -15,8 +15,7 @@ This package separates durable project state from live execution:
 | Herdr | Live workspaces, agents, tests, servers, and logs |
 | Flightdeck | Read-only operational overview and attention signals |
 
-The `github-issues` and `github-pull-requests` skills define the agent workflow. The
-`scripts/github-work.mjs` helper owns worktree and Herdr lifecycle mechanics.
+The `github-issues` and `github-pull-requests` skills define the agent workflow. The read-only `scripts/github-planning.mjs` helper provides configured cross-repository snapshots, structural findings, draft validation, and the `/github-daily` evidence sequence; see [Deterministic GitHub planning](github-planning.md). The `scripts/github-work.mjs` helper separately owns worktree and Herdr lifecycle mechanics.
 
 ## Project planning and work admission
 

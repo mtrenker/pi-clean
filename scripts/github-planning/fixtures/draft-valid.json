@@ -1,0 +1,12 @@
+{
+  "repository": "octo-org/service-alpha",
+  "title": "Add deterministic deployment report",
+  "body": "## Desired outcome\nProvide a repeatable deployment report.\n\n## Scope\nAdd report generation.\n\n## Non-goals\nNo deployment mutation.\n\n## Acceptance criteria\n- [ ] Stable JSON output.\n\n## Dependencies and risks\nNo blockers; API availability is a risk.\n\n## Validation\nRun the focused fixture tests.",
+  "labels": ["enhancement"],
+  "assignees": [],
+  "parent": {"repository": "octo-org/service-alpha", "number": 1},
+  "dependencies": {"blockedBy": [{"repository": "octo-org/service-beta", "number": 2}], "blocking": []},
+  "projectChanges": [
+    {"project": "octo-org/10", "field": "Status", "value": "Inbox"}
+  ]
+}
