@@ -2,13 +2,27 @@ import assert from "node:assert/strict";
 import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { createJiti } from "@mariozechner/jiti";
 
-import { runHarnessWithLifecycle } from "../harness-delegate/index.ts";
+import type * as HarnessDelegateModule from "../harness-delegate/index.ts";
 import { subscribeTaskLifecycle } from "./lifecycle.ts";
 import { FlightdeckTelemetryAdapter } from "./telemetry.ts";
 
 test("delegate_harness success, failure, and abort each produce one truthful terminal lifecycle", async () => {
+  const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
+  const jiti = createJiti(import.meta.url, {
+    moduleCache: false,
+    alias: {
+      "@mariozechner/pi-ai": join(packageRoot, "node_modules/@mariozechner/pi-ai/dist/index.js"),
+      "@mariozechner/pi-agent-core": join(packageRoot, "node_modules/@mariozechner/pi-agent-core/dist/index.js"),
+      "@mariozechner/pi-coding-agent": join(packageRoot, "node_modules/@mariozechner/pi-coding-agent/dist/index.js"),
+      "@mariozechner/pi-tui": join(packageRoot, "node_modules/@mariozechner/pi-tui/dist/index.js"),
+    },
+  });
+  const harness = await jiti.import(join(packageRoot, "extensions/harness-delegate/index.ts")) as typeof HarnessDelegateModule;
+  const runHarnessWithLifecycle = harness.runHarnessWithLifecycle;
   const root = await mkdtemp(join(tmpdir(), "pi-harness-flightdeck-"));
   const bin = join(root, "bin");
   await mkdir(bin);

@@ -6,7 +6,6 @@
     "pi-package"
   ],
   "license": "MIT",
-  "type": "module",
   "repository": {
     "type": "git",
     "url": "git@github.com:mtrenker/pi-clean.git"
