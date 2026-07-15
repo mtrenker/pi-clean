@@ -157,22 +157,39 @@ test("extracts required repository issue-form fields and excludes chooser config
   assert.equal(context.selectedIssueForm, "feature.yml");
 });
 
-test("collector resolves Project field and option IDs at runtime", () => {
-  const calls = [];
+test("collector uses an owner-safe Project query for user and organization owners", () => {
+  const ownerConfig = {
+    version: 1,
+    portfolios: {
+      owners: {
+        repositories: ["octo-org/service-alpha"],
+        projects: [
+          { owner: "octocat", number: 10 },
+          { owner: "octo-org", number: 20 },
+        ],
+      },
+    },
+  };
+  const projectCalls = [];
   const gh = (args) => {
-    calls.push(args);
     if (args[0] === "pr") return [];
     if (args.includes("graphql")) {
       const query = args.find((arg) => arg.startsWith("query="));
       if (query.includes("issues(first:100")) {
         return { data: { repository: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } } };
       }
+      projectCalls.push(args);
+      assert.match(query, /repositoryOwner\(login:\$owner\)/);
+      assert.match(query, /\.\.\. on User\{projectV2/);
+      assert.match(query, /\.\.\. on Organization\{projectV2/);
+      assert.doesNotMatch(query, /\buser\(login:/);
+      assert.doesNotMatch(query, /\borganization\(login:/);
       const owner = args.find((arg) => arg.startsWith("owner="))?.slice(6);
       const number = Number(args.find((arg) => arg.startsWith("number="))?.slice(7));
       return {
         data: {
-          user: null,
-          organization: {
+          repositoryOwner: {
+            __typename: owner === "octocat" ? "User" : "Organization",
             projectV2: {
               id: `PVT_${number}`,
               number,
@@ -191,10 +208,14 @@ test("collector resolves Project field and option IDs at runtime", () => {
     }
     throw new Error(`unexpected gh call: ${args.join(" ")}`);
   };
-  const raw = collectPortfolio(config, "example", { gh, now: () => "fixed" });
-  assert.equal(raw.projects[0].fields[0].id, "STATUS_10");
-  assert.equal(raw.projects[0].fields[0].options[0].id, "READY_10");
-  assert.equal(calls.filter((args) => args.includes("graphql") && args.some((arg) => arg.includes("projectV2"))).length, 2);
+  const raw = collectPortfolio(ownerConfig, "owners", { gh, now: () => "fixed" });
+  const userProject = raw.projects.find((project) => project.owner === "octocat");
+  const organizationProject = raw.projects.find((project) => project.owner === "octo-org");
+  assert.equal(userProject.fields[0].id, "STATUS_10");
+  assert.equal(userProject.fields[0].options[0].id, "READY_10");
+  assert.equal(organizationProject.fields[0].id, "STATUS_20");
+  assert.equal(organizationProject.fields[0].options[0].id, "READY_20");
+  assert.equal(projectCalls.length, 2);
 });
 
 test("collector normalizes hierarchy, dependencies, and linked pull requests exposed by GitHub", () => {
@@ -240,32 +261,37 @@ test("collector classifies GraphQL permission, rate-limit, and partial-response 
 });
 
 test("collector reports unavailable Project targets and partial field pages", () => {
-  const emptyProjectGh = (args) => {
-    if (args[0] === "pr") return [];
-    if (args.some((arg) => arg.includes("issues(first:100"))) return { data: { repository: { issues: { pageInfo: { hasNextPage: false }, nodes: [] } } } };
-    return { data: { user: null, organization: null } };
-  };
-  assert.throws(() => collectPortfolio(config, "example", { gh: emptyProjectGh }), (error) => error.code === "GITHUB_TARGET_UNRESOLVED");
+  for (const projectResponse of [
+    { data: { repositoryOwner: null } },
+    { data: { repositoryOwner: { projectV2: null } } },
+  ]) {
+    const unresolvedProjectGh = (args) => {
+      if (args[0] === "pr") return [];
+      if (args.some((arg) => arg.includes("issues(first:100"))) return { data: { repository: { issues: { pageInfo: { hasNextPage: false }, nodes: [] } } } };
+      return projectResponse;
+    };
+    assert.throws(() => collectPortfolio(config, "example", { gh: unresolvedProjectGh }), (error) => error.code === "GITHUB_TARGET_UNRESOLVED");
+  }
 
   const partialGh = (args) => {
     if (args[0] === "pr") return [];
     if (args.some((arg) => arg.includes("issues(first:100"))) return { data: { repository: { issues: { pageInfo: { hasNextPage: false }, nodes: [] } } } };
-    return { data: { user: { projectV2: {
+    return { data: { repositoryOwner: { projectV2: {
       id: "PVT", number: 10, title: "Partial", url: "url",
       fields: { pageInfo: { hasNextPage: true }, nodes: [] },
       items: { pageInfo: { hasNextPage: false }, nodes: [] },
-    } }, organization: null } };
+    } } } };
   };
   assert.throws(() => collectPortfolio(config, "example", { gh: partialGh }), (error) => error.code === "GITHUB_PARTIAL_RESPONSE");
 
   const missingCursorGh = (args) => {
     if (args[0] === "pr") return [];
     if (args.some((arg) => arg.includes("issues(first:100"))) return { data: { repository: { issues: { pageInfo: { hasNextPage: false }, nodes: [] } } } };
-    return { data: { user: { projectV2: {
+    return { data: { repositoryOwner: { projectV2: {
       id: "PVT", number: 10, title: "Partial", url: "url",
       fields: { pageInfo: { hasNextPage: false }, nodes: [] },
       items: { pageInfo: { hasNextPage: true, endCursor: null }, nodes: [] },
-    } }, organization: null } };
+    } } } };
   };
   assert.throws(() => collectPortfolio(config, "example", { gh: missingCursorGh }), (error) => error.code === "GITHUB_PARTIAL_RESPONSE");
 });

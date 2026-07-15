@@ -842,8 +842,10 @@ function collectRepositoryIssues(repository, gh) {
 
 const PROJECT_QUERY = `
 query($owner:String!,$number:Int!,$cursor:String){
-  user(login:$owner){projectV2(number:$number){...ProjectData}}
-  organization(login:$owner){projectV2(number:$number){...ProjectData}}
+  repositoryOwner(login:$owner){
+    ... on User{projectV2(number:$number){...ProjectData}}
+    ... on Organization{projectV2(number:$number){...ProjectData}}
+  }
 }
 fragment ProjectData on ProjectV2 {
   id number title url
@@ -901,7 +903,7 @@ function collectProject(project, gh) {
     const args = ["api", "graphql", "-f", `query=${PROJECT_QUERY}`, "-F", `owner=${project.owner}`, "-F", `number=${project.number}`];
     if (cursor) args.push("-F", `cursor=${cursor}`);
     const data = graphqlData(gh(args), `Cannot inspect Project ${project.owner}/${project.number}`);
-    const page = data.user?.projectV2 ?? data.organization?.projectV2;
+    const page = data.repositoryOwner?.projectV2;
     if (!page) throw new PlanningError("GITHUB_TARGET_UNRESOLVED", `Project ${project.owner}/${project.number} could not be resolved`);
     if (page.fields?.pageInfo?.hasNextPage) {
       throw new PlanningError("GITHUB_PARTIAL_RESPONSE", `Project ${project.owner}/${project.number} has more than 100 fields; refusing a partial snapshot`);
