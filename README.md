@@ -67,7 +67,8 @@ node scripts/github-planning.mjs daily <portfolio>
 
 See [the deterministic planning guide](docs/github-planning.md) and its placeholder-only [configuration example](docs/github-workflow.example.json).
 
-Issue implementation and independent reviews run in isolated worktrees managed by Herdr:
+Issue implementation and independent reviews run in isolated worktrees. Inside Herdr, issue
+author worktrees use Herdr's native linked-worktree lifecycle:
 
 ```bash
 node scripts/github-work.mjs start-issue 123 --agent pi
@@ -78,7 +79,9 @@ node scripts/github-work.mjs finish-issue 123 --delete-branch
 ```
 
 Worktrees are stored outside project folders under
-`~/.local/share/agent-worktrees/github.com/<owner>/<repo>/`. Set
+`~/.local/share/agent-worktrees/github.com/<owner>/<repo>/`. Outside Herdr, `start-issue --agent
+none` retains a direct-Git fallback; Herdr-managed issue work requires native worktree support in
+Herdr 0.7.3 or newer. Set
 `FLIGHTDECK_TELEMETRY_FILE` to emit compatible worktree and agent-start events to Flightdeck's
 JSONL telemetry input. Repository-specific policy remains in each project's `AGENTS.md`.
 See [the GitHub workflow guide](docs/github-workflow.md) for Project-based work admission,

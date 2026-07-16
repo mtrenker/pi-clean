@@ -48,6 +48,7 @@ async function startIssue(number, options) {
   const agent = options.agent ?? "pi";
   verifyTools(agent, agent !== "none");
   const context = repoContext();
+  if (process.env.HERDR_ENV === "1") verifyNativeHerdrWorktreeSupport(context.repoRoot);
   const issue = jsonCommand("gh", ["issue", "view", number, "--json", "number,title,state,url"]);
   if (issue.state !== "OPEN" && !options.allowClosed) throw new Error(`issue #${number} is ${issue.state.toLowerCase()}`);
 
@@ -79,36 +80,47 @@ async function startIssue(number, options) {
     throw new Error(`branch ${branch} is already checked out outside the managed worktree: ${branchEntry.path}`);
   }
 
-  const createdWorktree = !existingIssue;
-  if (createdWorktree) {
-    await mkdir(dirname(path), { recursive: true });
-    if (branchExists(context.repoRoot, branch)) {
-      run("git", ["-C", context.repoRoot, "worktree", "add", path, branch]);
-    } else {
-      run("git", ["-C", context.repoRoot, "worktree", "add", "-b", branch, path, `${context.remote}/${context.defaultBranch}`]);
-    }
-  }
-
   const labelPrefix = `${context.repoName} · #${issue.number} ·`;
   const label = `${labelPrefix} ${truncate(issue.title, 42)}`;
-  const runtime = createHerdrWorkspace(
-    path,
-    label,
-    agent,
-    `Work on GitHub issue #${issue.number} in ${context.nameWithOwner}. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge.`,
-    labelPrefix,
-    flightdeckLaunchEnvironment({
-      workId,
-      projectSlug: context.repoName,
+  const prompt = `Work on GitHub issue #${issue.number} in ${context.nameWithOwner}. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge.`;
+  const launchEnvironment = flightdeckLaunchEnvironment({
+    workId,
+    projectSlug: context.repoName,
+    repoRoot: context.repoRoot,
+    repository: context.nameWithOwner,
+    worktreePath: path,
+    role: "author",
+    runtime: "herdr",
+    workspaceLabel: label,
+    branch
+  });
+
+  const createdWorktree = !existingIssue;
+  let runtime;
+  if (process.env.HERDR_ENV === "1") {
+    await mkdir(dirname(path), { recursive: true });
+    runtime = createOrOpenHerdrIssueWorktree({
       repoRoot: context.repoRoot,
-      repository: context.nameWithOwner,
-      worktreePath: path,
-      role: "author",
-      runtime: "herdr",
-      workspaceLabel: label,
-      branch
-    })
-  );
+      path,
+      branch,
+      base: `${context.remote}/${context.defaultBranch}`,
+      label,
+      agent,
+      prompt,
+      launchEnvironment,
+      existingWorktree: Boolean(existingIssue)
+    });
+  } else {
+    if (createdWorktree) {
+      await mkdir(dirname(path), { recursive: true });
+      if (branchExists(context.repoRoot, branch)) {
+        run("git", ["-C", context.repoRoot, "worktree", "add", path, branch]);
+      } else {
+        run("git", ["-C", context.repoRoot, "worktree", "add", "-b", branch, path, `${context.remote}/${context.defaultBranch}`]);
+      }
+    }
+    runtime = { runtime: "none", workspaceLabel: label, createdWorkspace: false, agentStarted: false };
+  }
 
   if (createdWorktree) await emit("worktree.created", "Issue worktree created", {
     worktreeId: workId,
@@ -236,10 +248,23 @@ async function cleanup(kind, number, options) {
     if (dirty) throw new Error(`refusing to remove dirty worktree: ${entry.path}`);
   }
 
-  closeHerdrWorkspaces(context.repoName, kind, number);
+  const nativeIssueWorkspaces = kind === "issue"
+    ? prepareIssueHerdrRemoval(context.repoName, number, matches)
+    : new Map();
+  if (kind === "pr") closeHerdrWorkspaces(context.repoName, kind, number);
+
   const removed = [];
   for (const entry of matches) {
-    run("git", ["-C", context.repoRoot, "worktree", "remove", entry.path]);
+    const nativeWorkspaceId = nativeIssueWorkspaces.get(resolve(entry.path));
+    if (nativeWorkspaceId) {
+      const response = nativeHerdrJson(["worktree", "remove", "--workspace", nativeWorkspaceId], "remove");
+      const result = response.result ?? response;
+      if (result.type !== "worktree_removed" || resolve(result.path ?? "") !== resolve(entry.path) || result.forced !== false) {
+        throw new Error(`Herdr returned an invalid worktree removal response for ${entry.path}`);
+      }
+    } else {
+      run("git", ["-C", context.repoRoot, "worktree", "remove", entry.path]);
+    }
     removed.push(entry.path);
     await emit("worktree.removed", `${kind} worktree removed`, {
       worktreeId: `github:${context.nameWithOwner}:${kind}:${number}`,
@@ -270,7 +295,9 @@ async function status() {
 }
 
 function repoContext() {
-  const repoRoot = command("git", ["rev-parse", "--show-toplevel"]).stdout.trim();
+  const checkoutRoot = command("git", ["rev-parse", "--show-toplevel"]).stdout.trim();
+  const commonDir = command("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"]).stdout.trim();
+  const repoRoot = basename(commonDir) === ".git" ? dirname(commonDir) : checkoutRoot;
   const gh = jsonCommand("gh", ["repo", "view", "--json", "name,nameWithOwner,defaultBranchRef"]);
   return {
     repoRoot,
@@ -281,19 +308,125 @@ function repoContext() {
   };
 }
 
+function prepareIssueHerdrRemoval(repoName, number, entries) {
+  const nativeByPath = new Map();
+  if (process.env.HERDR_ENV !== "1") return nativeByPath;
+
+  const prefix = `${repoName} · #${number} ·`;
+  const entryPaths = new Set(entries.map((entry) => resolve(entry.path)));
+  const workspaces = herdrWorkspaces();
+  const relevant = workspaces.filter((workspace) => {
+    const checkoutPath = workspace.worktree?.checkout_path;
+    return workspace.label?.startsWith(prefix)
+      || (checkoutPath && entryPaths.has(resolve(checkoutPath)));
+  });
+
+  for (const workspace of relevant) {
+    if (["working", "blocked"].includes(workspace.agent_status)) {
+      throw new Error(`refusing to remove active Herdr workspace ${workspace.label} (${workspace.agent_status})`);
+    }
+    const worktree = workspace.worktree;
+    const checkoutPath = worktree?.checkout_path;
+    if (worktree?.is_linked_worktree && typeof checkoutPath === "string" && entryPaths.has(resolve(checkoutPath))) {
+      const path = resolve(checkoutPath);
+      if (nativeByPath.has(path)) throw new Error(`multiple Herdr workspaces represent issue worktree: ${path}`);
+      nativeByPath.set(path, workspace.workspace_id);
+    }
+  }
+
+  const nativeIds = new Set(nativeByPath.values());
+  for (const workspace of relevant) {
+    if (workspace.label?.startsWith(prefix) && !nativeIds.has(workspace.workspace_id)) {
+      run("herdr", ["workspace", "close", workspace.workspace_id], { capture: true });
+    }
+  }
+  return nativeByPath;
+}
+
 function closeHerdrWorkspaces(repoName, kind, number) {
   if (process.env.HERDR_ENV !== "1") return;
   const prefix = kind === "issue" ? `${repoName} · #${number} ·` : `${repoName} · PR #${number} ·`;
   while (true) {
-    const listed = jsonCommand("herdr", ["workspace", "list"]);
-    const workspaces = listed.result?.workspaces ?? listed.workspaces ?? [];
-    const match = workspaces.find((workspace) => workspace.label.startsWith(prefix));
+    const match = herdrWorkspaces().find((workspace) => workspace.label.startsWith(prefix));
     if (!match) return;
     if (["working", "blocked"].includes(match.agent_status)) {
       throw new Error(`refusing to close active Herdr workspace ${match.label} (${match.agent_status})`);
     }
     run("herdr", ["workspace", "close", match.workspace_id], { capture: true });
   }
+}
+
+function herdrWorkspaces() {
+  const listed = jsonCommand("herdr", ["workspace", "list"]);
+  return listed.result?.workspaces ?? listed.workspaces ?? [];
+}
+
+function createOrOpenHerdrIssueWorktree({ repoRoot, path, branch, base, label, agent, prompt, launchEnvironment, existingWorktree }) {
+  const args = existingWorktree
+    ? ["worktree", "open", "--cwd", repoRoot, "--path", path, "--label", label, "--no-focus"]
+    : ["worktree", "create", "--cwd", repoRoot, "--branch", branch, "--base", base, "--path", path, "--label", label, "--no-focus"];
+  const response = nativeHerdrJson(args, existingWorktree ? "open" : "create");
+  const result = response.result ?? response;
+  const expectedType = existingWorktree ? "worktree_opened" : "worktree_created";
+  const workspace = result.workspace;
+  const pane = result.root_pane;
+  const worktree = result.worktree;
+  const workspaceId = workspace?.workspace_id;
+  const paneId = pane?.pane_id;
+  const responsePath = worktree?.path;
+  const invalidOpenState = existingWorktree && typeof result.already_open !== "boolean";
+  if (result.type !== expectedType || !workspaceId || !paneId || typeof responsePath !== "string"
+    || resolve(responsePath) !== resolve(path) || worktree.is_linked_worktree !== true || invalidOpenState) {
+    throw new Error(`Herdr returned an invalid native worktree ${existingWorktree ? "open" : "create"} response`);
+  }
+
+  const reusedWorkspace = existingWorktree && result.already_open === true;
+  const createdWorkspace = !reusedWorkspace;
+  const agentStarted = createdWorkspace && launchAgentInHerdrPane(paneId, agent, prompt, launchEnvironment);
+  return {
+    runtime: "herdr",
+    herdrWorkspaceId: workspaceId,
+    herdrPaneId: paneId,
+    workspaceLabel: workspace.label ?? label,
+    createdWorkspace,
+    agentStarted,
+    ...(reusedWorkspace ? { reusedWorkspace: true } : {})
+  };
+}
+
+function verifyNativeHerdrWorktreeSupport(repoRoot) {
+  const result = command("herdr", ["worktree", "list", "--cwd", repoRoot], { capture: true, allowFailure: true });
+  if (result.status !== 0) {
+    throw new Error("Herdr native worktree support is required for managed issue work. Install Herdr 0.7.3 or newer, then retry; no generic workspace fallback was used.");
+  }
+  try {
+    const response = JSON.parse(result.stdout);
+    const payload = response.result ?? response;
+    if (payload.type !== "worktree_list" || !Array.isArray(payload.worktrees)) throw new Error("invalid response");
+  } catch {
+    throw new Error("Herdr native worktree support returned an incompatible response. Install a compatible Herdr version (0.7.3 or newer), then retry.");
+  }
+}
+
+function nativeHerdrJson(args, operation) {
+  const result = command("herdr", args, { capture: true, allowFailure: true });
+  if (result.status !== 0) {
+    const detail = (result.stderr || result.stdout).trim();
+    throw new Error(`Herdr native worktree ${operation} failed. Ensure Herdr 0.7.3 or newer is installed and resolve the reported worktree state before retrying${detail ? `: ${detail}` : "."}`);
+  }
+  try { return JSON.parse(result.stdout); }
+  catch { throw new Error(`Herdr native worktree ${operation} returned invalid JSON`); }
+}
+
+function launchAgentInHerdrPane(paneId, agent, prompt, launchEnvironment = {}) {
+  if (!agent || agent === "none") return false;
+  if (!AGENTS.has(agent)) throw new Error("--agent must be pi, claude, codex, or none");
+  const environment = Object.entries(launchEnvironment)
+    .map(([key, value]) => `${key}=${shellQuote(value)}`)
+    .join(" ");
+  const launch = `${environment ? `env ${environment} ` : ""}${agent} ${shellQuote(prompt)}`;
+  run("herdr", ["pane", "run", paneId, launch], { capture: true });
+  return true;
 }
 
 function createHerdrWorkspace(path, label, agent, prompt, labelPrefix = label, launchEnvironment = {}) {
@@ -323,16 +456,7 @@ function createHerdrWorkspace(path, label, agent, prompt, labelPrefix = label, l
   const paneId = pane?.pane_id;
   if (!workspaceId || !paneId) throw new Error("herdr did not return workspace and pane IDs");
 
-  let agentStarted = false;
-  if (agent && agent !== "none") {
-    if (!AGENTS.has(agent)) throw new Error("--agent must be pi, claude, codex, or none");
-    const environment = Object.entries(launchEnvironment)
-      .map(([key, value]) => `${key}=${shellQuote(value)}`)
-      .join(" ");
-    const launch = `${environment ? `env ${environment} ` : ""}${agent} ${shellQuote(prompt)}`;
-    run("herdr", ["pane", "run", paneId, launch], { capture: true });
-    agentStarted = true;
-  }
+  const agentStarted = launchAgentInHerdrPane(paneId, agent, prompt, launchEnvironment);
   return {
     runtime: "herdr",
     herdrWorkspaceId: workspaceId,
