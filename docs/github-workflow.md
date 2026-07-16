@@ -78,21 +78,24 @@ From any checkout of the target repository, while running inside Herdr:
 node /path/to/pi-clean/scripts/github-work.mjs start-issue 123 --agent pi
 ```
 
-Supported agents are `pi`, `claude`, `codex`, and `none`. The default is `pi`. With `--agent none`,
-the helper can create the worktree outside Herdr without launching an agent.
+Supported agents are `pi`, `claude`, `codex`, and `none`. The default is `pi`. Inside Herdr,
+issue-author checkouts use Herdr's linked-worktree API even with `--agent none`. Outside Herdr,
+`--agent none` provides the compatibility path that creates only a direct Git worktree.
 
 The command:
 
-1. validates tools and Herdr before mutating Git state;
+1. validates tools and native Herdr worktree support before mutating Git state;
 2. resolves the GitHub repository, default branch, and issue;
-3. fetches and creates `issue/<number>-<slug>` from the remote default branch;
+3. fetches the remote and asks `herdr worktree create` to create `issue/<number>-<slug>` from the fetched default-branch base;
 4. refuses to reuse a matching branch checked out outside the managed path;
-5. creates or reuses a semantically labeled Herdr workspace;
-6. launches the requested agent only in a newly created workspace;
+5. asks `herdr worktree open` to open or reuse an existing managed issue checkout;
+6. uses the returned root pane to launch the requested agent only when a workspace was newly created;
 7. returns machine-readable JSON.
 
-A rerun reuses the managed worktree and workspace. It does not relaunch the agent or falsely emit a
-new agent-start event.
+This native path retains repository and checkout provenance so Herdr groups the issue workspace
+with its parent repository. A rerun reuses the managed worktree and linked workspace. It does not
+relaunch the agent or falsely emit a new agent-start event. Herdr 0.7.3 or newer is required;
+unsupported native commands produce a compatibility error rather than a generic workspace.
 
 ## Review a pull request independently
 
@@ -117,14 +120,21 @@ node /path/to/pi-clean/scripts/github-work.mjs finish-issue 123
 node /path/to/pi-clean/scripts/github-work.mjs finish-issue 123 --delete-branch
 ```
 
-Cleanup is restricted to paths under the managed root. It refuses to:
+Cleanup is restricted to paths under the managed root. For an issue checkout represented by a
+Herdr linked-worktree workspace, `finish-issue` uses `herdr worktree remove --workspace <id>`.
+Legacy generic issue workspaces and non-Herdr `--agent none` checkouts retain the safe direct-Git
+cleanup path. Pull-request review worktrees are unchanged.
+
+Cleanup refuses to:
 
 - remove a dirty worktree;
-- close a Herdr workspace whose agent is `working` or `blocked`;
+- remove or close a Herdr workspace whose agent is `working` or `blocked`;
+- pass Herdr's force-removal option;
 - force-delete a branch.
 
-The `--delete-branch` option uses `git branch -d`, so Git still refuses deletion when the branch is
-not safely merged. Remote branch deletion is intentionally not implemented.
+The `--delete-branch` option remains separate and uses `git branch -d`, so Git still refuses
+deletion when the branch is not safely merged. Remote branch deletion is intentionally not
+implemented.
 
 ## Flightdeck
 
