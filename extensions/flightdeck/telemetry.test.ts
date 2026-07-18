@@ -19,15 +19,15 @@ async function readEvents(path: string): Promise<Array<Record<string, any>>> {
     .map((line) => JSON.parse(line));
 }
 
-function reporter(source: "delegate" | "fleet", statusClock: () => Date, lifecycleId = `${source}:run-1:task-1`) {
+function reporter(statusClock: () => Date, lifecycleId = "delegate:run-1:task-1") {
   return createTaskLifecycleReporter({
     lifecycleId,
-    agentId: `${source}:agent-1`,
+    agentId: "delegate:agent-1",
     runId: "run-1",
     taskId: "task-1",
-    provider: source === "delegate" ? "claude" : "codex",
-    model: source === "delegate" ? "claude-sonnet-5" : "gpt-5.5",
-    source,
+    provider: "claude",
+    model: "claude-sonnet-5",
+    source: "delegate",
     heartbeatIntervalMs: 0,
     now: statusClock,
     context: {
@@ -48,7 +48,7 @@ test("delegate harness success emits one correlated, replay-safe lifecycle and c
   const adapter = new FlightdeckTelemetryAdapter({ sinkPath: sink, machineId: "test-machine", now: () => now });
   const unsubscribe = subscribeTaskLifecycle((event) => adapter.handle(event));
   try {
-    const task = reporter("delegate", () => now);
+    const task = reporter(() => now);
     await task.start();
     now = new Date("2026-07-14T10:00:05.000Z");
     task.heartbeat();
@@ -79,7 +79,7 @@ test("delegate harness success emits one correlated, replay-safe lifecycle and c
   }
 });
 
-test("failure and abort remain truthful for direct and Fleet task attempts", async () => {
+test("failure and abort remain truthful for delegated task attempts", async () => {
   let now = new Date("2026-07-14T11:00:00.000Z");
   const lines: string[] = [];
   const adapter = new FlightdeckTelemetryAdapter({
@@ -89,20 +89,20 @@ test("failure and abort remain truthful for direct and Fleet task attempts", asy
   });
   const unsubscribe = subscribeTaskLifecycle((event) => adapter.handle(event));
   try {
-    const failed = reporter("delegate", () => now, "delegate:failed");
+    const failed = reporter(() => now, "delegate:failed");
     await failed.start();
     await failed.terminal("failed", { exitCode: 2 });
 
-    const aborted = reporter("fleet", () => now, "fleet:run-1:task-1:attempt-0");
+    const aborted = reporter(() => now, "delegate:aborted");
     await aborted.start();
     await aborted.terminal("aborted");
 
     assert.deepEqual(adapter.getStatus().counts, { active: 0, completed: 0, failed: 1, aborted: 1, stale: 0 });
     const events = lines.map((line) => JSON.parse(line));
-    const abortEvents = events.filter((event) => event.attributes.lifecycleId.includes("attempt-0") && event.event.endsWith("failed"));
+    const abortEvents = events.filter((event) => event.attributes.lifecycleId === "delegate:aborted" && event.event.endsWith("failed"));
     assert.equal(abortEvents.length, 2);
     assert.ok(abortEvents.every((event) => event.level === "warn" && event.attributes.status === "aborted"));
-    assert.ok(events.some((event) => event.attributes.source === "fleet" && event.attributes.runId === "run-1"));
+    assert.ok(events.every((event) => event.attributes.source === "delegate" && event.attributes.runId === "run-1"));
   } finally {
     unsubscribe();
   }
@@ -118,7 +118,7 @@ test("stable event identities make replay and repeated progress updates idempote
   const unsubscribe = subscribeTaskLifecycle((event) => adapter.handle(event));
   try {
     for (let replay = 0; replay < 2; replay++) {
-      const task = reporter("fleet", now, "fleet:stable:attempt-0");
+      const task = reporter(now, "delegate:stable");
       await task.start();
       task.heartbeat();
       task.usage({ inputTokens: 10, outputTokens: 2 });
@@ -140,7 +140,7 @@ test("telemetry excludes prompts, output, tools, and broad environment data", as
   });
   const unsubscribe = subscribeTaskLifecycle((event) => adapter.handle(event));
   try {
-    const task = reporter("delegate", () => new Date("2026-07-14T13:00:00.000Z"));
+    const task = reporter(() => new Date("2026-07-14T13:00:00.000Z"));
     await task.start();
     task.heartbeat();
     await task.terminal("failed", { exitCode: 1 });
@@ -155,7 +155,7 @@ test("telemetry excludes prompts, output, tools, and broad environment data", as
 
 test("missing and unwritable sinks are non-fatal and expose health", async () => {
   const disabled = new FlightdeckTelemetryAdapter();
-  const task = reporter("delegate", () => new Date("2026-07-14T14:00:00.000Z"), "disabled");
+  const task = reporter(() => new Date("2026-07-14T14:00:00.000Z"), "disabled");
   let unsubscribe = subscribeTaskLifecycle((event) => disabled.handle(event));
   await task.start();
   await task.terminal("completed");
@@ -168,7 +168,7 @@ test("missing and unwritable sinks are non-fatal and expose health", async () =>
     append: async () => { throw Object.assign(new Error("sensitive path detail"), { code: "EACCES" }); },
   });
   unsubscribe = subscribeTaskLifecycle((event) => broken.handle(event));
-  const failedWriteTask = reporter("fleet", () => new Date("2026-07-14T14:05:00.000Z"), "broken");
+  const failedWriteTask = reporter(() => new Date("2026-07-14T14:05:00.000Z"), "broken");
   await failedWriteTask.start();
   await failedWriteTask.terminal("completed");
   unsubscribe();

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 export type TaskProvider = "claude" | "codex";
-export type TaskLifecycleSource = "delegate" | "fleet";
+export type TaskLifecycleSource = "delegate";
 export type TaskTerminalStatus = "completed" | "failed" | "aborted";
 
 export interface TaskUsageSnapshot {
@@ -50,7 +50,7 @@ interface TaskLifecycleRegistry {
 
 // Pi loads each extension through a separate jiti instance with module caching
 // disabled. Anchor the trusted in-process registry on the shared JS realm so
-// harness-delegate, Fleet, and the Flightdeck adapter see the same listeners.
+// harness-delegate and the Flightdeck adapter see the same listeners.
 const registryKey = Symbol.for("pi-clean.flightdeck.task-lifecycle.v1");
 const globalRegistry = globalThis as typeof globalThis & { [registryKey]?: TaskLifecycleRegistry };
 const registry = globalRegistry[registryKey] ??= { listeners: new Set<TaskLifecycleListener>() };

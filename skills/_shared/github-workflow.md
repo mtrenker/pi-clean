@@ -39,7 +39,7 @@ git status --short --branch
 
 Read the repository's `AGENTS.md`, `.github/ISSUE_TEMPLATE/`, and pull request template. Inspect its relevant GitHub Project when planning, prioritizing, or selecting work. Local repository policy overrides generic formatting guidance in these skills.
 
-When a repository defines Ready and agent-ready states, start implementation only from unblocked child issues that satisfy those gates. Parent outcomes, Inbox items, and Backlog items are not implementation work. Human review capacity bounds agent and fleet concurrency.
+When a repository defines Ready and agent-ready states, start implementation only from unblocked child issues that satisfy those gates. Parent outcomes, Inbox items, and Backlog items are not implementation work. Human review capacity bounds active agent work and review concurrency.
 
 ## Isolated work
 

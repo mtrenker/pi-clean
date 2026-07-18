@@ -1,6 +1,6 @@
 ---
 name: github-issues
-description: Manage GitHub issues and Projects with the gh CLI, including searching, creating, grooming, hierarchy, dependencies, labels, milestones, prioritization, and preparing work for humans, agents, or fleets. Use for issue work, backlog/project maintenance, or turning findings into tracked execution.
+description: Manage GitHub issues and Projects with the gh CLI, including searching, creating, grooming, hierarchy, dependencies, labels, milestones, prioritization, and preparing work for humans or agents. Use for issue work, backlog/project maintenance, or turning findings into tracked execution.
 compatibility: Requires git and an authenticated GitHub CLI (gh).
 ---
 
@@ -69,7 +69,7 @@ Propose issue, relationship, label, milestone, and Project-field changes before 
 
 ## Select work
 
-When a repository uses the recommended Project workflow, implementation candidates come from unblocked Ready issues. Agent or fleet work additionally requires the repository's agent-readiness marker. Respect Project WIP and human review limits; do not start parent issues, Backlog items, or multiple tasks likely to edit the same boundary.
+When a repository uses the recommended Project workflow, implementation candidates come from unblocked Ready issues. Agent work additionally requires the repository's agent-readiness marker. Respect Project WIP and human review limits; do not start parent issues, Backlog items, or multiple tasks likely to edit the same boundary.
 
 ## Start implementation
 
