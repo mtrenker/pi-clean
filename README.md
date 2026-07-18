@@ -42,10 +42,12 @@ Managed Claude author and reviewer panes launch with `--permission-mode bypassPe
 
 GitHub issues are the durable mental model for work. Each implementation uses one bounded issue, one managed worktree, one semantic Herdr workspace, one pull request, and independent or human review.
 
-The package includes two reusable skills:
+The package includes reusable skills:
 
+- `experience-design-quality` for emotionally fitting, distinctive, accessible experience design across product contexts.
 - `github-issues` for Projects, issue hierarchy, dependencies, milestones, grooming, and human/agent readiness.
 - `github-pull-requests` for opening PRs, independent reviews, checks, merge preparation, and cleanup.
+- `react-composition-quality` for maintainable React composition, render-ready data, and simple UI contracts.
 
 The package also provides deterministic, read-only cross-repository issue grooming. User portfolio configuration lives in `~/.pi/agent/github-workflow.json` (override with `PI_GITHUB_WORKFLOW_CONFIG`); the package never creates it during inspection. Use `/github-add`, `/github-groom`, or `/github-daily`, or run:
 
