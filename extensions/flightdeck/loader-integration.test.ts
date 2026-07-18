@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import test from "node:test";
-import { createJiti } from "@mariozechner/jiti";
+import { createJiti } from "jiti";
 
 import type * as LifecycleModule from "./lifecycle.js";
 

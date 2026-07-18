@@ -29,7 +29,7 @@ import {
   type BashOperations,
   isToolCallEventType,
   createLocalBashOperations,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 import { loadPolicy, type GuardPolicy } from "./policy.js";
 import { buildUnsetPreamble } from "./env.js";
