@@ -11,27 +11,30 @@
     "url": "git@github.com:mtrenker/pi-clean.git"
   },
   "scripts": {
+    "test:extensions": "node --test scripts/extension-loader.test.mjs",
     "test:flightdeck": "node scripts/test-flightdeck.mjs",
     "test:github-planning": "node --test scripts/github-planning.test.mjs",
     "test:github-work": "node --test scripts/github-work.test.mjs"
   },
   "dependencies": {
-    "playwright": "^1.52.0"
+    "minimatch": "^10.2.5",
+    "playwright": "^1.61.1"
   },
   "devDependencies": {
-    "@mariozechner/pi-ai": "^0.66.1",
-    "@mariozechner/pi-agent-core": "^0.66.1",
-    "@mariozechner/pi-coding-agent": "^0.66.1",
-    "@mariozechner/pi-tui": "^0.66.1",
-    "@sinclair/typebox": "^0.34.49",
+    "@earendil-works/pi-ai": "^0.80.10",
+    "@earendil-works/pi-agent-core": "^0.80.10",
+    "@earendil-works/pi-coding-agent": "^0.80.10",
+    "@earendil-works/pi-tui": "^0.80.10",
+    "jiti": "2.7.0",
+    "typebox": "1.1.38",
     "typescript": "^5.7.0"
   },
   "peerDependencies": {
-    "@mariozechner/pi-ai": "*",
-    "@mariozechner/pi-agent-core": "*",
-    "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-tui": "*",
-    "@sinclair/typebox": "*"
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
   },
   "pi": {
     "extensions": [

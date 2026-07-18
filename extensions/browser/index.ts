@@ -1,12 +1,12 @@
 // Browser extension entry point — orchestrates browser automation tools
 // Registers all browser tools, manages lazy lifecycle, integrates overlay and briefing gate
 
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import type {
   ExtensionFactory,
   ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
+} from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 
 import {
   launchBrowser,

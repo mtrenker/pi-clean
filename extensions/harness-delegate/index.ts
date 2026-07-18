@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
-import { StringEnum } from "@mariozechner/pi-ai";
-import { getMarkdownTheme, type ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
-import { Type } from "@sinclair/typebox";
+import { StringEnum } from "@earendil-works/pi-ai";
+import { getMarkdownTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
 import {
   createTaskLifecycleReporter,
   readFlightdeckWorkContext,

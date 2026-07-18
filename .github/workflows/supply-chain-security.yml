@@ -18,6 +18,10 @@ on:
       - 'pnpm-lock.yaml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   detect-dependency-changes:
     name: Detect Dependency Changes

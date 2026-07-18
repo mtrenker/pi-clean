@@ -3,7 +3,7 @@ import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createJiti } from "@mariozechner/jiti";
+import { createJiti } from "jiti";
 
 import type * as HarnessDelegateModule from "../harness-delegate/index.js";
 import { subscribeTaskLifecycle } from "./lifecycle.js";
@@ -14,10 +14,10 @@ test("delegate_harness success, failure, and abort each produce one truthful ter
   const jiti = createJiti(import.meta.url, {
     moduleCache: false,
     alias: {
-      "@mariozechner/pi-ai": join(packageRoot, "node_modules/@mariozechner/pi-ai/dist/index.js"),
-      "@mariozechner/pi-agent-core": join(packageRoot, "node_modules/@mariozechner/pi-agent-core/dist/index.js"),
-      "@mariozechner/pi-coding-agent": join(packageRoot, "node_modules/@mariozechner/pi-coding-agent/dist/index.js"),
-      "@mariozechner/pi-tui": join(packageRoot, "node_modules/@mariozechner/pi-tui/dist/index.js"),
+      "@earendil-works/pi-ai": join(packageRoot, "node_modules/@earendil-works/pi-ai/dist/index.js"),
+      "@earendil-works/pi-agent-core": join(packageRoot, "node_modules/@earendil-works/pi-agent-core/dist/index.js"),
+      "@earendil-works/pi-coding-agent": join(packageRoot, "node_modules/@earendil-works/pi-coding-agent/dist/index.js"),
+      "@earendil-works/pi-tui": join(packageRoot, "node_modules/@earendil-works/pi-tui/dist/index.js"),
     },
   });
   const harness = await jiti.import(join(packageRoot, "extensions/harness-delegate/index.ts")) as typeof HarnessDelegateModule;
