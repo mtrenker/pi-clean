@@ -424,9 +424,18 @@ function launchAgentInHerdrPane(paneId, agent, prompt, launchEnvironment = {}) {
   const environment = Object.entries(launchEnvironment)
     .map(([key, value]) => `${key}=${shellQuote(value)}`)
     .join(" ");
-  const launch = `${environment ? `env ${environment} ` : ""}${agent} ${shellQuote(prompt)}`;
+  const launch = `${environment ? `env ${environment} ` : ""}${managedAgentCommand(agent, prompt)}`;
   run("herdr", ["pane", "run", paneId, launch], { capture: true });
   return true;
+}
+
+function managedAgentCommand(agent, prompt) {
+  switch (agent) {
+    case "pi": return `pi ${shellQuote(prompt)}`;
+    case "claude": return `claude --permission-mode bypassPermissions ${shellQuote(prompt)}`;
+    case "codex": return `codex --full-auto ${shellQuote(prompt)}`;
+    default: throw new Error("managed agent must be pi, claude, or codex");
+  }
 }
 
 function createHerdrWorkspace(path, label, agent, prompt, labelPrefix = label, launchEnvironment = {}) {

@@ -12,7 +12,6 @@
   },
   "scripts": {
     "test:extensions": "node --test scripts/extension-loader.test.mjs",
-    "test:flightdeck": "node scripts/test-flightdeck.mjs",
     "test:github-planning": "node --test scripts/github-planning.test.mjs",
     "test:github-work": "node --test scripts/github-work.test.mjs"
   },
@@ -21,19 +20,14 @@
     "playwright": "^1.61.1"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.80.10",
     "@earendil-works/pi-agent-core": "^0.80.10",
     "@earendil-works/pi-coding-agent": "^0.80.10",
-    "@earendil-works/pi-tui": "^0.80.10",
-    "jiti": "2.7.0",
     "typebox": "1.1.38",
     "typescript": "^5.7.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-agent-core": "*",
     "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*",
     "typebox": "*"
   },
   "pi": {
