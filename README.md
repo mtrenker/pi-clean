@@ -14,14 +14,6 @@ pi install git:git@github.com:mtrenker/pi-clean.git
 
 Adds focused guardrails for catastrophic shell commands, sensitive file paths, and secret-like tool output while preserving normal agent autonomy.
 
-### 🔌 [Harness Delegate](extensions/harness-delegate/README.md)
-
-Delegates one bounded prompt from Pi into Claude Code or Codex via their official CLIs, streams progress inline, and returns the final result. Delegation remains intentionally single-task so changes stay understandable and reviewable.
-
-### 🛫 [Flightdeck telemetry](extensions/flightdeck/README.md)
-
-Reports live `delegate_harness` Claude/Codex lifecycle, heartbeat, and cumulative usage events to a configured Flightdeck JSONL sink. It includes a compact footer status and `/flightdeck:status` command; telemetry is best-effort and excludes prompts and raw output.
-
 ### 🌐 [Browser](extensions/browser/README.md)
 
 Gives the agent a real web browser via Playwright—navigate pages, click links, fill forms, take screenshots, and run JavaScript. Features a persistent profile, visual overlay in headed mode, and a mission briefing gate for domain trust.
@@ -31,6 +23,20 @@ Requires Playwright browser binaries:
 ```bash
 npx playwright install chromium
 ```
+
+## Interactive delegation with Herdr
+
+Pi-clean intentionally does not ship a subprocess delegation tool or a package-owned Herdr skill. Use the externally managed `herdr` skill discovered from `~/.agents/skills/` as the canonical guide to current pane, workspace, output, focus, and intervention commands.
+
+Choose the delegation boundary by risk:
+
+- For bounded read-only investigation, split a pane in the current Herdr workspace only when sharing the checkout is safe. Do not let another pane mutate the shared checkout.
+- For issue implementation or any other code/configuration mutation, use `scripts/github-work.mjs start-issue` so the agent receives an isolated linked worktree and workspace.
+- For independent pull-request review, use `scripts/github-work.mjs review-pr` so the reviewer receives a detached review worktree and separate workspace.
+
+Keep delegated agents visible. First observe the pane reach `working`; a pane that never does may not have launched correctly. After that, treat either `done` or `idle` as settled, read the pane output, and surface `blocked` for operator attention. Viewing a completed pane acknowledges Herdr's ephemeral unread `done` state and may change it to `idle`, so never wait only for `done`. The operator can focus the pane at any time to guide, interrupt, or resume the agent.
+
+Managed Claude author and reviewer panes launch with `--permission-mode bypassPermissions`. Managed Codex panes launch with `--full-auto`, which retains Codex's workspace-write sandbox rather than granting `danger-full-access`. These non-prompting local profiles do not authorize publishing reviews, approving, merging, deleting remote branches, or any other protected remote mutation without explicit operator approval. Claude's bypass mode is not a host sandbox; the isolated worktree protects Git state, not the host, pending separate sandbox hardening.
 
 ## GitHub issue and pull request workflow
 
@@ -69,13 +75,11 @@ Set `FLIGHTDECK_TELEMETRY_FILE` to emit compatible worktree and agent-start even
 
 ```text
 pi-clean/
-├── extensions/agent-guard/      # Shell, path, and output safety guardrails
-├── extensions/browser/          # Playwright browser automation
-├── extensions/flightdeck/       # Delegated Claude/Codex telemetry adapter
-├── extensions/harness-delegate/ # Bounded Claude Code or Codex delegation
-├── skills/                      # GitHub workflow and code-quality skills
-├── scripts/                     # GitHub issue/worktree helpers
-└── prompts/                     # GitHub issue-grooming shortcuts
+├── extensions/agent-guard/ # Shell, path, and output safety guardrails
+├── extensions/browser/     # Playwright browser automation
+├── skills/                 # GitHub workflow and code-quality skills
+├── scripts/                # GitHub issue/worktree helpers
+└── prompts/                # GitHub issue-grooming shortcuts
 ```
 
 ## License

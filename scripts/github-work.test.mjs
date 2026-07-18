@@ -77,6 +77,7 @@ if (program === "gh") {
   if (args[0] === "auth") process.exit(0);
   if (args[0] === "repo") json({ name: "repo", nameWithOwner: "owner/repo", defaultBranchRef: { name: "main" } });
   else if (args[0] === "issue") json({ number: 10, title: "Native worktree", state: "OPEN", url: "https://example.test/10" });
+  else if (args[0] === "pr") json({ number: 20, title: "Review profiles", state: "OPEN", url: "https://example.test/20", headRefName: "feature/review-profiles", baseRefName: "main" });
   else fail("unexpected gh command");
 } else if (program === "git") {
   if (args[0] === "--version") process.exit(0);
@@ -108,6 +109,8 @@ if (program === "gh") {
     json({ result: { type: "worktree_removed", workspace_id: args[3], path: state.issuePath, forced: false } });
   } else if (args[0] === "workspace" && args[1] === "list") {
     json({ result: { workspaces: state.workspaces ?? [] } });
+  } else if (args[0] === "workspace" && args[1] === "create") {
+    json({ result: { workspace: { workspace_id: "w-review", label: args[5] }, root_pane: { pane_id: "p-review" } } });
   } else if (args[0] === "workspace" && args[1] === "close") {
     state.workspaces = (state.workspaces ?? []).filter((workspace) => workspace.workspace_id !== args[2]);
     writeFileSync(statePath, JSON.stringify(state));
@@ -167,6 +170,10 @@ function findCommand(log, program, prefix) {
   return log.find((entry) => entry.program === program && prefix.every((value, index) => entry.args[index] === value));
 }
 
+function launchedAgentCommand(entry) {
+  return entry.args[3].replace(/^env (?:[A-Z_]+='[^']*' )+/, "");
+}
+
 function existingIssuePorcelain(repoRoot, issuePath) {
   return `worktree ${repoRoot}\nHEAD abc\nbranch refs/heads/main\n\nworktree ${issuePath}\nHEAD def\nbranch refs/heads/issue/10-native-worktree\n\n`;
 }
@@ -196,6 +203,40 @@ test("managed start creates a native Herdr issue worktree and launches in its ro
   assert.equal("herdrWorkspaceId" in telemetry[0].attributes, false);
   assert.equal("herdrPaneId" in telemetry[0].attributes, false);
 });
+
+for (const [agent, expectedLaunch] of [
+  ["claude", "claude --permission-mode bypassPermissions 'Work on GitHub issue #10 in owner/repo. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge.'"],
+  ["codex", "codex --full-auto 'Work on GitHub issue #10 in owner/repo. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge.'"],
+]) {
+  test(`managed ${agent} issue authors use the exact non-prompting profile`, async (t) => {
+    const fixture = await mockEnvironment(t);
+    const result = invoke(["start-issue", "10", "--agent", agent], { ...fixture.env, HERDR_ENV: "1" });
+    assert.equal(result.status, 0, result.stderr);
+
+    const log = await commandLog(fixture.logPath);
+    const launch = findCommand(log, "herdr", ["pane", "run", "p-create"]);
+    assert.ok(launch, "expected the author agent to launch in the worktree root pane");
+    assert.equal(launchedAgentCommand(launch), expectedLaunch);
+    if (agent === "codex") assert.doesNotMatch(launch.args[3], /danger-full-access/);
+  });
+}
+
+for (const [reviewer, expectedLaunch] of [
+  ["claude", "claude --permission-mode bypassPermissions 'Independently review GitHub pull request #20 in owner/repo. Inspect the issue context, full diff, tests, regressions, and security. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization.'"],
+  ["codex", "codex --full-auto 'Independently review GitHub pull request #20 in owner/repo. Inspect the issue context, full diff, tests, regressions, and security. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization.'"],
+]) {
+  test(`managed ${reviewer} PR reviewers use the exact non-prompting profile`, async (t) => {
+    const fixture = await mockEnvironment(t);
+    const result = invoke(["review-pr", "20", "--reviewer", reviewer], { ...fixture.env, HERDR_ENV: "1" });
+    assert.equal(result.status, 0, result.stderr);
+
+    const log = await commandLog(fixture.logPath);
+    const launch = findCommand(log, "herdr", ["pane", "run", "p-review"]);
+    assert.ok(launch, "expected the reviewer agent to launch in its detached workspace");
+    assert.equal(launchedAgentCommand(launch), expectedLaunch);
+    if (reviewer === "codex") assert.doesNotMatch(launch.args[3], /danger-full-access/);
+  });
+}
 
 test("managed start opens and reuses an existing issue worktree", async (t) => {
   const fixture = await mockEnvironment(t);

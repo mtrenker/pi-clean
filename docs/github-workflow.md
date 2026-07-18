@@ -70,6 +70,20 @@ github:<owner>/<repo>:pr:<number>:review:<reviewer>
 Herdr workspace and pane IDs are live routing handles and must not be persisted as identity because
 they may compact after workspaces or panes close.
 
+## Interactive delegation policy
+
+Pi-clean does not provide non-interactive Claude or Codex subprocess delegation. Delegated work must remain visible in Herdr, and the externally managed `herdr` skill discovered from `~/.agents/skills/` is the canonical source for current CLI commands.
+
+Use a split pane in the current workspace only for a bounded read-only investigation where sharing the checkout is safe. Shared-workspace agents must not mutate the checkout. Any issue implementation, code or configuration mutation uses `start-issue` and its isolated linked-worktree workspace. Independent review uses `review-pr` and its detached review worktree and workspace.
+
+When coordinating with a delegated agent:
+
+1. Observe `working` before considering the launch successful. If the agent becomes `blocked`, read its output and bring it to the operator's attention instead of continuing to wait.
+2. After `working` has been observed, accept either `done` or `idle` as settled and read the final pane output. Herdr's `done` means completed but unread; focusing or reading the completed pane can acknowledge that ephemeral state and return it to `idle`, so a waiter must never require only `done`.
+3. Keep the pane available so the operator can focus it to inspect, guide, interrupt, or resume the agent.
+
+The helper launches managed Claude issue authors and PR reviewers with `--permission-mode bypassPermissions`. It launches managed Codex authors and reviewers with `--full-auto`; Codex therefore keeps its workspace-write sandbox and is not given `danger-full-access`. These profiles avoid repeated prompts for routine local reads, tests, and review commands. They do not authorize publishing a review, approving, merging, deleting remote branches, or another protected remote mutation without explicit operator approval. Claude's bypass mode does not sandbox host filesystem or process access, and a detached worktree isolates Git state rather than untrusted repository code; stronger OpenShell/Herdr sandboxing is separate follow-up work.
+
 ## Start issue implementation
 
 From any checkout of the target repository, while running inside Herdr:
