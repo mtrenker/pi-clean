@@ -1,6 +1,6 @@
 # Project-aware issue workflow
 
-Use this reference when a repository uses GitHub Projects, when introducing a repeatable human/agent workflow, or when preparing work for parallel agents or fleets.
+Use this reference when a repository uses GitHub Projects, when introducing a repeatable human/agent workflow, or when preparing work for agents.
 
 ## Responsibility boundaries
 
@@ -13,7 +13,7 @@ Use this reference when a repository uses GitHub Projects, when introducing a re
 | Milestone | A concrete release or externally meaningful outcome |
 | GitHub Project | Operational status, priority, size, and focused views |
 | Pull request | Delivered change, validation evidence, and review |
-| Worktree and fleet telemetry | Temporary execution state |
+| Worktree and agent telemetry | Temporary execution state |
 
 Do not duplicate full issue bodies into Project fields. Do not use Project draft items as a second idea backlog when the repository already has a durable capture system.
 
@@ -63,22 +63,22 @@ A Ready issue has:
 
 `agent-ready` is stricter: a cold agent in a fresh worktree can complete the issue without reconstructing chat history or making unresolved product, architecture, visual, security, or migration decisions. Apply `needs-human` instead when human judgment is the actual next step.
 
-## Cognitive budget and fleet admission
+## Cognitive budget and agent admission
 
 Treat human review capacity as the bottleneck:
 
 - one human implementation in progress;
-- initially two or three parallel agent issues at most;
+- one active agent issue by default;
 - no more than two PRs waiting for human review;
-- parallel work only for unblocked siblings with low expected file overlap.
+- start another agent issue only when it is unblocked, has low expected file overlap, and the operator can still review both changes coherently.
 
-A fleet queue should select approximately:
+Agent work should come from approximately:
 
 ```text
 status:Ready label:agent-ready -is:blocked
 ```
 
-Do not launch a fleet from Backlog or Inbox. Do not parallelize parent issues. Runtime agent names, pane IDs, and fleet task IDs do not belong in permanent Project fields.
+Do not start agent work from Backlog or Inbox. Do not implement parent issues. Runtime agent names and Herdr pane IDs do not belong in permanent Project fields.
 
 ## Recommended saved views
 

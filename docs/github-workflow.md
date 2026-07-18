@@ -32,7 +32,7 @@ The recommended minimum is:
 
 A Ready issue names its outcome, scope, non-goals, acceptance criteria, relationships, architecture constraints, and validation. `agent-ready` additionally means a cold agent can execute from a fresh worktree without reconstructing chat history or making unresolved product, architecture, visual, security, or migration decisions.
 
-Treat human review as the bottleneck: one human implementation, initially two or three parallel agents, and no more than two PRs awaiting human review. Fleet candidates must be unblocked siblings with low expected file overlap. Do not start parent outcomes, Inbox items, or Backlog items.
+Treat human review as the bottleneck: one human implementation, one active agent issue by default, and no more than two PRs awaiting human review. Start another agent issue only when it is unblocked, has low expected file overlap, and remains reviewable as a separate mental unit. Do not start parent outcomes, Inbox items, or Backlog items.
 
 See [`skills/github-issues/references/project-workflow.md`](../skills/github-issues/references/project-workflow.md) for fields, views, automation, inspection commands, rollout, and web-UI limitations.
 

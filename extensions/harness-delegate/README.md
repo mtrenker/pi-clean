@@ -75,4 +75,4 @@ When the package's [Flightdeck extension](../flightdeck/README.md) is loaded, ev
 ## Notes
 
 - This extension assumes `claude` and/or `codex` are already installed and authenticated locally.
-- It is intentionally single-delegation focused. If you want parallel multi-task orchestration across engines, use the `fleet` extension.
+- It is intentionally single-delegation focused. Use one bounded issue and worktree at a time so the delegated result remains reviewable.
