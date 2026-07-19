@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
 
+import { readLocalCodexCredentials } from "./codex-auth.ts";
 import { OpenShellClient } from "./cli.ts";
 import { assertProviderIsolation, canonicalHash, dynamicFingerprint, resolveIdentity } from "./identity.ts";
 import { WorkspaceRegistry } from "./registry.ts";
@@ -47,8 +48,13 @@ export class OpenShellAgentOrchestrator {
 
   async run(profile: OpenShellProfile, input: OpenShellJobInput, signal: AbortSignal | undefined, callbacks: RunCallbacks): Promise<OpenShellAgentDetails> {
     validateInput(profile, input);
-    callbacks.progress("Preflighting OpenShell CLI, gateway, Providers v2, Policy Advisor, and inference.local…");
-    const preflight = await this.cli.preflight(profile.inferenceApi);
+    callbacks.progress("Preflighting OpenShell CLI, gateway, Providers v2, Policy Advisor, and isolated inference…");
+    const preflight = await this.cli.preflight(profile.inferenceApi, profile.codexSubscription);
+    if (profile.codexSubscription) {
+      callbacks.progress("Synchronizing the current host Codex login into the gateway provider without exposing token values…");
+      const credentials = await readLocalCodexCredentials();
+      await this.cli.syncCodexProvider(profile.codexSubscription.provider, credentials);
+    }
     await this.cli.validateProviders(profile);
     const identity = await resolveIdentity(profile, input);
     const desiredDynamic = await dynamicFingerprint(profile);
@@ -182,7 +188,7 @@ export class OpenShellAgentOrchestrator {
   ): Promise<void> {
     const request = JSON.stringify({
       task: input.task,
-      inference: { api: preflight.inferenceApi },
+      inference: { api: preflight.inferenceApi, model: preflight.inferenceModel, mode: profile.codexSubscription ? "codex-subscription" : "gateway" },
       workerTools: profile.workerTools,
       repository: input.repository ? {
         url: input.repository.url,

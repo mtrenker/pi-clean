@@ -38,6 +38,48 @@ test("preflight accepts the pinned released contract and configured inference", 
   });
 });
 
+test("Codex subscription preflight does not require a cluster inference route", async () => {
+  assert.deepEqual(await client({ "inference get": { stdout: "Gateway inference:\n  Not configured" } }).preflight(undefined, {
+    provider: "codex-subscription", model: "gpt-5.6-terra",
+  }), {
+    cliVersion: "0.0.86", gatewayVersion: "0.0.86", inferenceProvider: "codex-subscription",
+    inferenceModel: "gpt-5.6-terra", inferenceApi: "openai-codex-responses",
+  });
+});
+
+test("Codex synchronization passes values only through the provider import environment", async () => {
+  const calls: Array<{ args: string[]; options?: { env?: Record<string, string> } }> = [];
+  const credentials = {
+    CODEX_AUTH_ACCESS_TOKEN: "access-canary", CODEX_AUTH_REFRESH_TOKEN: "refresh-canary",
+    CODEX_AUTH_ACCOUNT_ID: "account-canary",
+  };
+  const runner: CommandRunner = {
+    async run(args, options) {
+      calls.push({ args, options });
+      return { code: 0, stdout: args[1] === "get" ? "Type: codex\n" : "", stderr: "", aborted: false };
+    },
+  };
+  await new OpenShellClient(runner).syncCodexProvider("codex-subscription", credentials);
+  const update = calls.at(-1)!;
+  assert.equal(update.args.join(" ").includes("canary"), false);
+  assert.deepEqual(update.options?.env, credentials);
+});
+
+test("Codex synchronization creates the named provider when it is absent", async () => {
+  const calls: string[][] = [];
+  const runner: CommandRunner = {
+    async run(args) {
+      calls.push(args);
+      return { code: args[1] === "get" ? 1 : 0, stdout: "", stderr: "", aborted: false };
+    },
+  };
+  await new OpenShellClient(runner).syncCodexProvider("new-codex", {
+    CODEX_AUTH_ACCESS_TOKEN: "access-value", CODEX_AUTH_REFRESH_TOKEN: "refresh-value",
+    CODEX_AUTH_ACCOUNT_ID: "account-value",
+  });
+  assert.ok(calls.some((args) => args.slice(0, 6).join(" ") === "provider create --name new-codex --type codex"));
+});
+
 test("preflight rejects the installed legacy 0.0.68 contract without fallback", async () => {
   await assert.rejects(
     client({ "--version": { stdout: "openshell 0.0.68" }, status: { stdout: "Version: 0.0.68" } }).preflight(),

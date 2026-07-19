@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { codexCredentialKeys, type CodexCredentials } from "./codex-auth.ts";
 import type { InferenceApi, OpenShellProfile, PolicyProposal, PreflightReport } from "./types.ts";
 
 export const MINIMUM_OPENSHELL_VERSION = "0.0.86";
@@ -16,7 +17,7 @@ export interface CommandResult {
 }
 
 export interface CommandRunner {
-  run(args: string[], options?: { input?: string; signal?: AbortSignal }): Promise<CommandResult>;
+  run(args: string[], options?: { input?: string; signal?: AbortSignal; env?: Record<string, string> }): Promise<CommandResult>;
 }
 
 export class SpawnCommandRunner implements CommandRunner {
@@ -26,7 +27,7 @@ export class SpawnCommandRunner implements CommandRunner {
     this.executable = executable;
   }
 
-  run(args: string[], options: { input?: string; signal?: AbortSignal } = {}): Promise<CommandResult> {
+  run(args: string[], options: { input?: string; signal?: AbortSignal; env?: Record<string, string> } = {}): Promise<CommandResult> {
     return new Promise((resolve, reject) => {
       let settled = false;
       let aborted = false;
@@ -36,6 +37,7 @@ export class SpawnCommandRunner implements CommandRunner {
         stdio: ["pipe", "pipe", "pipe"],
         shell: false,
         detached: process.platform !== "win32",
+        env: options.env ? { ...process.env, ...options.env } : process.env,
       });
 
       const finish = (result: CommandResult) => {
@@ -93,7 +95,7 @@ export class OpenShellClient {
     this.executable = executable;
   }
 
-  async preflight(profileApi?: InferenceApi): Promise<PreflightReport> {
+  async preflight(profileApi?: InferenceApi, codex?: OpenShellProfile["codexSubscription"]): Promise<PreflightReport> {
     const [versionResult, status, createHelp, ruleHelp, profileHelp, inference, settings] = await Promise.all([
       this.runner.run(["--version"]),
       this.runner.run(["status"]),
@@ -119,9 +121,12 @@ export class OpenShellClient {
     if (!/providers_v2_enabled\s*=\s*true/i.test(cleanSettings)) {
       throw new Error("OpenShell Providers v2 is not enabled. Run: openshell settings set --global --key providers_v2_enabled --value true");
     }
+    if (codex) {
+      return { cliVersion, gatewayVersion, inferenceProvider: codex.provider, inferenceModel: codex.model, inferenceApi: "openai-codex-responses" };
+    }
     const inferenceInfo = parseInference(inference.stdout);
     if (!inferenceInfo.provider || !inferenceInfo.model) {
-      throw new Error("OpenShell inference.local is not configured. Create a gateway provider, then run openshell inference set --provider <name> --model <model>.");
+      throw new Error("OpenShell inference.local is not configured. Configure gateway inference or select a Codex subscription profile.");
     }
     const inferredApi = profileApi ?? inferApi(inferenceInfo.provider, inferenceInfo.model);
     return { cliVersion, gatewayVersion, inferenceProvider: inferenceInfo.provider, inferenceModel: inferenceInfo.model, inferenceApi: inferredApi };
@@ -129,7 +134,7 @@ export class OpenShellClient {
 
   async validateProviders(profile: OpenShellProfile): Promise<void> {
     const types: string[] = [];
-    for (const provider of profile.providers) {
+    for (const provider of profileProviderNames(profile)) {
       const result = await this.required(["provider", "get", provider], `resolve provider ${provider}`);
       const type = stripAnsi(result.stdout).match(/Type\s*:\s*([^\s]+)/i)?.[1];
       if (!type) throw new Error(`OpenShell provider ${provider} did not report a profile type; attach only Providers v2 instances.`);
@@ -138,6 +143,21 @@ export class OpenShellClient {
     const missing = (profile.requiredProviderTypes ?? []).filter((required) => !types.includes(required));
     if (missing.length > 0) {
       throw new Error(`Profile ${profile.name} requires Providers v2 type ${missing.join(", ")}. Configure a separately named provider instance for this trust domain.`);
+    }
+  }
+
+  async syncCodexProvider(provider: string, credentials: CodexCredentials): Promise<void> {
+    const current = await this.runner.run(["provider", "get", provider]);
+    if (current.code === 0 && !/Type\s*:\s*codex(?:\s|$)/i.test(stripAnsi(current.stdout))) {
+      throw new Error(`OpenShell provider ${provider} must use the built-in codex profile`);
+    }
+    const args = current.code === 0
+      ? ["provider", "update", provider]
+      : ["provider", "create", "--name", provider, "--type", "codex"];
+    for (const key of codexCredentialKeys()) args.push("--credential", key);
+    const result = await this.runner.run(args, { env: credentials });
+    if (result.code !== 0 || result.aborted) {
+      throw new Error("Could not synchronize the host Codex login into the gateway provider; no credential values were logged or passed as command arguments.");
     }
   }
 
@@ -157,7 +177,7 @@ export class OpenShellClient {
     const args = ["sandbox", "create", "--name", name, "--from", profile.image, "--policy", profile.basePolicy, "--approval-mode", profile.advisorMode, "--no-auto-providers", "--no-tty"];
     if (profile.cpu) args.push("--cpu", profile.cpu);
     if (profile.memory) args.push("--memory", profile.memory);
-    for (const provider of profile.providers) args.push("--provider", provider);
+    for (const provider of profileProviderNames(profile)) args.push("--provider", provider);
     for (const [key, value] of Object.entries(labels)) args.push("--label", `${key}=${value}`);
     // Avoid the CLI's default interactive shell. The short initial command
     // exits while the default keep behavior leaves the Ready sandbox intact.
@@ -206,12 +226,13 @@ export class OpenShellClient {
     const attached: string[] = [];
     const detached: string[] = [];
     try {
-      for (const provider of profile.providers.filter((item) => !before.includes(item))) {
+      const desiredProviders = profileProviderNames(profile);
+      for (const provider of desiredProviders.filter((item) => !before.includes(item))) {
         await this.required(["sandbox", "provider", "attach", name, provider], "attach provider");
         attached.push(provider);
       }
       await this.required(["policy", "set", name, "--policy", profile.basePolicy, "--wait"], "update base policy");
-      for (const provider of before.filter((item) => !profile.providers.includes(item))) {
+      for (const provider of before.filter((item) => !desiredProviders.includes(item))) {
         await this.required(["sandbox", "provider", "detach", name, provider], "detach provider");
         detached.push(provider);
       }
@@ -337,6 +358,10 @@ function stopChild(child: ChildProcess): void {
     if (process.platform !== "win32" && child.pid) process.kill(-child.pid, "SIGTERM");
     else child.kill("SIGTERM");
   } catch { /* already stopped */ }
+}
+
+export function profileProviderNames(profile: OpenShellProfile): string[] {
+  return [...new Set([...profile.providers, ...(profile.codexSubscription ? [profile.codexSubscription.provider] : [])])];
 }
 
 function errorMessage(error: unknown): string {

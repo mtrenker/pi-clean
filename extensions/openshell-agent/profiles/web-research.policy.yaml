@@ -2,7 +2,7 @@ version: 1
 
 filesystem_policy:
   include_workdir: true
-  read_only: [/usr, /lib, /proc, /dev/urandom, /app, /etc, /var/log]
+  read_only: [/usr, /lib, /proc, /dev/urandom, /app, /etc, /var/log, /opt]
   read_write: [/sandbox, /tmp, /dev/null]
 
 landlock:
@@ -12,7 +12,17 @@ process:
   run_as_user: sandbox
   run_as_group: sandbox
 
-# Deliberately provider-free and deny-first. The Policy Advisor may propose
-# narrow binary-bound research access. OpenShell auto mode only approves an
-# empty prover delta; credential or capability expansion remains pending.
-network_policies: {}
+# Deny-first except for the image-owned, fixed-destination Codex relay. No
+# research or business credential provider is attached. Policy Advisor may
+# propose narrow binary-bound research access; only empty prover deltas auto-approve.
+network_policies:
+  codex_relay:
+    name: codex-relay
+    endpoints:
+      - host: chatgpt.com
+        port: 443
+        protocol: rest
+        access: read-write
+        enforcement: enforce
+    binaries:
+      - path: /opt/openshell-agent/relay-node

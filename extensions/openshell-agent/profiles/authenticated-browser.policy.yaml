@@ -14,4 +14,15 @@ process:
 
 # Browser egress remains deny-first and binary-bound. Browser storage is
 # protected from the worker by a separate Unix account and is never exported.
-network_policies: {}
+# The image-owned Codex relay has one fixed model endpoint.
+network_policies:
+  codex_relay:
+    name: codex-relay
+    endpoints:
+      - host: chatgpt.com
+        port: 443
+        protocol: rest
+        access: read-write
+        enforcement: enforce
+    binaries:
+      - path: /opt/openshell-agent/relay-node

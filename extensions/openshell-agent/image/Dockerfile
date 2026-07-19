@@ -18,8 +18,11 @@ RUN apt-get update \
     && npm install --prefix /opt/openshell-browser playwright-core@1.61.1
 
 COPY browser-controller.mjs /opt/openshell-browser/browser-controller.mjs
+COPY codex-relay.mjs /opt/openshell-agent/codex-relay.mjs
 COPY entrypoint.sh /opt/openshell-browser/entrypoint.sh
-RUN chmod 0755 /opt/openshell-browser/entrypoint.sh /opt/openshell-browser/browser-controller.mjs
+RUN ln /usr/bin/node /opt/openshell-agent/relay-node \
+    && chmod 0755 /opt/openshell-browser/entrypoint.sh /opt/openshell-browser/browser-controller.mjs \
+    && chmod 0555 /opt/openshell-agent/codex-relay.mjs /opt/openshell-agent/relay-node
 
 # noVNC is loopback-only and must be reached through `openshell forward service`.
 # No browser/debugging port is published by the image.

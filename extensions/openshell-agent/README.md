@@ -10,27 +10,29 @@ The first tested contract is the published OpenShell **v0.0.86** release. CLI an
 
 - `sandbox create`, Providers v2, and Policy Advisor capabilities;
 - `providers_v2_enabled = true`;
-- a configured user-facing `inference.local` provider and model.
+- a current official Codex CLI login at `~/.codex/auth.json`, owned by the current user and mode `0600`.
 
 Typical setup:
 
 ```bash
 openshell settings set --global --key providers_v2_enabled --value true
 openshell settings set --global --key agent_policy_proposals_enabled --value true --yes
-openshell inference set --provider <gateway-provider-name> --model <model-id>
+codex login
 ```
 
-Real inference/provider credentials remain gateway-owned. Profiles contain provider **names**, never values. The worker gets only an `unused` SDK placeholder; `inference.local` strips it and injects gateway credentials. Do not put tokens, passwords, cookies, refresh material, or private keys in profile files or tool arguments.
+Before every job, the trusted host reads the local Codex file without following symlinks, validates its owner, mode, account claim, and access-token expiry, then creates or updates the configured gateway `codex` provider. Credential values travel only in the host `openshell provider create|update` child environment—never arguments, output, logs, uploads, the extension workspace registry, or sandbox files. The default provider/model is `codex-subscription` + `gpt-5.6-terra`.
+
+The worker uses a synthetic non-secret JWT only to satisfy Pi's local account-claim parser and calls an image-owned loopback relay. That relay accepts one bounded Codex Responses path, discards caller authentication, inserts stable OpenShell access/account placeholders, and forwards only to `chatgpt.com/backend-api/codex/responses`. OpenShell resolves the current gateway provider values at the network boundary. Local refresh is disabled; the official host Codex login remains the source of truth and must be refreshed externally before it expires. Do not put tokens, passwords, cookies, refresh material, or private keys in profile files or tool arguments.
 
 ## Profiles and trust domains
 
 Every invocation requires `trustDomain`. Sandbox identity includes the profile, trust domain, static fingerprint, and—where relevant—the normalized repository or browser profile. A provider instance already recorded for another trust domain is rejected; create separately named provider instances for personal, project, and client domains.
 
-Built-ins:
+Built-ins all use the Codex inference provider through the fixed relay; it is infrastructure access and is excluded from cross-trust business-provider reuse checks. Other providers remain isolated by trust domain:
 
-- `web-research`: provider-free, default-deny network, persistent per trust domain. Policy Advisor `auto` is opt-in at sandbox scope and OpenShell only auto-approves an **empty prover delta**.
+- `web-research`: no research/business provider, default-deny network except the fixed model relay, persistent per trust domain. Policy Advisor `auto` is opt-in at sandbox scope and OpenShell only auto-approves an **empty prover delta**.
 - `development`: persistent per trust domain + repository, sandbox-side clone/worktrees, built-in GitHub provider name `github`, manual policy review. Override the provider name when your gateway instance has another name. Preflight resolves every provider instance and requires at least one Providers v2 `github` profile type; a same-named arbitrary provider is not accepted.
-- `authenticated-browser`: repository-owned Pi/Chromium derivative, persistent per trust domain + `browserProfile`, no provider by default, manual policy review and noVNC takeover.
+- `authenticated-browser`: repository-owned Pi/Chromium derivative, persistent per trust domain + `browserProfile`, no business provider by default, manual policy review and noVNC takeover.
 
 Invoke from the model with a request shaped like:
 
@@ -83,6 +85,8 @@ Project config is ignored unless Pi reports the project trusted. User overlays l
 }
 ```
 
+A profile may override `codexSubscription.provider` and `codexSubscription.model`; the provider must be a Providers v2 `codex` instance. The host credential source is deliberately not configurable from project files and remains the current user's protected `~/.codex/auth.json`.
+
 Static image/resource/filesystem/process/trust-domain drift requires an explicit destructive recreation confirmation. Network policy, advisor mode, and provider-name changes are applied dynamically; failed updates do not update the workspace registry and newly attached providers are rolled back. OpenShell applies policy replacement atomically.
 
 ## Policy review and cancellation
@@ -118,4 +122,4 @@ Delete/recreate explicitly warns that checkout, cache, artifact, download, histo
 
 ## Validation
 
-Deterministic tests use injected fake CLI responses for compatibility, identity isolation, policy parsing, result boundaries, lifecycle reuse, and cancellation-safe command transport. An end-to-end gateway run is intentionally opt-in because it requires matching OpenShell v0.0.86+, the community Pi image, configured inference, and operator-owned providers.
+Deterministic tests use injected fake CLI responses for compatibility, identity isolation, safe Codex auth import, provider synchronization, fixed relay boundaries, policy parsing, result boundaries, lifecycle reuse, and cancellation-safe command transport. Live validation on OpenShell v0.0.86 ran Pi with `gpt-5.6-terra` through the placeholder relay, scanned sandbox files/environment/process arguments/diagnostics for host token canaries, and reused the same persistent workspace for a second successful job.

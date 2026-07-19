@@ -30,7 +30,7 @@ Prototypes repo-native, Plate-compatible visual artifacts: select a stable desig
 
 ### ⛨ [OpenShell Agent](extensions/openshell-agent/README.md)
 
-Runs bounded autonomous research, sandbox-side Git development, and opt-in persistent authenticated-browser jobs inside isolated OpenShell workspaces. Requires a matching OpenShell v0.0.86+ CLI/gateway and configured `inference.local`; untrusted final answers render in TUI-only tool details and terminate without a host-model follow-up.
+Runs bounded autonomous research, sandbox-side Git development, and opt-in persistent authenticated-browser jobs inside isolated OpenShell workspaces. Requires a matching OpenShell v0.0.86+ CLI/gateway and a current official Codex login; Pi uses `gpt-5.6-terra` through an image-owned placeholder relay while real OAuth tokens remain gateway-owned. Untrusted final answers render in TUI-only tool details and terminate without a host-model follow-up.
 
 ## Interactive delegation with Herdr
 

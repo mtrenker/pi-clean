@@ -8,17 +8,18 @@ import type { OpenShellProfile, ProfileConfigFile } from "./types.ts";
 
 const extensionDir = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_FILESYSTEM = {
-  readOnly: ["/usr", "/lib", "/proc", "/dev/urandom", "/app", "/etc", "/var/log"],
+  readOnly: ["/usr", "/lib", "/proc", "/dev/urandom", "/app", "/etc", "/var/log", "/opt"],
   readWrite: ["/sandbox", "/tmp", "/dev/null"],
 };
 const DEFAULT_PROCESS = { runAsUser: "sandbox", runAsGroup: "sandbox" };
-const PINNED_PI_IMAGE = "ghcr.io/nvidia/openshell-community/sandboxes/pi@sha256:88716cf8c342af78b2af20e6e3b2c55e27eecea5a989fcbeaf61c10e0ec1df02";
-const PINNED_PI_CONTRACT = "OpenShell Community Pi image from commit a2afd1ba5d0655ed531d7cd0bd7e1b93cb788a61, tested with OpenShell v0.0.86";
+const PINNED_PI_IMAGE = join(extensionDir, "image-pi");
+const PINNED_PI_CONTRACT = "repository-owned Codex relay derivative of OpenShell Community Pi commit a2afd1ba5d0655ed531d7cd0bd7e1b93cb788a61, tested with OpenShell v0.0.86";
+const DEFAULT_CODEX = Object.freeze({ provider: "codex-subscription", model: "gpt-5.6-terra" });
 
 export const BUILTIN_PROFILES: Readonly<Record<string, OpenShellProfile>> = Object.freeze({
   "web-research": {
     name: "web-research",
-    description: "Provider-free, deny-first research with safe Policy Advisor auto-approval",
+    description: "Business-provider-free, deny-first research with fixed Codex relay and safe Policy Advisor auto-approval",
     image: PINNED_PI_IMAGE,
     imageContract: PINNED_PI_CONTRACT,
     cpu: "1",
@@ -27,6 +28,7 @@ export const BUILTIN_PROFILES: Readonly<Record<string, OpenShellProfile>> = Obje
     basePolicy: join(extensionDir, "profiles", "web-research.policy.yaml"),
     advisorMode: "auto",
     providers: [],
+    codexSubscription: DEFAULT_CODEX,
     workerTools: ["read", "bash", "write", "edit", "grep", "find", "ls"],
     filesystem: DEFAULT_FILESYSTEM,
     process: DEFAULT_PROCESS,
@@ -43,6 +45,7 @@ export const BUILTIN_PROFILES: Readonly<Record<string, OpenShellProfile>> = Obje
     advisorMode: "manual",
     providers: ["github"],
     requiredProviderTypes: ["github"],
+    codexSubscription: DEFAULT_CODEX,
     workerTools: ["read", "bash", "write", "edit", "grep", "find", "ls"],
     filesystem: DEFAULT_FILESYSTEM,
     process: DEFAULT_PROCESS,
@@ -59,6 +62,7 @@ export const BUILTIN_PROFILES: Readonly<Record<string, OpenShellProfile>> = Obje
     basePolicy: join(extensionDir, "profiles", "authenticated-browser.policy.yaml"),
     advisorMode: "manual",
     providers: [],
+    codexSubscription: DEFAULT_CODEX,
     workerTools: ["read", "bash", "write", "edit", "grep", "find", "ls"],
     filesystem: {
       ...DEFAULT_FILESYSTEM,
@@ -148,6 +152,11 @@ export function validateProfile(profile: OpenShellProfile, source = "profile con
   if (new Set(profile.providers).size !== profile.providers.length) throw new Error(`${profile.name} repeats a provider name`);
   if (profile.reuse === "repository" && !profile.repository) throw new Error(`${profile.name} requires repository settings`);
   if (profile.reuse === "browser-profile" && !profile.browser) throw new Error(`${profile.name} requires browser settings`);
+  if (profile.codexSubscription) {
+    validateName(profile.codexSubscription.provider, "Codex provider");
+    validateName(profile.codexSubscription.model, "Codex model");
+    if (profile.inferenceApi && profile.inferenceApi !== "openai-codex-responses") throw new Error(`${profile.name} has conflicting inference configuration`);
+  }
 }
 
 export function validateTrustDomain(value: string): string {

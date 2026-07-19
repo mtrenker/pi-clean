@@ -17,6 +17,7 @@ const resultPath = join(jobDir, "result.json");
 const logPath = join(jobDir, "worker.jsonl");
 const lockPath = join(runtimeDir, "job.lock");
 let child;
+let relay;
 let log;
 let lockOwned = false;
 
@@ -30,26 +31,35 @@ try {
 
   const agentDir = join(root, ".pi-agent");
   await mkdir(agentDir, { recursive: true });
+  const isCodex = request.inference.mode === "codex-subscription";
   const isAnthropic = request.inference.api === "anthropic-messages";
-  const baseUrl = isAnthropic ? "https://inference.local" : "https://inference.local/v1";
+  const providerId = isCodex ? "openshell-codex" : "openshell";
+  const modelId = isCodex ? request.inference.model : "managed";
+  const baseUrl = isCodex ? "http://127.0.0.1:3020/backend-api" : isAnthropic ? "https://inference.local" : "https://inference.local/v1";
+  const syntheticAccess = isCodex ? syntheticCodexAccessToken() : "unused";
   await writeFile(join(agentDir, "models.json"), JSON.stringify({
     providers: {
-      openshell: {
+      [providerId]: {
         baseUrl,
         api: request.inference.api,
-        apiKey: "unused",
+        apiKey: syntheticAccess,
         models: [{
-          id: "managed",
-          name: "OpenShell managed inference",
-          reasoning: false,
+          id: modelId,
+          name: isCodex ? "Codex subscription through OpenShell credential relay" : "OpenShell managed inference",
+          reasoning: isCodex,
           input: ["text"],
-          contextWindow: 128000,
-          maxTokens: 16384,
+          contextWindow: isCodex ? 400000 : 128000,
+          maxTokens: isCodex ? 128000 : 16384,
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         }],
       },
     },
   }, null, 2), { mode: 0o600 });
+  if (isCodex) {
+    await writeFile(join(agentDir, "settings.json"), JSON.stringify({ transport: "sse" }), { mode: 0o600 });
+    relay = spawn("/opt/openshell-agent/relay-node", ["/opt/openshell-agent/codex-relay.mjs"], { stdio: "ignore", env: process.env });
+    await waitForRelay();
+  }
 
   const cwd = request.repository ? await prepareRepository(request, log) : root;
   const prompt = buildPrompt(request);
@@ -58,7 +68,7 @@ try {
     : request.workerTools;
   const args = [
     "--mode", "json", "-p", "--no-session", "--no-context-files", "--no-skills",
-    "--no-prompt-templates", "--no-themes", "--no-approve", "--model", "openshell/managed",
+    "--no-prompt-templates", "--no-themes", "--model", `${providerId}/${modelId}`,
     "--tools", activeTools.join(","),
   ];
   if (request.browser) {
@@ -81,6 +91,7 @@ try {
   process.exitCode = 1;
 } finally {
   if (child && child.exitCode === null) child.kill("SIGTERM");
+  if (relay && relay.exitCode === null) relay.kill("SIGTERM");
   log?.end();
   await rm(join(runtimeDir, "active-process-group"), { force: true }).catch(() => {});
   if (lockOwned) await rm(lockPath, { recursive: true, force: true }).catch(() => {});
@@ -120,6 +131,23 @@ async function lockOwnerIsAlive() {
   return false;
 }
 
+function syntheticCodexAccessToken() {
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  return `${encode({ alg: "none", typ: "JWT" })}.${encode({ exp: 4102444800, "https://api.openai.com/auth": { chatgpt_account_id: "openshell-placeholder" } })}.synthetic`;
+}
+
+async function waitForRelay() {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    if (!relay || relay.exitCode !== null) throw new SafeFailure("inference_relay_failed");
+    try {
+      const response = await fetch("http://127.0.0.1:3020/health");
+      if (response.ok) return;
+    } catch { /* relay is still starting */ }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new SafeFailure("inference_relay_failed");
+}
+
 class SafeFailure extends Error {
   constructor(code) { super(code); this.code = code; }
 }
@@ -127,7 +155,9 @@ class SafeFailure extends Error {
 function validateRequest(value) {
   if (!value || typeof value !== "object") throw new SafeFailure("invalid_request");
   if (typeof value.task !== "string" || !value.task.trim() || Buffer.byteLength(value.task) > 256 * 1024) throw new SafeFailure("invalid_task");
-  if (!value.inference || !["openai-responses", "openai-completions", "anthropic-messages"].includes(value.inference.api)) throw new SafeFailure("invalid_inference");
+  if (!value.inference || !["openai-responses", "openai-completions", "anthropic-messages", "openai-codex-responses"].includes(value.inference.api) ||
+      !["gateway", "codex-subscription"].includes(value.inference.mode) || typeof value.inference.model !== "string" || !/^[a-zA-Z0-9._-]{1,100}$/.test(value.inference.model) ||
+      (value.inference.mode === "codex-subscription" && value.inference.api !== "openai-codex-responses")) throw new SafeFailure("invalid_inference");
   if (!Array.isArray(value.workerTools) || value.workerTools.some((tool) => !/^[a-z0-9_-]+$/.test(tool))) throw new SafeFailure("invalid_tools");
   if (value.repository) {
     if (typeof value.repository.url !== "string" || !repositoryUrlIsCredentialFree(value.repository.url)) throw new SafeFailure("invalid_repository");

@@ -1,6 +1,6 @@
 export type AdvisorMode = "manual" | "auto";
 export type ReuseStrategy = "ephemeral" | "trust-domain" | "repository" | "browser-profile";
-export type InferenceApi = "openai-responses" | "openai-completions" | "anthropic-messages";
+export type InferenceApi = "openai-responses" | "openai-completions" | "anthropic-messages" | "openai-codex-responses";
 
 export interface OpenShellProfile {
   name: string;
@@ -15,6 +15,10 @@ export interface OpenShellProfile {
   providers: string[];
   requiredProviderTypes?: string[];
   inferenceApi?: InferenceApi;
+  codexSubscription?: {
+    provider: string;
+    model: string;
+  };
   workerTools: string[];
   filesystem: {
     readOnly: string[];

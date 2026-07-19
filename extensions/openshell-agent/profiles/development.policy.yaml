@@ -2,7 +2,7 @@ version: 1
 
 filesystem_policy:
   include_workdir: true
-  read_only: [/usr, /lib, /proc, /dev/urandom, /app, /etc, /var/log]
+  read_only: [/usr, /lib, /proc, /dev/urandom, /app, /etc, /var/log, /opt]
   read_write: [/sandbox, /tmp, /dev/null]
 
 landlock:
@@ -13,6 +13,16 @@ process:
   run_as_group: sandbox
 
 # GitHub access is contributed by the explicitly attached Providers v2
-# instance. The built-in GitHub profile is read-oriented. Any credential reach
-# or write-capability expansion remains a manual Policy Advisor decision.
-network_policies: {}
+# instance. The fixed Codex relay is the only other base egress path. Any
+# credential reach or write-capability expansion remains a manual decision.
+network_policies:
+  codex_relay:
+    name: codex-relay
+    endpoints:
+      - host: chatgpt.com
+        port: 443
+        protocol: rest
+        access: read-write
+        enforcement: enforce
+    binaries:
+      - path: /opt/openshell-agent/relay-node

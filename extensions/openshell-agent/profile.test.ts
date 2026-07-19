@@ -6,7 +6,7 @@ import test from "node:test";
 
 import { BUILTIN_PROFILES, loadProfiles } from "./profile.ts";
 
-test("built-in examples are deny-first and keep providers off research", async () => {
+test("built-in examples are deny-first and keep business providers off research", async () => {
   const research = BUILTIN_PROFILES["web-research"];
   const development = BUILTIN_PROFILES.development;
   assert.deepEqual(research.providers, []);
@@ -14,7 +14,9 @@ test("built-in examples are deny-first and keep providers off research", async (
   assert.equal(development.advisorMode, "manual");
   assert.deepEqual(development.requiredProviderTypes, ["github"]);
   const policy = await import("node:fs/promises").then(({ readFile }) => readFile(research.basePolicy, "utf8"));
-  assert.match(policy, /network_policies:\s*\{\}/);
+  assert.match(policy, /host: chatgpt\.com/);
+  assert.match(policy, /path: \/opt\/openshell-agent\/relay-node/);
+  assert.equal((policy.match(/host:/g) ?? []).length, 1);
   assert.equal(policy.includes("host: *"), false);
 });
 

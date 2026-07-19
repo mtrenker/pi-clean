@@ -42,7 +42,7 @@ export async function dynamicFingerprint(profile: OpenShellProfile): Promise<str
   } catch (error) {
     throw new Error(`Could not read base policy ${profile.basePolicy}: ${errorMessage(error)}`);
   }
-  return canonicalHash({ policy, providers: [...profile.providers].sort(), advisorMode: profile.advisorMode });
+  return canonicalHash({ policy, providers: [...profile.providers].sort(), codexSubscription: profile.codexSubscription, advisorMode: profile.advisorMode });
 }
 
 async function policyStaticMaterial(path: string): Promise<string> {
