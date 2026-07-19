@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import http from "node:http";
@@ -18,24 +18,40 @@ const context = await chromium.launchPersistentContext("/var/lib/openshell-brows
   args: ["--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check"],
 });
 const page = context.pages()[0] ?? await context.newPage();
-const vncPassword = await ensureVncPassword();
-await writeFile("/run/openshell-browser/controller.pid", `${process.pid}\n`, { mode: 0o660 });
+const controlSecretPath = "/var/lib/openshell-browser/.control-secret";
+let controlSecret = await readFile(controlSecretPath, "utf8").then((value) => value.trim()).catch(() => undefined);
+let paused = false;
+let vncProcess;
+const usedNonces = new Set();
+await startVnc(controlSecret ? deriveVncPassword() : randomBytes(8).toString("hex").slice(0, 8));
 
 const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url ?? "/", `http://127.0.0.1:${PORT}`);
-    if (request.method === "GET" && url.pathname === "/health") return send(response, 200, { ok: true });
-    if (request.method === "POST" && url.pathname === "/pause") {
-      await writeFile("/run/openshell-browser/paused", "manual takeover\n", { mode: 0o660 });
-      send(response, 200, { ok: true, automation: "os_suspended", vncPassword });
-      // Keep Chromium alive for noVNC, but stop the controller process itself.
-      // The root-owned image monitor resumes it only after the host removes the
-      // explicit pause marker. No automation or capture can run while stopped.
-      setTimeout(() => process.kill(process.pid, "SIGSTOP"), 50);
-      return;
+    if (request.method === "GET" && url.pathname === "/health") return send(response, 200, { ok: true, paused });
+    if (request.method !== "POST" && url.pathname !== "/snapshot") return send(response, 405, { code: "method_not_allowed" });
+    if (request.method === "POST" && url.pathname === "/control/initialize") {
+      const body = await jsonBody(request);
+      if (controlSecret) throw new ControllerError("already_initialized");
+      if (typeof body.secret !== "string" || !/^[a-zA-Z0-9_-]{40,64}$/.test(body.secret)) throw new ControllerError("invalid_control_secret");
+      controlSecret = body.secret;
+      await writeFile(controlSecretPath, `${controlSecret}\n`, { mode: 0o600 });
+      await startVnc(deriveVncPassword());
+      return send(response, 200, { ok: true });
     }
+    if (request.method === "POST" && (url.pathname === "/control/pause" || url.pathname === "/control/resume")) {
+      const action = url.pathname.endsWith("pause") ? "pause" : "resume";
+      const body = await jsonBody(request);
+      authorizeControl(body, action);
+      if (action === "pause") {
+        paused = true;
+      } else {
+        paused = false;
+      }
+      return send(response, 200, { ok: true, automation: paused ? "paused" : "active" });
+    }
+    if (paused) throw new ControllerError("automation_paused");
     if (request.method === "GET" && url.pathname === "/snapshot") return send(response, 200, await snapshot());
-    if (request.method !== "POST") return send(response, 405, { code: "method_not_allowed" });
     const body = await jsonBody(request);
     if (url.pathname === "/navigate") return send(response, 200, await navigate(body));
     if (url.pathname === "/click") return send(response, 200, await click(body));
@@ -44,28 +60,44 @@ const server = http.createServer(async (request, response) => {
     return send(response, 404, { code: "not_found" });
   } catch (error) {
     const code = error instanceof ControllerError ? error.code : "controller_error";
-    send(response, code === "manual_takeover_required" ? 409 : 400, { code });
+    const status = code === "manual_takeover_required" ? 409 : code === "automation_paused" ? 423 : 400;
+    send(response, status, { code });
   }
 });
 
 server.listen(PORT, "127.0.0.1");
 
-async function ensureVncPassword() {
-  const passwordPath = "/var/lib/openshell-browser/.vnc-password";
+function authorizeControl(packet, action) {
+  if (!controlSecret || typeof packet.timestamp !== "number" || Math.abs(Date.now() - packet.timestamp) > 30_000 ||
+      typeof packet.nonce !== "string" || !/^[a-f0-9-]{36}$/.test(packet.nonce) || usedNonces.has(packet.nonce) ||
+      typeof packet.mac !== "string" || !/^[a-f0-9]{64}$/.test(packet.mac)) {
+    throw new ControllerError("control_unauthorized");
+  }
+  const expected = createHmac("sha256", controlSecret).update(`${action}:${packet.timestamp}:${packet.nonce}`).digest();
+  const supplied = Buffer.from(packet.mac, "hex");
+  if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw new ControllerError("control_unauthorized");
+  usedNonces.add(packet.nonce);
+}
+
+function deriveVncPassword() {
+  return createHmac("sha256", controlSecret).update("vnc").digest("hex").slice(0, 8);
+}
+
+async function startVnc(password) {
   const authPath = "/var/lib/openshell-browser/.vnc-auth";
-  let password;
-  try { password = (await readFile(passwordPath, "utf8")).trim(); }
-  catch {
-    password = randomBytes(8).toString("hex").slice(0, 8);
-    await writeFile(passwordPath, `${password}\n`, { mode: 0o600 });
+  if (vncProcess?.exitCode === null) {
+    vncProcess.kill("SIGTERM");
+    await Promise.race([
+      new Promise((resolve) => vncProcess.once("close", resolve)),
+      new Promise((resolve) => setTimeout(resolve, 1000)),
+    ]);
   }
   spawnSync("x11vnc", ["-storepasswd", password, authPath], { stdio: "ignore" });
-  spawn("x11vnc", ["-display", ":99", "-localhost", "-forever", "-shared", "-rfbauth", authPath, "-quiet"], {
-    detached: true,
+  vncProcess = spawn("x11vnc", ["-display", ":99", "-localhost", "-forever", "-shared", "-rfbauth", authPath, "-quiet"], {
     stdio: "ignore",
     env: { ...process.env, XAUTHORITY: "/var/lib/openshell-browser/.Xauthority" },
-  }).unref();
-  return password;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 100));
 }
 
 async function navigate(body) {

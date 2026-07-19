@@ -1,8 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import extension, { parseOpenShellCommand, trustedCompletion } from "./index.ts";
+import extension, { browserControlPacket, parseOpenShellCommand, trustedCompletion } from "./index.ts";
 import type { OpenShellAgentDetails } from "./types.ts";
+
+test("browser takeover uses one-time signed control packets without transmitting the VNC password", () => {
+  const first = browserControlPacket("host-only-control-secret", "pause");
+  const second = browserControlPacket("host-only-control-secret", "pause");
+  assert.notEqual(first.packet.nonce, second.packet.nonce);
+  assert.equal(first.vncPassword, second.vncPassword);
+  assert.equal(JSON.stringify(first.packet).includes("host-only-control-secret"), false);
+  assert.equal(JSON.stringify(first.packet).includes(first.vncPassword), false);
+});
 
 test("bare openshell management command defaults to list", () => {
   assert.deepEqual(parseOpenShellCommand(""), ["list", undefined, undefined]);

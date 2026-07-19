@@ -73,6 +73,7 @@ export interface WorkspaceRecord {
   repository?: RepositoryRequest;
   browserProfile?: string;
   browser?: OpenShellProfile["browser"];
+  browserControlSecret?: string;
   createdAt: string;
   updatedAt: string;
 }

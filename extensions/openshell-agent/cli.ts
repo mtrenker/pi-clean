@@ -182,6 +182,11 @@ export class OpenShellClient {
     return this.runner.run(args, { input: options.input, signal: options.signal });
   }
 
+  async initializeBrowserControl(name: string, secret: string): Promise<void> {
+    const result = await this.exec(name, ["sh", "-c", "payload=$(cat); n=0; until printf %s \"$payload\" | curl -fsS -X POST --data-binary @- http://127.0.0.1:3010/control/initialize >/dev/null; do n=$((n+1)); test $n -lt 30 || exit 1; sleep 0.5; done"], { input: JSON.stringify({ secret }), timeout: 20 });
+    if (result.code !== 0) throw new Error("Could not initialize the browser-only takeover control capability");
+  }
+
   async installFile(name: string, sandboxPath: string, content: string, mode = "600"): Promise<void> {
     const result = await this.exec(name, ["sh", "-c", `umask 077; mkdir -p /sandbox/.openshell-agent; cat > ${shellPath(sandboxPath)}; chmod ${mode} ${shellPath(sandboxPath)}`], { input: content });
     if (result.code !== 0) throw new Error("Could not install the non-secret sandbox worker payload");

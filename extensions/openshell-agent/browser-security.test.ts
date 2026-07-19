@@ -14,7 +14,8 @@ test("browser controller exposes no credential, storage, screenshot, trace, or a
   assert.match(source, /manual_takeover_required/);
   assert.match(source, /password\|passcode/);
   assert.match(source, /captcha/);
-  assert.match(source, /SIGSTOP/, "pause must OS-suspend the automation controller");
+  assert.match(source, /authorizeControl\(body, action\)/, "pause and resume require a host-authenticated one-time packet");
+  assert.match(source, /automation_paused/);
   assert.equal(source.includes("connectOverCDP"), false, "worker-reachable CDP must not exist");
 });
 
@@ -31,9 +32,10 @@ test("manual takeover is loopback-only and the browser profile is Unix-isolated"
   assert.equal(entrypoint.includes("remote-debugging-port"), false);
   assert.equal(controller.includes("-nopw"), false);
   assert.match(controller, /-rfbauth/);
-  assert.match(controller, /\.vnc-password.*mode: 0o600/s);
-  assert.match(entrypoint, /kill -CONT/);
-  assert.match(hostExtension, /if ! response=.*kill -CONT/s, "failed controller pause must resume the worker");
-  assert.match(hostExtension, /action === "resume"[\s\S]*rm -f \/run\/openshell-browser\/paused/, "explicit resume must repair a pause even without a forward handle");
+  assert.match(controller, /controlSecretPath[\s\S]*mode: 0o600/);
+  assert.match(controller, /deriveVncPassword/);
+  assert.equal(controller.includes("vncPassword });"), false, "the controller must not disclose the derived VNC password");
+  assert.match(hostExtension, /control\/pause[\s\S]*kill -CONT/, "failed controller pause must resume the worker");
+  assert.match(hostExtension, /action === "resume"[\s\S]*control\/resume/, "explicit resume must repair a pause even without a forward handle");
   assert.match(entrypoint, /runuser -u browser/);
 });

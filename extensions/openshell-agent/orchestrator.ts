@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
@@ -105,6 +105,8 @@ export class OpenShellAgentOrchestrator {
         } else {
           callbacks.progress(`Created isolated sandbox ${sandbox.name}…`);
         }
+        const browserControlSecret = profile.browser ? randomBytes(32).toString("base64url") : undefined;
+        if (browserControlSecret) await this.cli.initializeBrowserControl(sandbox.name, browserControlSecret);
         const now = new Date().toISOString();
         record = {
           logicalKey: identity.logicalKey,
@@ -119,12 +121,16 @@ export class OpenShellAgentOrchestrator {
           repository: input.repository,
           browserProfile: input.browserProfile,
           browser: profile.browser,
+          browserControlSecret,
           createdAt: now,
           updatedAt: now,
         };
         await this.registry.put(record);
       }
 
+      if (profile.browser && !record.browserControlSecret) {
+        throw new AgentFailure("browser_control_missing", "This legacy browser workspace lacks a host-only takeover capability. Recreate it explicitly before use.");
+      }
       callbacks.progress(`${reused ? "Reusing" : "Preparing"} Ready sandbox ${record.sandboxName}…`);
       await this.installRuntime(record.sandboxName, Boolean(profile.browser));
       const jobId = randomUUID();

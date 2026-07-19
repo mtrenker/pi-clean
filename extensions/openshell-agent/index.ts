@@ -4,6 +4,7 @@ import {
   type ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
+import { createHmac, randomUUID } from "node:crypto";
 import { Type } from "typebox";
 
 import { OpenShellAgentOrchestrator, AgentFailure } from "./orchestrator.ts";
@@ -171,26 +172,29 @@ const openshellAgentExtension: ExtensionFactory = (pi) => {
           ctx.ui.notify("Use a local port from 1024 to 65535.", "error");
           return;
         }
-        const confirmed = await ctx.ui.confirm(
-          "Begin sensitive manual browser takeover?",
-          "This explicitly authorizes a human-only interval. The worker and browser automation controller will be OS-suspended before noVNC opens. Perform only the consequential action you intend, then run the explicit resume command.",
-        );
-        if (!confirmed) return;
-        const paused = await orchestrator.cli.exec(record.sandboxName, ["sh", "-c", "stopped=0; if test -f /sandbox/.openshell-agent/active-process-group; then pgid=$(cat /sandbox/.openshell-agent/active-process-group); kill -STOP -- -$pgid; stopped=1; fi; if ! response=$(curl -fsS -X POST http://127.0.0.1:3010/pause); then rm -f /run/openshell-browser/paused; if test $stopped -eq 1; then kill -CONT -- -$pgid || true; fi; exit 1; fi; printf %s \"$response\""], { timeout: 15 });
-        let vncPassword: string | undefined;
-        try {
-          const response = JSON.parse(paused.stdout) as { vncPassword?: unknown };
-          if (typeof response.vncPassword === "string" && /^[a-f0-9]{8}$/.test(response.vncPassword)) vncPassword = response.vncPassword;
-        } catch { /* fail closed below */ }
-        if (paused.code !== 0 || !vncPassword) {
-          await orchestrator.cli.exec(record.sandboxName, ["sh", "-c", "rm -f /run/openshell-browser/paused; if test -f /sandbox/.openshell-agent/active-process-group; then kill -CONT -- -$(cat /sandbox/.openshell-agent/active-process-group) || true; fi"], { timeout: 15 });
-          ctx.ui.notify("Could not suspend automation and establish protected VNC access; the worker was resumed and takeover was not opened.", "error");
+        if (!record.browserControlSecret) {
+          ctx.ui.notify("This browser workspace lacks its host-only takeover capability. Recreate it before use.", "error");
           return;
         }
+        const confirmed = await ctx.ui.confirm(
+          "Begin sensitive manual browser takeover?",
+          "This explicitly authorizes a human-only interval. The worker will be OS-suspended and the browser controller will enter its host-authenticated paused state before noVNC opens. Perform only the consequential action you intend, then run the explicit resume command.",
+        );
+        if (!confirmed) return;
+        const control = browserControlPacket(record.browserControlSecret, "pause");
+        const paused = await orchestrator.cli.exec(record.sandboxName, ["sh", "-c", "stopped=0; if test -f /sandbox/.openshell-agent/active-process-group; then pgid=$(cat /sandbox/.openshell-agent/active-process-group); kill -STOP -- -$pgid; stopped=1; fi; if ! curl -fsS -X POST --data-binary @- http://127.0.0.1:3010/control/pause >/dev/null; then if test $stopped -eq 1; then kill -CONT -- -$pgid || true; fi; exit 1; fi"], { input: JSON.stringify(control.packet), timeout: 15 });
+        if (paused.code !== 0) {
+          const resume = browserControlPacket(record.browserControlSecret, "resume");
+          await orchestrator.cli.exec(record.sandboxName, ["curl", "-fsS", "-X", "POST", "--data-binary", "@-", "http://127.0.0.1:3010/control/resume"], { input: JSON.stringify(resume.packet), timeout: 15 });
+          await orchestrator.cli.exec(record.sandboxName, ["sh", "-c", "if test -f /sandbox/.openshell-agent/active-process-group; then kill -CONT -- -$(cat /sandbox/.openshell-agent/active-process-group) || true; fi"], { timeout: 15 });
+          ctx.ui.notify("Could not pause protected browser automation; the worker was resumed and takeover was not opened.", "error");
+          return;
+        }
+        const vncPassword = control.vncPassword;
         const handle = orchestrator.cli.startForward(record.sandboxName, record.browser.noVncPort, localPort);
         forwards.set(record.workspaceId, handle);
         ctx.ui.notify(
-          `Sensitive manual takeover active\n${handle.url}\nVNC password: ${vncPassword}\n\nThe worker and automation controller are OS-suspended. X11 and VNC require browser-user-only credentials, and the controller exposes no CDP socket. Screenshots, tracing, keystroke capture, and controller request-body logging are disabled. The browser process still handles secrets inside this isolated sandbox. Run /openshell resume ${record.workspaceId} when finished.`,
+          `Sensitive manual takeover active\n${handle.url}\nVNC password: ${vncPassword}\n\nThe worker is OS-suspended and every automation route is locked behind a one-time host-authenticated pause. X11 and VNC require browser-user-only credentials, and the controller exposes no CDP socket. Screenshots, tracing, keystroke capture, and controller request-body logging are disabled. The browser process still handles secrets inside this isolated sandbox. Run /openshell resume ${record.workspaceId} when finished.`,
           "warning",
         );
         return;
@@ -199,7 +203,12 @@ const openshellAgentExtension: ExtensionFactory = (pi) => {
         const handle = forwards.get(record.workspaceId);
         handle?.stop();
         forwards.delete(record.workspaceId);
-        const resumed = await orchestrator.cli.exec(record.sandboxName, ["sh", "-c", "rm -f /run/openshell-browser/paused; n=0; until curl -fsS http://127.0.0.1:3010/health >/dev/null 2>&1; do n=$((n+1)); test $n -lt 50 || exit 1; sleep 0.2; done; if test -f /sandbox/.openshell-agent/active-process-group; then kill -CONT -- -$(cat /sandbox/.openshell-agent/active-process-group); fi"], { timeout: 15 });
+        if (!record.browserControlSecret) {
+          ctx.ui.notify("This browser workspace lacks its host-only takeover capability. Recreate it before use.", "error");
+          return;
+        }
+        const control = browserControlPacket(record.browserControlSecret, "resume");
+        const resumed = await orchestrator.cli.exec(record.sandboxName, ["sh", "-c", "if ! curl -fsS -X POST --data-binary @- http://127.0.0.1:3010/control/resume >/dev/null; then exit 1; fi; if test -f /sandbox/.openshell-agent/active-process-group; then kill -CONT -- -$(cat /sandbox/.openshell-agent/active-process-group); fi"], { input: JSON.stringify(control.packet), timeout: 15 });
         ctx.ui.notify(resumed.code === 0 ? "Takeover ended explicitly; controller and worker may resume." : "Resume failed closed; automation remains unavailable.", resumed.code === 0 ? "info" : "error");
         return;
       }
@@ -230,6 +239,14 @@ async function reviewProposal(ctx: ExtensionContext, proposal: PolicyProposal) {
   }
   const confirmed = await ctx.ui.confirm("Approve this structured grant?", `${grant}\n\nApprove based on the structured grant and prover evidence, never the agent rationale alone.`);
   return confirmed ? { action: "approve" as const } : { action: "reject" as const, reason: "Operator declined this structured grant." };
+}
+
+export function browserControlPacket(secret: string, action: "pause" | "resume") {
+  const timestamp = Date.now();
+  const nonce = randomUUID();
+  const mac = createHmac("sha256", secret).update(`${action}:${timestamp}:${nonce}`).digest("hex");
+  const vncPassword = createHmac("sha256", secret).update("vnc").digest("hex").slice(0, 8);
+  return { packet: { timestamp, nonce, mac }, vncPassword };
 }
 
 export function parseOpenShellCommand(args: string): [string, string | undefined, string | undefined] {
