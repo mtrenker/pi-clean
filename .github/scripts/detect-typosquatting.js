@@ -5,6 +5,12 @@
  * Analyzes package names for potential typosquatting attacks
  */
 
+// Exact packages that have been manually verified against their official project.
+// Keep this list narrow: a trusted scope does not automatically trust every package in it.
+const VERIFIED_PACKAGES = new Set([
+  '@platejs/core', // https://platejs.org — official Plate framework core package
+]);
+
 const POPULAR_PACKAGES = [
   'react', 'lodash', 'express', 'axios', 'moment', 'typescript',
   'webpack', 'eslint', 'prettier', 'jest', 'chalk', 'commander',
@@ -261,6 +267,10 @@ function analyzePackage(packageName) {
     risks: [],
     overallRisk: 'low'
   };
+
+  if (VERIFIED_PACKAGES.has(packageName)) {
+    return { ...results, verified: true };
+  }
   
   const parsed = parsePackageName(packageName);
   const nameToCheck = parsed.name.toLowerCase();
@@ -405,5 +415,6 @@ module.exports = {
   levenshteinDistance,
   checkCombosquatting,
   checkNamespaceSquatting,
-  POPULAR_PACKAGES
+  POPULAR_PACKAGES,
+  VERIFIED_PACKAGES
 };

@@ -12,21 +12,31 @@
   },
   "scripts": {
     "test:extensions": "node --test scripts/extension-loader.test.mjs",
+    "test:supply-chain": "node --test .github/scripts/*.test.js",
+    "test:visual-design": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test extensions/visual-design/*.test.ts",
     "test:github-planning": "node --test scripts/github-planning.test.mjs",
     "test:github-work": "node --test scripts/github-work.test.mjs"
   },
   "dependencies": {
+    "@platejs/core": "^53.2.4",
+    "esbuild": "^0.28.1",
     "minimatch": "^10.2.5",
-    "playwright": "^1.61.1"
+    "playwright": "^1.61.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
     "@earendil-works/pi-agent-core": "^0.80.10",
+    "@earendil-works/pi-ai": "^0.80.10",
     "@earendil-works/pi-coding-agent": "^0.80.10",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "typebox": "1.1.38",
     "typescript": "^5.7.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
     "typebox": "*"
   },
