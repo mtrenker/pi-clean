@@ -1,0 +1,250 @@
+{
+  "schemaVersion": 1,
+  "title": "Common Ground — neighborhood supper club",
+  "root": [
+    {
+      "id": "site-viewport",
+      "type": "viewport",
+      "className": "bg-paper",
+      "children": [
+        {
+          "id": "hero-section",
+          "type": "section",
+          "tone": "ink",
+          "className": "pad-lg",
+          "children": [
+            {
+              "id": "hero-layout",
+              "type": "grid",
+              "columns": 2,
+              "className": "gap-lg",
+              "children": [
+                {
+                  "id": "hero-copy",
+                  "type": "stack",
+                  "children": [
+                    {
+                      "id": "hero-kicker",
+                      "type": "text",
+                      "variant": "eyebrow",
+                      "className": "text-signal",
+                      "children": [
+                        {
+                          "text": "COMMON GROUND · TABLE 08"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "hero-title",
+                      "type": "text",
+                      "variant": "display",
+                      "children": [
+                        {
+                          "text": "A long table for a small neighborhood."
+                        }
+                      ]
+                    },
+                    {
+                      "id": "hero-body",
+                      "type": "text",
+                      "children": [
+                        {
+                          "text": "One Saturday each month, twelve strangers bring a dish, share a story, and leave knowing who lives two doors down."
+                        }
+                      ]
+                    },
+                    {
+                      "id": "hero-action",
+                      "type": "button",
+                      "tone": "signal",
+                      "children": [
+                        {
+                          "text": "Request a chair ↗"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "id": "next-table-card",
+                  "type": "surface",
+                  "className": "align-end",
+                  "children": [
+                    {
+                      "id": "next-label",
+                      "type": "text",
+                      "variant": "eyebrow",
+                      "children": [
+                        {
+                          "text": "NEXT TABLE"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "next-date",
+                      "type": "text",
+                      "variant": "title",
+                      "children": [
+                        {
+                          "text": "26 October, 18:30"
+                        }
+                      ]
+                    },
+                    {
+                      "id": "next-place",
+                      "type": "text",
+                      "children": [
+                        {
+                          "text": "The old print room · Linzer Straße 41"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "principles-section",
+          "type": "section",
+          "tone": "paper",
+          "children": [
+            {
+              "id": "principles-stack",
+              "type": "stack",
+              "className": "gap-lg",
+              "children": [
+                {
+                  "id": "principles-title",
+                  "type": "text",
+                  "variant": "title",
+                  "children": [
+                    {
+                      "text": "The recipe is deliberately simple."
+                    }
+                  ]
+                },
+                {
+                  "id": "principles-grid",
+                  "type": "grid",
+                  "columns": 3,
+                  "children": [
+                    {
+                      "id": "principle-bring",
+                      "type": "surface",
+                      "children": [
+                        {
+                          "id": "principle-bring-title",
+                          "type": "text",
+                          "variant": "eyebrow",
+                          "children": [
+                            {
+                              "text": "01 · BRING"
+                            }
+                          ]
+                        },
+                        {
+                          "id": "principle-bring-copy",
+                          "type": "text",
+                          "children": [
+                            {
+                              "text": "Cook one thing you would be happy to eat twice. It need not be impressive."
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "id": "principle-share",
+                      "type": "surface",
+                      "children": [
+                        {
+                          "id": "principle-share-title",
+                          "type": "text",
+                          "variant": "eyebrow",
+                          "children": [
+                            {
+                              "text": "02 · SHARE"
+                            }
+                          ]
+                        },
+                        {
+                          "id": "principle-share-copy",
+                          "type": "text",
+                          "children": [
+                            {
+                              "text": "Tell us where the dish came from. Ask the person opposite what they noticed this week."
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "id": "principle-return",
+                      "type": "surface",
+                      "children": [
+                        {
+                          "id": "principle-return-title",
+                          "type": "text",
+                          "variant": "eyebrow",
+                          "children": [
+                            {
+                              "text": "03 · RETURN"
+                            }
+                          ]
+                        },
+                        {
+                          "id": "principle-return-copy",
+                          "type": "text",
+                          "children": [
+                            {
+                              "text": "Next month, bring someone who has not found their place at the table yet."
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "closing-section",
+          "type": "section",
+          "tone": "signal",
+          "children": [
+            {
+              "id": "closing-stack",
+              "type": "stack",
+              "className": "align-center gap-sm",
+              "children": [
+                {
+                  "id": "closing-title",
+                  "type": "text",
+                  "variant": "title",
+                  "children": [
+                    {
+                      "text": "Twelve chairs. No audience."
+                    }
+                  ]
+                },
+                {
+                  "id": "closing-copy",
+                  "type": "text",
+                  "children": [
+                    {
+                      "text": "Dietary needs are handled quietly and every gathering keeps two pay-what-you-can places."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

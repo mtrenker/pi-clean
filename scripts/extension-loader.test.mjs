@@ -13,6 +13,7 @@ const packageRoot = resolve(import.meta.dirname, "..");
 const extensionPaths = [
   "extensions/agent-guard/index.ts",
   "extensions/browser/index.ts",
+  "extensions/visual-design/index.ts",
 ].map((path) => resolve(packageRoot, path));
 
 test("all shipped extensions load with the current Pi extension loader", async () => {

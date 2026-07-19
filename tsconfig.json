@@ -10,9 +10,10 @@
     "declaration": false,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "jsx": "react-jsx",
     "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["extensions/**/*.ts"],
+  "include": ["extensions/**/*.ts", "extensions/**/*.tsx"],
   "exclude": ["node_modules"]
 }

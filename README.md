@@ -24,6 +24,10 @@ Requires Playwright browser binaries:
 npx playwright install chromium
 ```
 
+### ◩ [Visual Design Relay](extensions/visual-design/README.md)
+
+Prototypes repo-native, Plate-compatible visual artifacts: select a stable design node in the browser, discuss it with Pi, and watch validated agent mutations or external file edits appear live. Start the included artifact with `/design designs/example.design.json`.
+
 ## Interactive delegation with Herdr
 
 Pi-clean intentionally does not ship a subprocess delegation tool or a package-owned Herdr skill. Use the externally managed `herdr` skill discovered from `~/.agents/skills/` as the canonical guide to current pane, workspace, output, focus, and intervention commands.
@@ -79,6 +83,8 @@ Set `FLIGHTDECK_TELEMETRY_FILE` to emit compatible worktree and agent-start even
 pi-clean/
 ├── extensions/agent-guard/ # Shell, path, and output safety guardrails
 ├── extensions/browser/     # Playwright browser automation
+├── extensions/visual-design/ # PlateJS visual artifact relay
+├── designs/                # Example repo-native visual artifacts
 ├── skills/                 # GitHub workflow and code-quality skills
 ├── scripts/                # GitHub issue/worktree helpers
 └── prompts/                # GitHub issue-grooming shortcuts
