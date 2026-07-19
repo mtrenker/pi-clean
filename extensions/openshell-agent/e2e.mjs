@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { randomUUID } from "node:crypto";
+
 if (process.env.OPENSHELL_AGENT_E2E !== "1") {
   console.log("SKIP: set OPENSHELL_AGENT_E2E=1 for the credentialed OpenShell/Codex integration check");
   process.exit(0);
@@ -14,7 +16,7 @@ const [{ readLocalCodexCredentials }, { resolveIdentity }, { OpenShellAgentOrche
 
 const orchestrator = new OpenShellAgentOrchestrator({ proposalPollMs: 200 });
 const profile = BUILTIN_PROFILES["web-research"];
-const trustDomain = `openshell-agent-e2e-${Date.now()}`;
+const trustDomain = `openshell-agent-e2e-${randomUUID()}`;
 const callbacks = {
   confirmRecreate: async () => true,
   reviewProposal: async () => ({ action: "reject", reason: "The bounded integration check needs no policy expansion." }),
@@ -35,7 +37,7 @@ try {
 
   const credentialsAfter = await readLocalCodexCredentials();
   const inspection = await orchestrator.cli.exec(second.sandboxName, ["sh", "-c",
-    "find /sandbox/.pi-agent /sandbox/.openshell-agent /sandbox/jobs -type f -maxdepth 3 -exec cat {} \\; 2>/dev/null; printf '\\n---ENV---\\n'; env; printf '\\n---PROC---\\n'; for f in /proc/[0-9]*/cmdline; do tr '\\0' ' ' < \"$f\" 2>/dev/null; echo; done"], { timeout: 30 });
+    "find /sandbox/.pi-agent /sandbox/.openshell-agent /sandbox/jobs -type f -exec cat {} \\; 2>/dev/null; printf '\\n---ENV---\\n'; env; printf '\\n---PROC---\\n'; for f in /proc/[0-9]*/cmdline; do tr '\\0' ' ' < \"$f\" 2>/dev/null; echo; done"], { timeout: 30 });
   if (inspection.code !== 0) throw new Error("Sandbox canary inspection failed");
   const canaries = new Set([...Object.values(credentialsBefore), ...Object.values(credentialsAfter)]);
   for (const value of canaries) {
@@ -43,8 +45,9 @@ try {
   }
   console.log(JSON.stringify({ status: "pass", model: profile.codexSubscription.model, persistentReuse: true, credentialCanariesAbsent: true }));
 } finally {
-  await orchestrator.cli.deleteSandbox(identity.sandboxName).catch(() => {});
-  await orchestrator.registry.remove(identity.logicalKey).catch(() => {});
+  const exists = (await orchestrator.cli.listSandboxes()).some((sandbox) => sandbox.name === identity.sandboxName);
+  if (exists) await orchestrator.cli.deleteSandbox(identity.sandboxName);
+  await orchestrator.registry.remove(identity.logicalKey);
 }
 
 function assertResult(result, expected, reused) {
