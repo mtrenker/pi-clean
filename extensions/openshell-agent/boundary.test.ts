@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import extension, { trustedCompletion } from "./index.ts";
+import extension, { parseOpenShellCommand, trustedCompletion } from "./index.ts";
 import type { OpenShellAgentDetails } from "./types.ts";
+
+test("bare openshell management command defaults to list", () => {
+  assert.deepEqual(parseOpenShellCommand(""), ["list", undefined, undefined]);
+  assert.deepEqual(parseOpenShellCommand("status workspace"), ["status", "workspace", undefined]);
+});
 
 test("model-visible completion metadata excludes the hostile worker answer", () => {
   const details: OpenShellAgentDetails = {

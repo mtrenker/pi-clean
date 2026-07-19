@@ -122,7 +122,7 @@ const openshellAgentExtension: ExtensionFactory = (pi) => {
   pi.registerCommand("openshell", {
     description: "Manage OpenShell profiles/workspaces: profiles, list, status, delete, recreate, takeover, resume",
     async handler(args, ctx) {
-      const [action = "list", id, portArg] = args.trim().split(/\s+/);
+      const [action, id, portArg] = parseOpenShellCommand(args);
       const profiles = await loadProfiles({ cwd: ctx.cwd, projectTrusted: ctx.isProjectTrusted() });
       const records = await orchestrator.registry.list();
       if (action === "profiles") {
@@ -176,26 +176,28 @@ const openshellAgentExtension: ExtensionFactory = (pi) => {
           "This explicitly authorizes a human-only interval. The worker and browser automation controller will be OS-suspended before noVNC opens. Perform only the consequential action you intend, then run the explicit resume command.",
         );
         if (!confirmed) return;
-        const paused = await orchestrator.cli.exec(record.sandboxName, ["sh", "-c", "if test -f /sandbox/.openshell-agent/active-process-group; then kill -STOP -- -$(cat /sandbox/.openshell-agent/active-process-group); fi; curl -fsS -X POST http://127.0.0.1:3010/pause >/dev/null"], { timeout: 15 });
-        if (paused.code !== 0) {
-          ctx.ui.notify("Could not suspend automation and detach the browser controller; takeover was not opened.", "error");
+        const paused = await orchestrator.cli.exec(record.sandboxName, ["sh", "-c", "stopped=0; if test -f /sandbox/.openshell-agent/active-process-group; then pgid=$(cat /sandbox/.openshell-agent/active-process-group); kill -STOP -- -$pgid; stopped=1; fi; if ! response=$(curl -fsS -X POST http://127.0.0.1:3010/pause); then rm -f /run/openshell-browser/paused; if test $stopped -eq 1; then kill -CONT -- -$pgid || true; fi; exit 1; fi; printf %s \"$response\""], { timeout: 15 });
+        let vncPassword: string | undefined;
+        try {
+          const response = JSON.parse(paused.stdout) as { vncPassword?: unknown };
+          if (typeof response.vncPassword === "string" && /^[a-f0-9]{8}$/.test(response.vncPassword)) vncPassword = response.vncPassword;
+        } catch { /* fail closed below */ }
+        if (paused.code !== 0 || !vncPassword) {
+          await orchestrator.cli.exec(record.sandboxName, ["sh", "-c", "rm -f /run/openshell-browser/paused; if test -f /sandbox/.openshell-agent/active-process-group; then kill -CONT -- -$(cat /sandbox/.openshell-agent/active-process-group) || true; fi"], { timeout: 15 });
+          ctx.ui.notify("Could not suspend automation and establish protected VNC access; the worker was resumed and takeover was not opened.", "error");
           return;
         }
         const handle = orchestrator.cli.startForward(record.sandboxName, record.browser.noVncPort, localPort);
         forwards.set(record.workspaceId, handle);
         ctx.ui.notify(
-          `Sensitive manual takeover active\n${handle.url}\n\nThe worker and automation controller are OS-suspended. The controller exposes no CDP socket; screenshots, tracing, keystroke capture, and controller request-body logging are disabled. The browser process still handles secrets inside this isolated sandbox. Run /openshell resume ${record.workspaceId} when finished.`,
+          `Sensitive manual takeover active\n${handle.url}\nVNC password: ${vncPassword}\n\nThe worker and automation controller are OS-suspended. X11 and VNC require browser-user-only credentials, and the controller exposes no CDP socket. Screenshots, tracing, keystroke capture, and controller request-body logging are disabled. The browser process still handles secrets inside this isolated sandbox. Run /openshell resume ${record.workspaceId} when finished.`,
           "warning",
         );
         return;
       }
       if (action === "resume") {
         const handle = forwards.get(record.workspaceId);
-        if (!handle) {
-          ctx.ui.notify("No takeover is active for this workspace.", "warning");
-          return;
-        }
-        handle.stop();
+        handle?.stop();
         forwards.delete(record.workspaceId);
         const resumed = await orchestrator.cli.exec(record.sandboxName, ["sh", "-c", "rm -f /run/openshell-browser/paused; n=0; until curl -fsS http://127.0.0.1:3010/health >/dev/null 2>&1; do n=$((n+1)); test $n -lt 50 || exit 1; sleep 0.2; done; if test -f /sandbox/.openshell-agent/active-process-group; then kill -CONT -- -$(cat /sandbox/.openshell-agent/active-process-group); fi"], { timeout: 15 });
         ctx.ui.notify(resumed.code === 0 ? "Takeover ended explicitly; controller and worker may resume." : "Resume failed closed; automation remains unavailable.", resumed.code === 0 ? "info" : "error");
@@ -228,6 +230,11 @@ async function reviewProposal(ctx: ExtensionContext, proposal: PolicyProposal) {
   }
   const confirmed = await ctx.ui.confirm("Approve this structured grant?", `${grant}\n\nApprove based on the structured grant and prover evidence, never the agent rationale alone.`);
   return confirmed ? { action: "approve" as const } : { action: "reject" as const, reason: "Operator declined this structured grant." };
+}
+
+export function parseOpenShellCommand(args: string): [string, string | undefined, string | undefined] {
+  const [requestedAction, id, portArg] = args.trim().split(/\s+/).filter(Boolean);
+  return [requestedAction || "list", id, portArg];
 }
 
 export function trustedCompletion(details: OpenShellAgentDetails): string {

@@ -12,7 +12,7 @@ const DEFAULT_FILESYSTEM = {
   readWrite: ["/sandbox", "/tmp", "/dev/null"],
 };
 const DEFAULT_PROCESS = { runAsUser: "sandbox", runAsGroup: "sandbox" };
-const PINNED_PI_IMAGE = "ghcr.io/nvidia/openshell-community/sandboxes/pi:a2afd1b";
+const PINNED_PI_IMAGE = "ghcr.io/nvidia/openshell-community/sandboxes/pi@sha256:88716cf8c342af78b2af20e6e3b2c55e27eecea5a989fcbeaf61c10e0ec1df02";
 const PINNED_PI_CONTRACT = "OpenShell Community Pi image from commit a2afd1ba5d0655ed531d7cd0bd7e1b93cb788a61, tested with OpenShell v0.0.86";
 
 export const BUILTIN_PROFILES: Readonly<Record<string, OpenShellProfile>> = Object.freeze({

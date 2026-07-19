@@ -53,7 +53,9 @@ export class SpawnCommandRunner implements CommandRunner {
       const abort = () => { aborted = true; kill(); };
       const append = (current: Buffer<ArrayBufferLike>, chunk: Buffer<ArrayBufferLike>): Buffer<ArrayBufferLike> => {
         const next = Buffer.concat([current, chunk]);
-        if (next.length > MAX_CAPTURE_BYTES) {
+        if (next.length > MAX_CAPTURE_BYTES && !settled) {
+          settled = true;
+          options.signal?.removeEventListener("abort", abort);
           kill();
           reject(new Error("OpenShell command output exceeded the safe capture limit"));
         }

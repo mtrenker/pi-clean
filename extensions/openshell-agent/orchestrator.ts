@@ -18,6 +18,7 @@ import type {
 
 const extensionDir = dirname(fileURLToPath(import.meta.url));
 const runtimePath = join(extensionDir, "worker-runtime.mjs");
+const workerUtilsPath = join(extensionDir, "worker-utils.mjs");
 const browserExtensionPath = join(extensionDir, "worker-browser.ts");
 
 export interface RunCallbacks {
@@ -155,11 +156,13 @@ export class OpenShellAgentOrchestrator {
   }
 
   private async installRuntime(sandboxName: string, browser: boolean): Promise<void> {
-    const [runtime, browserExtension] = await Promise.all([
+    const [runtime, workerUtils, browserExtension] = await Promise.all([
       readFile(runtimePath, "utf8"),
+      readFile(workerUtilsPath, "utf8"),
       browser ? readFile(browserExtensionPath, "utf8") : Promise.resolve(undefined),
     ]);
     await this.cli.installFile(sandboxName, "/sandbox/.openshell-agent/worker-runtime.mjs", runtime, "700");
+    await this.cli.installFile(sandboxName, "/sandbox/.openshell-agent/worker-utils.mjs", workerUtils, "600");
     if (browserExtension) await this.cli.installFile(sandboxName, "/sandbox/.openshell-agent/worker-browser.ts", browserExtension, "600");
   }
 

@@ -19,13 +19,21 @@ test("browser controller exposes no credential, storage, screenshot, trace, or a
 });
 
 test("manual takeover is loopback-only and the browser profile is Unix-isolated", async () => {
-  const [dockerfile, entrypoint] = await Promise.all([
+  const [dockerfile, entrypoint, controller, hostExtension] = await Promise.all([
     readFile(join(root, "image", "Dockerfile"), "utf8"),
     readFile(join(root, "image", "entrypoint.sh"), "utf8"),
+    readFile(join(root, "image", "browser-controller.mjs"), "utf8"),
+    readFile(join(root, "index.ts"), "utf8"),
   ]);
   assert.match(dockerfile, /chmod 0700 \/var\/lib\/openshell-browser/);
   assert.match(entrypoint, /127\.0\.0\.1:6080 127\.0\.0\.1:5900/);
+  assert.match(entrypoint, /Xvfb.*-auth/);
   assert.equal(entrypoint.includes("remote-debugging-port"), false);
+  assert.equal(controller.includes("-nopw"), false);
+  assert.match(controller, /-rfbauth/);
+  assert.match(controller, /\.vnc-password.*mode: 0o600/s);
   assert.match(entrypoint, /kill -CONT/);
+  assert.match(hostExtension, /if ! response=.*kill -CONT/s, "failed controller pause must resume the worker");
+  assert.match(hostExtension, /action === "resume"[\s\S]*rm -f \/run\/openshell-browser\/paused/, "explicit resume must repair a pause even without a forward handle");
   assert.match(entrypoint, /runuser -u browser/);
 });

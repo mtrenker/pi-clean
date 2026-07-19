@@ -83,12 +83,17 @@ export function assertProviderIsolation(records: WorkspaceRecord[], trustDomain:
 export function normalizeRepository(url: string): string {
   const trimmed = url.trim();
   if (!trimmed || trimmed.startsWith("-")) throw new Error("repository.url must be a non-empty Git URL");
-  const scp = trimmed.match(/^(?:[^@]+@)?([^:]+):(.+)$/);
-  if (scp && !trimmed.includes("://")) return `${scp[1].toLowerCase()}/${stripGit(scp[2])}`;
+  const scp = trimmed.match(/^(?:([^@]+)@)?([^:]+):(.+)$/);
+  if (scp && !trimmed.includes("://")) {
+    if (scp[1] && scp[1] !== "git") throw new Error("repository URLs must not contain embedded credentials");
+    return `${scp[2].toLowerCase()}/${stripGit(scp[3])}`;
+  }
   try {
     const parsed = new URL(trimmed);
     if (!["https:", "ssh:", "git:"].includes(parsed.protocol)) throw new Error("unsupported protocol");
-    if (parsed.username && parsed.password) throw new Error("repository URLs must not contain credentials");
+    if (parsed.username && !(parsed.protocol === "ssh:" && parsed.username === "git" && !parsed.password)) {
+      throw new Error("repository URLs must not contain embedded credentials");
+    }
     return `${parsed.hostname.toLowerCase()}${stripGit(parsed.pathname)}`;
   } catch (error) {
     if (error instanceof Error && error.message.includes("credentials")) throw error;

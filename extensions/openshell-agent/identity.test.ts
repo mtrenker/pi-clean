@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { assertProviderIsolation, dynamicFingerprint, resolveIdentity } from "./identity.ts";
+import { assertProviderIsolation, dynamicFingerprint, normalizeRepository, resolveIdentity } from "./identity.ts";
 import type { OpenShellJobInput, OpenShellProfile, WorkspaceRecord } from "./types.ts";
 
 const BASE_POLICY = "version: 1\nfilesystem_policy:\n  read_only: [/usr]\n  read_write: [/sandbox]\nprocess:\n  run_as_user: sandbox\n  run_as_group: sandbox\nnetwork_policies: {}\n";
@@ -52,6 +52,13 @@ test("static drift recreates while network/provider drift remains dynamic", asyn
 
   await writeFile(policy, BASE_POLICY.replace("read_write: [/sandbox]", "read_write: [/sandbox, /extra]"));
   assert.notEqual(identity.staticFingerprint, (await resolveIdentity(base, input("client-a"))).staticFingerprint);
+});
+
+test("repository identities reject embedded PAT usernames while allowing normal Git SSH", () => {
+  assert.throws(() => normalizeRepository("https://ghp_SECRETTOKEN@github.com/acme/project.git"), /embedded credentials/);
+  assert.throws(() => normalizeRepository("token@github.com:acme/project.git"), /embedded credentials/);
+  assert.equal(normalizeRepository("git@github.com:acme/project.git"), "github.com/acme/project");
+  assert.equal(normalizeRepository("ssh://git@github.com/acme/project.git"), "github.com/acme/project");
 });
 
 test("one provider instance name cannot be shared by different trust domains", () => {

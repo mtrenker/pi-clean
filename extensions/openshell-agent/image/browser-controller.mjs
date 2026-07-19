@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-import { writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { spawn, spawnSync } from "node:child_process";
+import { readFile, writeFile } from "node:fs/promises";
 import http from "node:http";
 import { chromium } from "/opt/openshell-browser/node_modules/playwright-core/index.mjs";
 
@@ -16,6 +18,7 @@ const context = await chromium.launchPersistentContext("/var/lib/openshell-brows
   args: ["--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check"],
 });
 const page = context.pages()[0] ?? await context.newPage();
+const vncPassword = await ensureVncPassword();
 await writeFile("/run/openshell-browser/controller.pid", `${process.pid}\n`, { mode: 0o660 });
 
 const server = http.createServer(async (request, response) => {
@@ -24,7 +27,7 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "GET" && url.pathname === "/health") return send(response, 200, { ok: true });
     if (request.method === "POST" && url.pathname === "/pause") {
       await writeFile("/run/openshell-browser/paused", "manual takeover\n", { mode: 0o660 });
-      send(response, 200, { ok: true, automation: "os_suspended" });
+      send(response, 200, { ok: true, automation: "os_suspended", vncPassword });
       // Keep Chromium alive for noVNC, but stop the controller process itself.
       // The root-owned image monitor resumes it only after the host removes the
       // explicit pause marker. No automation or capture can run while stopped.
@@ -46,6 +49,24 @@ const server = http.createServer(async (request, response) => {
 });
 
 server.listen(PORT, "127.0.0.1");
+
+async function ensureVncPassword() {
+  const passwordPath = "/var/lib/openshell-browser/.vnc-password";
+  const authPath = "/var/lib/openshell-browser/.vnc-auth";
+  let password;
+  try { password = (await readFile(passwordPath, "utf8")).trim(); }
+  catch {
+    password = randomBytes(8).toString("hex").slice(0, 8);
+    await writeFile(passwordPath, `${password}\n`, { mode: 0o600 });
+  }
+  spawnSync("x11vnc", ["-storepasswd", password, authPath], { stdio: "ignore" });
+  spawn("x11vnc", ["-display", ":99", "-localhost", "-forever", "-shared", "-rfbauth", authPath, "-quiet"], {
+    detached: true,
+    stdio: "ignore",
+    env: { ...process.env, XAUTHORITY: "/var/lib/openshell-browser/.Xauthority" },
+  }).unref();
+  return password;
+}
 
 async function navigate(body) {
   if (typeof body.url !== "string") throw new ControllerError("invalid_url");
@@ -109,12 +130,13 @@ async function riskDescription(locator) {
   const info = await locator.evaluate((node) => {
     const form = node.closest("form");
     return {
+      tag: node.tagName.toLowerCase(),
       type: node.getAttribute("type") ?? "",
       role: node.getAttribute("role") ?? "",
       text: [node.getAttribute("aria-label"), node.getAttribute("name"), node.getAttribute("placeholder"), node.textContent, form?.textContent].filter(Boolean).join(" ").slice(0, 2000),
     };
   });
-  return info.type.toLowerCase() === "submit" || HIGH_RISK.test(info.text) ? info.text : "";
+  return info.tag === "button" || info.role === "button" || info.type.toLowerCase() === "submit" || HIGH_RISK.test(info.text) ? (info.text || info.tag) : "";
 }
 
 function jsonBody(request) {

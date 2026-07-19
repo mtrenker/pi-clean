@@ -4,6 +4,8 @@ import { access, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promise
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 
+import { boundUtf8 } from "./worker-utils.mjs";
+
 const jobId = process.argv[2];
 if (!jobId || !/^[a-zA-Z0-9._-]{1,100}$/.test(jobId)) process.exit(64);
 
@@ -16,15 +18,12 @@ const logPath = join(jobDir, "worker.jsonl");
 const lockPath = join(runtimeDir, "job.lock");
 let child;
 let log;
+let lockOwned = false;
 
 try {
   await mkdir(runtimeDir, { recursive: true });
-  try {
-    await mkdir(lockPath);
-  } catch (error) {
-    if (error?.code === "EEXIST") throw new SafeFailure("sandbox_busy");
-    throw error;
-  }
+  await acquireLock();
+  lockOwned = true;
   await mkdir(jobDir, { recursive: true });
   const request = validateRequest(JSON.parse(await readFile(requestPath, "utf8")));
   log = createWriteStream(logPath, { flags: "a", mode: 0o600 });
@@ -84,7 +83,41 @@ try {
   if (child && child.exitCode === null) child.kill("SIGTERM");
   log?.end();
   await rm(join(runtimeDir, "active-process-group"), { force: true }).catch(() => {});
-  await rm(lockPath, { recursive: true, force: true }).catch(() => {});
+  if (lockOwned) await rm(lockPath, { recursive: true, force: true }).catch(() => {});
+}
+
+async function acquireLock() {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await mkdir(lockPath);
+      await writeFile(join(lockPath, "pid"), `${process.pid}\n`, { mode: 0o600 });
+      return;
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      if (await lockOwnerIsAlive()) throw new SafeFailure("sandbox_busy");
+      await rm(lockPath, { recursive: true, force: true });
+    }
+  }
+  throw new SafeFailure("sandbox_busy");
+}
+
+async function lockOwnerIsAlive() {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const pid = Number((await readFile(join(lockPath, "pid"), "utf8")).trim());
+      if (!Number.isInteger(pid) || pid <= 1) return false;
+      process.kill(pid, 0);
+      const command = await readFile(`/proc/${pid}/cmdline`, "utf8");
+      return command.includes("worker-runtime.mjs");
+    } catch (error) {
+      if ((error?.code === "ENOENT" || error?.code === "EACCES") && attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        continue;
+      }
+      return false;
+    }
+  }
+  return false;
 }
 
 class SafeFailure extends Error {
@@ -97,12 +130,23 @@ function validateRequest(value) {
   if (!value.inference || !["openai-responses", "openai-completions", "anthropic-messages"].includes(value.inference.api)) throw new SafeFailure("invalid_inference");
   if (!Array.isArray(value.workerTools) || value.workerTools.some((tool) => !/^[a-z0-9_-]+$/.test(tool))) throw new SafeFailure("invalid_tools");
   if (value.repository) {
-    if (typeof value.repository.url !== "string" || value.repository.url.startsWith("-") || /:\/\/[^/@:]+:[^/@]+@/.test(value.repository.url)) throw new SafeFailure("invalid_repository");
+    if (typeof value.repository.url !== "string" || !repositoryUrlIsCredentialFree(value.repository.url)) throw new SafeFailure("invalid_repository");
     if (typeof value.repository.baseBranch !== "string" || !/^[a-zA-Z0-9._/-]+$/.test(value.repository.baseBranch) || value.repository.baseBranch.includes("..")) throw new SafeFailure("invalid_base_branch");
     if (typeof value.repository.key !== "string" || !/^[a-f0-9]{8,64}$/.test(value.repository.key)) throw new SafeFailure("invalid_repository_key");
   }
   if (value.browser && value.browser !== true) throw new SafeFailure("invalid_browser");
   return value;
+}
+
+function repositoryUrlIsCredentialFree(value) {
+  if (!value || value.startsWith("-")) return false;
+  const scp = value.match(/^(?:([^@]+)@)?([^:]+):(.+)$/);
+  if (scp && !value.includes("://")) return !scp[1] || scp[1] === "git";
+  try {
+    const url = new URL(value);
+    return ["https:", "ssh:", "git:"].includes(url.protocol) &&
+      (!url.username || (url.protocol === "ssh:" && url.username === "git" && !url.password));
+  } catch { return false; }
 }
 
 async function prepareRepository(request, output) {
@@ -221,11 +265,4 @@ async function atomicResult(result) {
   await writeFile(tmp, `${JSON.stringify(result)}\n`, { mode: 0o600 });
   await rm(resultPath, { force: true });
   await import("node:fs/promises").then(({ rename }) => rename(tmp, resultPath));
-}
-
-function boundUtf8(value, bytes) {
-  if (Buffer.byteLength(value, "utf8") <= bytes) return value;
-  let result = value;
-  while (Buffer.byteLength(result, "utf8") > bytes - 32) result = result.slice(0, Math.max(0, result.length - 256));
-  return `${result}\n\n[Answer truncated in host result]`;
 }
