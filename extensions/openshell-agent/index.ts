@@ -128,7 +128,7 @@ const openshellAgentExtension: ExtensionFactory = (pi) => {
       const records = await orchestrator.registry.list();
       if (action === "profiles") {
         ctx.ui.notify(Object.values(profiles).map((profile) =>
-          `${profile.name}: ${profile.description}\n  image=${profile.image} reuse=${profile.reuse} policy=${profile.advisorMode} providers=${profile.providers.join(",") || "none"}`,
+          `${profile.name}: ${profile.description}\n  image=${profile.image} reuse=${profile.reuse} policy=${profile.advisorMode} providers=${profile.providers.join(",") || "none"} inference=${profile.codexSubscription ? `${profile.codexSubscription.provider}/${profile.codexSubscription.model}` : "gateway"}`,
         ).join("\n\n"), "info");
         return;
       }
@@ -270,7 +270,7 @@ function terminatingFailure(code: string, message: string) {
 }
 
 function formatWorkspace(record: WorkspaceRecord): string {
-  return `${record.workspaceId} · ${record.sandboxName}\nprofile=${record.profile} trust=${record.trustDomain} providers=${record.providers.join(",") || "none"}${record.browserProfile ? ` browser=${record.browserProfile}` : ""}`;
+  return `${record.workspaceId} · ${record.sandboxName}\nprofile=${record.profile} trust=${record.trustDomain} providers=${record.providers.join(",") || "none"} inference=${record.inference ? `${record.inference.provider}/${record.inference.model}` : "unknown"}${record.browserProfile ? ` browser=${record.browserProfile}` : ""}`;
 }
 
 export default openshellAgentExtension;

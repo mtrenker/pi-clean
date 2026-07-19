@@ -74,6 +74,7 @@ export interface WorkspaceRecord {
   staticFingerprint: string;
   dynamicFingerprint: string;
   providers: string[];
+  inference?: { provider: string; model: string; mode: "gateway" | "codex-subscription" };
   repository?: RepositoryRequest;
   browserProfile?: string;
   browser?: OpenShellProfile["browser"];

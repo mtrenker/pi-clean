@@ -124,6 +124,7 @@ export class OpenShellAgentOrchestrator {
           staticFingerprint: identity.staticFingerprint,
           dynamicFingerprint: desiredDynamic,
           providers: [...profile.providers],
+          inference: { provider: preflight.inferenceProvider, model: preflight.inferenceModel, mode: profile.codexSubscription ? "codex-subscription" : "gateway" },
           repository: input.repository,
           browserProfile: input.browserProfile,
           browser: profile.browser,
@@ -136,6 +137,11 @@ export class OpenShellAgentOrchestrator {
 
       if (profile.browser && !record.browserControlSecret) {
         throw new AgentFailure("browser_control_missing", "This legacy browser workspace lacks a host-only takeover capability. Recreate it explicitly before use.");
+      }
+      const inference = { provider: preflight.inferenceProvider, model: preflight.inferenceModel, mode: profile.codexSubscription ? "codex-subscription" as const : "gateway" as const };
+      if (JSON.stringify(record.inference) !== JSON.stringify(inference)) {
+        record = { ...record, inference, updatedAt: new Date().toISOString() };
+        await this.registry.put(record);
       }
       callbacks.progress(`${reused ? "Reusing" : "Preparing"} Ready sandbox ${record.sandboxName}…`);
       await this.installRuntime(record.sandboxName, Boolean(profile.browser));
