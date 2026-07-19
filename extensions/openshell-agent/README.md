@@ -122,4 +122,10 @@ Delete/recreate explicitly warns that checkout, cache, artifact, download, histo
 
 ## Validation
 
-Deterministic tests use injected fake CLI responses for compatibility, identity isolation, safe Codex auth import, provider synchronization, fixed relay boundaries, policy parsing, result boundaries, lifecycle reuse, and cancellation-safe command transport. Live validation on OpenShell v0.0.86 ran Pi with `gpt-5.6-terra` through the placeholder relay, scanned sandbox files/environment/process arguments/diagnostics for host token canaries, and reused the same persistent workspace for a second successful job.
+Deterministic tests use injected fake CLI responses for compatibility, identity isolation, safe Codex auth import, provider synchronization, fixed relay boundaries, policy parsing, result boundaries, lifecycle reuse, and cancellation-safe command transport. The credentialed integration check is explicit and cleans up its temporary workspace:
+
+```bash
+OPENSHELL_AGENT_E2E=1 npm run test:openshell-agent:e2e
+```
+
+Live validation on OpenShell v0.0.86 ran that check with Pi and `gpt-5.6-terra` through the placeholder relay, scanned sandbox files/environment/process arguments/diagnostics for host token canaries, and reused the same persistent workspace for a second successful job.

@@ -22,7 +22,10 @@ network_policies:
       - host: chatgpt.com
         port: 443
         protocol: rest
-        access: read-write
         enforcement: enforce
+        rules:
+          - allow:
+              method: POST
+              path: /backend-api/codex/responses
     binaries:
       - path: /opt/openshell-agent/relay-node

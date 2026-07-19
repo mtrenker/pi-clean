@@ -13,11 +13,16 @@ test("built-in examples are deny-first and keep business providers off research"
   assert.equal(research.advisorMode, "auto");
   assert.equal(development.advisorMode, "manual");
   assert.deepEqual(development.requiredProviderTypes, ["github"]);
-  const policy = await import("node:fs/promises").then(({ readFile }) => readFile(research.basePolicy, "utf8"));
-  assert.match(policy, /host: chatgpt\.com/);
-  assert.match(policy, /path: \/opt\/openshell-agent\/relay-node/);
-  assert.equal((policy.match(/host:/g) ?? []).length, 1);
-  assert.equal(policy.includes("host: *"), false);
+  const { readFile } = await import("node:fs/promises");
+  for (const profile of Object.values(BUILTIN_PROFILES)) {
+    const policy = await readFile(profile.basePolicy, "utf8");
+    assert.match(policy, /host: chatgpt\.com/);
+    assert.match(policy, /path: \/opt\/openshell-agent\/relay-node/);
+    assert.match(policy, /method: POST\s+path: \/backend-api\/codex\/responses/);
+    assert.doesNotMatch(policy, /host: chatgpt\.com[\s\S]*?access:/);
+    assert.equal((policy.match(/host:/g) ?? []).length, 1);
+    assert.equal(policy.includes("host: *"), false);
+  }
 });
 
 test("project profiles are honored only for a trusted Pi project and user overlays win", async () => {
