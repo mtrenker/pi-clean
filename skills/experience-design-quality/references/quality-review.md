@@ -17,6 +17,7 @@ If typography, palette, layout, or interaction could move between all five with 
 ## Purpose and invitation
 
 - A new user can tell what this is, what matters now, and what they can do next.
+- In marketing/reading hybrids, headings plus one visual cue per section communicate the argument at skim speed; deeper reading adds substance rather than basic orientation.
 - The first commitment is proportionate to the value already shown.
 - Primary and secondary actions are distinguishable by more than location.
 - Navigation, cancellation, and recovery match the consequence of the task.
@@ -34,7 +35,10 @@ If typography, palette, layout, or interaction could move between all five with 
 ## Structure and content
 
 - Hierarchy follows task and content priority rather than component availability.
+- At thumbnail zoom, the full experience has a deliberate silhouette: identifiable peaks, rests, density changes, and emphasis where the argument or task needs it.
+- Repeated sections do not collapse into one uniform texture; restraint still produces rhythm and a clear visual center of gravity.
 - Related content groups without requiring a card for every section; reading order remains semantic.
+- Content-derived diagrams, specimens, and annotations clarify or prove the thesis rather than restating it decoratively.
 - Realistic short, long, missing, translated, messy-image, and user-generated content does not break the design.
 - Dense information supports scan, compare, filter, and drill-down; prose supports measure, rhythm, and return paths.
 - Empty states explain why they exist and offer a meaningful next step when available.
@@ -42,6 +46,8 @@ If typography, palette, layout, or interaction could move between all five with 
 ## System coherence and distinctiveness
 
 - Typography, color, space, geometry, depth, imagery, voice, and motion support one constitution.
+- Every named typeface is actually loaded or the design has been reviewed against its first guaranteed fallback.
+- Repeated micro-labels remain legible in the rendered interface; avoid depending on sub-12px text, especially with tracked capitals or audiences likely to benefit from larger type.
 - Tokens encode the prose: surface strategy, chromatic budget, emphasis, radius, border, and depth do not revert to framework defaults.
 - Contrast is computed for actual color pairs and states, not asserted from token names.
 - Brand/action/status colors remain distinguishable; content-carried color has quiet enough chrome.
@@ -62,10 +68,10 @@ Exercise what applies: default, hover, focus-visible, pressed, selected/current,
 
 Inspect narrow, medium, wide, short, and zoomed viewports.
 
-- Reflow by priority; do not compress the desktop arrangement.
+- Reflow by priority; do not compress the desktop arrangement or merely serialize it into a rhythmically flat stack.
 - The core action remains reachable without obscuring content or requiring precision.
 - Navigation changes deliberately and retains orientation.
-- Tables, diagrams, timelines, and toolbars have an intentional narrow strategy: reframe, scroll with cues, disclose, or provide an equivalent view.
+- Tables, diagrams, timelines, signature compositions, and toolbars have an intentional narrow strategy: reframe, scroll with cues, disclose, simplify, or provide an equivalent view. Shrinking until labels or meaning weaken is a failure, not a responsive strategy.
 - Touch targets meet WCAG 2.2 AA's 24×24 CSS-pixel minimum or documented exceptions; prefer about 44×44 for touch-primary controls.
 - Text enlarges to 200% without loss; reflow works at 400% zoom where applicable.
 - Virtual keyboards, safe areas, orientation, sticky regions, and long pages do not trap or obscure controls.

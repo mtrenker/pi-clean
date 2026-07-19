@@ -20,7 +20,7 @@ Capture a compact experience brief:
 - **Constraints:** Existing brand/system, devices, accessibility needs, performance, localization, and implementation scope.
 - **Success signal:** What observable outcome proves the experience helped?
 
-Ask only about missing information that would materially change the design. Otherwise state the assumption and proceed.
+Ask only about missing information that would materially change the design. Otherwise state the assumption and proceed. Treat consequential choices such as brand temperature, expressive intensity, personal presence, and content emphasis as hypotheses to review in rendered form with the user—not as universal rules inferred from one brief.
 
 ## 2. Commit to an experience direction
 
@@ -45,6 +45,9 @@ Do not average incompatible directions. Distinctiveness comes from a small coher
 Model the path through the interface: entry → orientation → meaningful action or attention → feedback → continuation, exit, or recovery. Establish information hierarchy and interaction model before selecting surface treatments.
 
 - Make the primary purpose legible in the first useful view.
+- For sequential or scroll experiences, sketch the whole experience at thumbnail scale. Place deliberate peaks, rests, density changes, and surface or scale shifts; do not compose every section as the same template.
+- For marketing/reading hybrids, support two speeds: each section must communicate through its heading and one strong cue when skimmed, then reward deeper reading.
+- Ask whether the thesis can be shown through a content-derived artifact—a diagram, specimen, annotated example, transformation, or interaction—instead of explained only in prose. Do not invent decoration to satisfy this.
 - Reveal complexity in response to intent; do not merely hide it.
 - Give every important action a clear consequence, status, and way back when possible.
 - Design the whole state model: first use, empty, loading, partial, success, error, offline/stale, disabled, permission-limited, and destructive confirmation as relevant.
@@ -54,7 +57,7 @@ Model the path through the interface: entry → orientation → meaningful actio
 
 Reuse the project's system first. When no system exists, define the smallest semantic foundation needed for consistency:
 
-- **Typography:** roles and hierarchy, resilient fallback, and a readable measure (often 45–75 characters for sustained prose)—not font novelty alone.
+- **Typography:** roles and hierarchy, resilient fallback, and a readable measure (often 45–75 characters for sustained prose)—not font novelty alone. Do not depend on repeated sub-12px text; tracked capitals and older or executive audiences often need more. Load every named typeface; otherwise design against the first guaranteed fallback. Inspect the actual rendering either way.
 - **Color:** surface, text, border, action, focus, and semantic status roles. Compute contrast for every pair and state; brand and status colors must not compete. If imagery or user content carries unpredictable color, make surrounding chrome quieter.
 - **Space and density:** a rhythm matched to task frequency, content volume, and device; grouping should work without a border around everything.
 - **Geometry and material:** corners, borders, depth, texture, and imagery should tell one material story.
@@ -70,7 +73,7 @@ Prefer one coherent, working slice over many polished fragments.
 
 - Use semantic structure and native controls before custom behavior.
 - Make keyboard, pointer, touch, screen-reader, zoom, and reduced-motion experiences first-class.
-- Treat responsive design as reprioritization and reflow, not a shrunken desktop. Preserve the core job; change navigation, density, grouping, and disclosure when needed.
+- Treat responsive design as reprioritization and reflow, not a shrunken desktop. Preserve the core job; change navigation, density, grouping, and disclosure when needed. Reframe signature compositions for narrow screens—scaling them down until their labels or meaning weaken is not a strategy.
 - Use real or representative content. Do not rely on lorem ipsum, fake testimonials, meaningless metrics, or ideal-length labels.
 - Keep all interactive states visually and behaviorally related.
 - Spend expression where attention is welcome; keep frequent or high-stakes operations calm and fast.
@@ -78,18 +81,20 @@ Prefer one coherent, working slice over many polished fragments.
 
 ## 6. Critique, then refine
 
-Review in three passes:
+Review in four passes:
 
 1. **Usefulness:** Is the next meaningful step obvious? Are hierarchy, labels, feedback, and recovery clear?
 2. **Emotional fit:** Does the experience create the intended feeling at the right moment? Is delight earned? Do the stakes feel respected?
-3. **Coherence and resilience:** Do the signature moves recur with discipline? Does the design survive real content, states, input modes, and viewports?
+3. **Pacing and emphasis:** Zoom out. Does the sequence have intentional peaks and rests? Can a skimmer recover each section's meaning? Is the most important moment given physical weight?
+4. **Coherence and resilience:** Do the signature moves recur with discipline? Does the design survive real content, states, input modes, and viewports?
 
-When browser tools are available, inspect and interact at narrow, medium, and wide viewports. Navigate by keyboard, zoom text, trigger non-happy states, and check motion preferences. Without a browser, walk the state model in prose, test representative content lengths, verify token/contrast math, and inspect semantic and focus behavior in code. Fix the highest-impact mismatch, then repeat. Use [the quality review](references/quality-review.md) before calling the work complete.
+When browser tools are available, inspect and interact at narrow, medium, and wide viewports, then review full-page captures at thumbnail scale. Navigate by keyboard, zoom text, trigger non-happy states, and check motion preferences. Without a browser, walk the state model in prose, test representative content lengths, verify token/contrast math, and inspect semantic and focus behavior in code. Show consequential visual forks to the user and refine the constitution from their reaction. Fix the highest-impact mismatch, then repeat. Use [the quality review](references/quality-review.md) before calling the work complete.
 
 ## Avoid generic design by reflex
 
 - Do not default to a giant hero, gradient headline, bento grid, glass cards, pill-shaped everything, or dashboard shell unless the content and task earn it.
 - Do not turn every group into a floating card or every empty space into decoration.
+- Do not confuse restraint with uniformity. A quiet design still needs hierarchy, rhythm, and one earned high-investment moment; in sensitive contexts that moment may be exceptional clarity or continuity rather than visual volume.
 - Do not mistake warm colors and rounded corners for empathy, dark glass for sophistication, or motion for delight.
 - Do not copy a named visual style without translating it through this product's audience, content, and stakes.
 - Do not let a memorable surface compete with reading, comparison, data entry, or urgent decisions.

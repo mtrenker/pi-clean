@@ -15,7 +15,7 @@ Use this reference to choose a direction, not to select a preset. Product types 
 | Monitoring and analysis | anomaly, trend, comparison, drill-down, action | an intelligible overview with clear paths to evidence | alarm fatigue, false certainty, data density | data encoding, annotations, domain-specific spatial models |
 | Event, culture, and exhibit | anticipation, atmosphere, discovery, memory | a sensory cue plus immediate orientation | spectacle obscuring access or logistics | composition, imagery, sound/motion with consent, transitions |
 | Creative and immersive | exploration, making, play, surprise, authorship | a compelling affordance and safe first experiment | novelty tax, getting lost, inaccessible interaction | canvas behavior, transformation, spatial or narrative motifs |
-| Marketing and portfolio | relevance, credibility, story, commitment | a specific promise with evidence and an obvious path | generic claims, inflated spectacle, premature conversion | narrative rhythm, art direction, demonstrations, proof |
+| Marketing and portfolio | relevance, credibility, story, commitment | a specific promise with evidence and an obvious path | generic claims, inflated spectacle, premature conversion | narrative rhythm, art direction, content-derived demonstrations, proof |
 
 Do not force an entire product into one center. A commerce checkout becomes a high-trust transaction; a learning analytics view becomes monitoring; a community report flow becomes sensitive administration. Shift the posture with the moment while retaining the same design language.
 
@@ -47,6 +47,8 @@ Choose two or three moves with a reason, then repeat them selectively.
 - **Behavior:** progressive reveal, direct manipulation, persistent context, staged ceremony, playful transformation, rapid command response.
 - **Content/art direction:** domain diagrams, documentary photography, user artifacts, annotated examples, illustration with a consistent hand.
 
+Apply an artifact test: can the central claim become visible as a diagram, specimen, annotated example, before/after relationship, or interaction? A useful artifact compresses understanding or provides evidence. If it only repeats the headline decoratively, remove it.
+
 Use a removal test: if the logo and product name disappeared, would the interface still express something specific about this product? If not, deepen the relationship to its content or behavior rather than adding more effects.
 
 ## Direction checks
@@ -59,3 +61,4 @@ Before implementation, ask:
 - Which familiar convention lowers risk? Where is novelty worth its learning cost?
 - What is the one detail a person could remember and accurately associate with this product?
 - Can each signature move be expressed across states and viewports, not only in a presentation screenshot?
+- Which choices are genuinely required by context, and which are user-owned preferences best decided from rendered alternatives?
