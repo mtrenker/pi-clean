@@ -59,7 +59,7 @@ The renderer supports structural properties such as `tone`, `direction`, `column
 
 - layout: `align-center`, `align-end`, `justify-between`, `gap-sm`, `gap-lg`, `span-2`, `full-width`;
 - spacing/measure: `pad-none`, `pad-lg`, `max-reading`;
-- color: `text-signal`, `bg-paper`, `bg-ink`.
+- color: `text-signal`, `bg-paper`, `bg-ink`, `bg-gradient-ink-signal`.
 
 ## Mutation tool
 
@@ -98,9 +98,9 @@ This is safe-localhost prototype behavior, not a production authentication or de
 ### Friction
 
 - The first `/design` call bundles the React/Plate client in memory, so cold start is noticeably heavier than serving handwritten JavaScript.
-- Generic classes are useful only when agent and human know the relay's supported vocabulary; unavailable classes fail quietly in the rendered design.
+- Generic classes are useful only when agent and human know the relay's supported vocabulary. Agent mutations now reject unavailable names, while unknown classes in hand-edited files still have no visual effect.
 - Plate is currently used as a read-only structured renderer. Recreating its editor for accepted external values is appropriate for this slice, but a future direct-manipulation editor would need operation-level synchronization to preserve selection and undo history.
-- Conversation output is a live transcript, not a durable per-node review thread, and simultaneous browser tabs share one selection-independent Pi queue.
+- Conversation output survives browser reloads while the relay process is running, but it is not a durable per-node review thread and simultaneous tabs share one selection-independent Pi queue.
 
 ### Unresolved architecture questions
 

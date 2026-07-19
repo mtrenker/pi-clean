@@ -69,6 +69,13 @@ test("browser request carries selected structural context and explicit busy beha
   assert.equal(packet.selected.id, "hero-title");
   assert.equal(packet.instruction, "Make the headline more neighborly");
   assert.equal(packet.context.ancestors.at(-1)?.id, "hero-copy");
+
+  const controller = new AbortController();
+  const events = await fetch(endpoint("/events"), { signal: controller.signal });
+  const replay = await readUntil(events.body!.getReader(), '"type":"history"');
+  controller.abort();
+  assert.match(replay, /Make the headline more neighborly/);
+  assert.match(replay, /steer request accepted/);
 });
 
 test("SSE client observes validated mutations persisted through the single store path", async (t) => {

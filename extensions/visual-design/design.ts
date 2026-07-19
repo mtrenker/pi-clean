@@ -11,6 +11,23 @@ export const DESIGN_NODE_TYPES = [
   "button",
 ] as const;
 
+export const SUPPORTED_CLASS_NAMES = [
+  "align-center",
+  "align-end",
+  "justify-between",
+  "gap-sm",
+  "gap-lg",
+  "pad-none",
+  "pad-lg",
+  "span-2",
+  "max-reading",
+  "full-width",
+  "text-signal",
+  "bg-paper",
+  "bg-ink",
+  "bg-gradient-ink-signal",
+] as const;
+
 export type DesignNodeType = (typeof DESIGN_NODE_TYPES)[number];
 export type DesignText = { text: string; [mark: string]: unknown };
 export type DesignNode = {
@@ -166,6 +183,7 @@ export function applyDesignMutation(document: DesignDocument, mutation: DesignMu
   switch (mutation.action) {
     case "add": {
       const node = parseNewNode(mutation.node, next);
+      assertSupportedClasses(node);
       const destination = childList(next, mutation.parentId);
       destination.splice(normalizeIndex(mutation.index, destination.length), 0, node);
       break;
@@ -205,6 +223,7 @@ export function applyDesignMutation(document: DesignDocument, mutation: DesignMu
       const located = requiredNode(next, mutation.nodeId);
       for (const [key, value] of Object.entries(mutation.properties)) {
         if (RESERVED_NODE_KEYS.has(key)) throw new Error(`Property cannot be changed: ${key}`);
+        if (key === "className" && value !== null) assertSupportedClassName(value);
         if (value === null) delete located.node[key];
         else located.node[key] = value;
       }
@@ -311,6 +330,22 @@ function containsNode(node: DesignNode, id: string): boolean {
 
 function collectIds(node: DesignNode): string[] {
   return [node.id, ...node.children.filter(isDesignNode).flatMap(collectIds)];
+}
+
+function assertSupportedClasses(node: DesignNode): void {
+  if (node.className !== undefined) assertSupportedClassName(node.className);
+  node.children.filter(isDesignNode).forEach(assertSupportedClasses);
+}
+
+function assertSupportedClassName(value: unknown): asserts value is string {
+  if (typeof value !== "string") throw new Error("className must be a string");
+  const supported = new Set<string>(SUPPORTED_CLASS_NAMES);
+  const unavailable = value.split(/\s+/).filter(Boolean).filter((className) => !supported.has(className));
+  if (unavailable.length > 0) {
+    throw new Error(
+      `Unsupported className: ${unavailable.join(", ")}. Supported classes: ${SUPPORTED_CLASS_NAMES.join(", ")}`,
+    );
+  }
 }
 
 function withoutChildren(node: DesignNode): Omit<DesignNode, "children"> {

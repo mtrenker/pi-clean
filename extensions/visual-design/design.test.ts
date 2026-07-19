@@ -104,6 +104,20 @@ test("remove, text change, and property change validate the resulting document",
   });
   assert.equal(findNode(design, "hero-section")?.node.tone, "paper");
   assert.equal(findNode(design, "hero-section")?.node.className, "pad-none");
+  design = applyDesignMutation(design, {
+    action: "update_properties",
+    nodeId: "hero-section",
+    properties: { className: "pad-lg bg-gradient-ink-signal" },
+  });
+  assert.equal(findNode(design, "hero-section")?.node.className, "pad-lg bg-gradient-ink-signal");
+  assert.throws(
+    () => applyDesignMutation(design, {
+      action: "update_properties",
+      nodeId: "hero-section",
+      properties: { className: "invented-gradient" },
+    }),
+    /Unsupported className: invented-gradient/,
+  );
   assert.throws(
     () => applyDesignMutation(design, { action: "update_properties", nodeId: "hero-title", properties: { id: "new-id" } }),
     /cannot be changed/,

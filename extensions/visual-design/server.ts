@@ -20,11 +20,15 @@ export type BrowserPrompt = {
   behavior: "steer" | "followUp";
 };
 
-export type DesignServerEvent =
-  | { type: "design"; document: DesignDocument; source: "initial" | "mutation" | "external" }
+export type RelayHistoryEvent =
+  | { type: "chat-user"; text: string }
   | { type: "design-error"; message: string }
   | { type: "agent-status"; status: "idle" | "working" | "queued"; message?: string }
   | { type: "agent-output"; text: string };
+
+export type DesignServerEvent =
+  | { type: "design"; document: DesignDocument; source: "initial" | "mutation" | "external" }
+  | RelayHistoryEvent;
 
 export type VisualDesignServerOptions = {
   root: string;
@@ -118,6 +122,7 @@ export class VisualDesignServer {
   readonly store: DesignStore;
   private readonly options: VisualDesignServerOptions;
   private readonly clients = new Set<ServerResponse>();
+  private readonly history: RelayHistoryEvent[] = [];
   private server: Server | undefined;
   private unsubscribeStore: (() => void) | undefined;
   private urlValue: string | undefined;
@@ -158,6 +163,7 @@ export class VisualDesignServer {
   }
 
   broadcast(event: DesignServerEvent): void {
+    if (event.type !== "design") this.recordHistory(event);
     const payload = `data: ${JSON.stringify(event)}\n\n`;
     for (const client of this.clients) {
       if (client.destroyed || client.writableEnded) {
@@ -171,6 +177,15 @@ export class VisualDesignServer {
         client.destroy();
       }
     }
+  }
+
+  private recordHistory(event: RelayHistoryEvent): void {
+    if (event.type === "agent-output" && this.history.at(-1)?.type === "agent-output") {
+      this.history[this.history.length - 1] = event;
+    } else {
+      this.history.push(event);
+    }
+    if (this.history.length > 100) this.history.splice(0, this.history.length - 100);
   }
 
   async stop(): Promise<void> {
@@ -227,6 +242,7 @@ export class VisualDesignServer {
         "X-Content-Type-Options": "nosniff",
       });
       response.write(`data: ${JSON.stringify({ type: "design", document: this.store.document, source: "initial" })}\n\n`);
+      response.write(`data: ${JSON.stringify({ type: "history", events: this.history })}\n\n`);
       this.clients.add(response);
       const removeClient = () => this.clients.delete(response);
       request.once("close", removeClient);
@@ -244,6 +260,7 @@ export class VisualDesignServer {
         selectedId,
         instruction,
       );
+      this.broadcast({ type: "chat-user", text: instruction.trim() });
       await this.options.onPrompt({ packet, behavior });
       this.broadcast({ type: "agent-status", status: "queued", message: `${behavior} request accepted` });
       sendJson(response, 202, { accepted: true, behavior });

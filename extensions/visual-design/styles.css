@@ -26,7 +26,8 @@ button:focus-visible, textarea:focus-visible, select:focus-visible, [role="butto
 code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 
 .workspace {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 390px);
   grid-template-rows: auto minmax(0, 1fr);
@@ -141,9 +142,14 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .text-signal { color: var(--signal); }
 .bg-paper { background: var(--paper); }
 .bg-ink { background: var(--ink); color: #fff; }
+.design-section.bg-gradient-ink-signal {
+  background:
+    radial-gradient(circle at 82% 18%, rgb(183 242 44 / 30%), transparent 34%),
+    linear-gradient(135deg, #18201c 0%, #18201c 48%, #273b23 100%);
+}
 
 @media (max-width: 880px) {
-  .workspace { display: block; }
+  .workspace { display: block; height: auto; overflow: visible; }
   .topbar { position: sticky; top: 0; z-index: 100; min-height: 70px; padding: 12px 16px; }
   .topbar h1 { font-size: 20px; }
   .file-status code { display: none; }

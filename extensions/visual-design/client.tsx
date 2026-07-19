@@ -13,11 +13,15 @@ type RenderElementProps = Parameters<
 >[0];
 type DesignPayload = { path: string; document: DesignDocument };
 type TimelineItem = { id: number; kind: "user" | "status" | "agent" | "error"; text: string };
-type ServerEvent =
-  | { type: "design"; document: DesignDocument; source: string }
+type RelayEvent =
+  | { type: "chat-user"; text: string }
   | { type: "design-error"; message: string }
   | { type: "agent-status"; status: string; message?: string }
   | { type: "agent-output"; text: string };
+type ServerEvent =
+  | { type: "design"; document: DesignDocument; source: string }
+  | { type: "history"; events: RelayEvent[] }
+  | RelayEvent;
 
 const token = new URLSearchParams(window.location.search).get("token") ?? "";
 const withToken = (path: string) => `${path}?token=${encodeURIComponent(token)}`;
@@ -47,12 +51,10 @@ function App() {
       if (event.type === "design") {
         setPayload((current) => current ? { ...current, document: event.document } : current);
         setSelectedId((current) => current && findNode(event.document.root, current) ? current : undefined);
-      } else if (event.type === "design-error") {
-        appendTimeline(setTimeline, "error", `File change rejected: ${event.message}`);
-      } else if (event.type === "agent-status") {
-        appendTimeline(setTimeline, "status", event.message ?? `Agent is ${event.status}`);
-      } else if (event.type === "agent-output") {
-        setTimeline((items) => upsertAgentOutput(items, event.text));
+      } else if (event.type === "history") {
+        setTimeline(timelineFromHistory(event.events));
+      } else {
+        setTimeline((items) => applyRelayEvent(items, event));
       }
     };
     return () => events.close();
@@ -77,7 +79,6 @@ function App() {
     const text = instruction.trim();
     setInstruction("");
     setSending(true);
-    appendTimeline(setTimeline, "user", text);
     try {
       const response = await fetch(withToken("/api/chat"), {
         method: "POST",
@@ -251,10 +252,23 @@ function appendTimeline(
   setter((items) => [...items.slice(-19), { id: Date.now() + Math.random(), kind, text }]);
 }
 
-function upsertAgentOutput(items: TimelineItem[], text: string): TimelineItem[] {
-  const last = items.at(-1);
-  if (last?.kind === "agent") return [...items.slice(0, -1), { ...last, text }];
-  return [...items.slice(-19), { id: Date.now(), kind: "agent", text }];
+function timelineFromHistory(events: RelayEvent[]): TimelineItem[] {
+  return events.reduce<TimelineItem[]>((items, event) => applyRelayEvent(items, event), []);
+}
+
+function applyRelayEvent(items: TimelineItem[], event: RelayEvent): TimelineItem[] {
+  if (event.type === "agent-output") {
+    const last = items.at(-1);
+    if (last?.kind === "agent") return [...items.slice(0, -1), { ...last, text: event.text }];
+    return [...items.slice(-99), { id: Date.now() + Math.random(), kind: "agent", text: event.text }];
+  }
+  const kind = event.type === "chat-user" ? "user" : event.type === "design-error" ? "error" : "status";
+  const text = event.type === "chat-user"
+    ? event.text
+    : event.type === "design-error"
+      ? `File change rejected: ${event.message}`
+      : event.message ?? `Agent is ${event.status}`;
+  return [...items.slice(-99), { id: Date.now() + Math.random(), kind, text }];
 }
 
 function errorMessage(error: unknown): string {

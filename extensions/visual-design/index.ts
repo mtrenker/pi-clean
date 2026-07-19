@@ -10,7 +10,7 @@ import {
 import { Type } from "typebox";
 
 import { buildClientAssets } from "./assets.js";
-import type { DesignMutation } from "./design.js";
+import { SUPPORTED_CLASS_NAMES, type DesignMutation } from "./design.js";
 import { resolveDesignPath } from "./path.js";
 import { VisualDesignServer, type BrowserPrompt } from "./server.js";
 
@@ -95,7 +95,8 @@ const visualDesignExtension: ExtensionFactory = (pi) => {
     label: "Mutate Visual Design",
     description:
       "Apply one validated add, move, remove, text, or property mutation to the active visual design. " +
-      "The tool preserves stable IDs, serializes deterministically, and notifies the browser. Start /design first.",
+      "The tool preserves stable IDs, serializes deterministically, and notifies the browser. " +
+      `Supported className values: ${SUPPORTED_CLASS_NAMES.join(", ")}. Start /design first.`,
     promptSnippet: "Mutate the active repo-native visual design through validated node operations",
     promptGuidelines: [
       "Use visual_design_mutate instead of write or edit when changing the active .design.json artifact.",
@@ -147,7 +148,9 @@ const visualDesignExtension: ExtensionFactory = (pi) => {
     if (!ctx) throw new Error("Pi session is not ready");
     const prompt = [
       "A visual design request arrived from the local browser.",
+      "The relay browser is already rendering the active file. Do not navigate to localhost or inspect the browser; the context packet is authoritative.",
       "Use visual_design_mutate for artifact changes; do not rewrite the design JSON directly.",
+      `Only use these className utilities: ${SUPPORTED_CLASS_NAMES.join(", ")}. Never invent class names.`,
       "After applying appropriate mutations, briefly explain the result and any className limitations.",
       "",
       "Context packet:",
