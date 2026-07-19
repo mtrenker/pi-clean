@@ -117,7 +117,7 @@ function App() {
           <span>schema v{payload.document.schemaVersion}</span>
         </div>
         <div className="plate-frame">
-          <Plate key={JSON.stringify(payload.document)} editor={editor} readOnly>
+          <Plate editor={editor} readOnly>
             <PlateContent className="plate-content" readOnly renderElement={renderElement} />
           </Plate>
         </div>
@@ -230,7 +230,7 @@ function findNode(nodes: DesignNode[], id: string): DesignNode | undefined {
 }
 
 function isNode(value: DesignNode | DesignText): value is DesignNode {
-  return "id" in value;
+  return typeof value.id === "string" && typeof value.type === "string" && Array.isArray(value.children);
 }
 
 function nodePreview(node: DesignNode): string {

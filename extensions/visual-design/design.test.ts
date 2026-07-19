@@ -45,6 +45,10 @@ test("validation rejects duplicate IDs, malformed leaves, and unknown classes", 
   const badClass = structuredClone(design);
   findNode(badClass, "hero-section")!.node.className = "safe<script>";
   assert.throws(() => parseDesign(badClass), /className contains unsupported/);
+
+  const structuralMark = structuredClone(design);
+  findNode(structuralMark, "hero-title")!.node.children = [{ text: "hello", id: true }];
+  assert.throws(() => parseDesign(structuralMark), /reserved for design node structure/);
 });
 
 test("add preserves existing IDs and rejects duplicate IDs", async () => {
@@ -85,6 +89,10 @@ test("remove, text change, and property change validate the resulting document",
   let design = await example();
   design = applyDesignMutation(design, { action: "remove", nodeId: "principle-return" });
   assert.equal(findNode(design, "principle-return"), undefined);
+  assert.throws(
+    () => applyDesignMutation(design, { action: "remove", nodeId: "principles-stack" }),
+    /Cannot remove the only child of principles-section/,
+  );
 
   design = applyDesignMutation(design, { action: "update_text", nodeId: "hero-title", text: "Dinner starts nearby." });
   assert.deepEqual(findNode(design, "hero-title")?.node.children, [{ text: "Dinner starts nearby." }]);

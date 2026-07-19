@@ -1,5 +1,5 @@
 import { realpath } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
+import { relative } from "node:path";
 
 import { StringEnum } from "@earendil-works/pi-ai";
 import {
@@ -11,6 +11,7 @@ import { Type } from "typebox";
 
 import { buildClientAssets } from "./assets.js";
 import type { DesignMutation } from "./design.js";
+import { resolveDesignPath } from "./path.js";
 import { VisualDesignServer, type BrowserPrompt } from "./server.js";
 
 const mutationSchema = Type.Object({
@@ -186,15 +187,6 @@ function toMutation(input: MutationInput): DesignMutation {
         properties: input.properties,
       };
   }
-}
-
-async function resolveDesignPath(root: string, requestedPath: string): Promise<string> {
-  const canonicalRoot = await realpath(root);
-  const candidate = await realpath(resolve(canonicalRoot, requestedPath.replace(/^@/, "")));
-  const relation = relative(canonicalRoot, candidate);
-  if (relation.startsWith("..") || isAbsolute(relation)) throw new Error("Design path must stay inside the current repository");
-  if (!candidate.endsWith(".design.json")) throw new Error("Design path must end in .design.json");
-  return candidate;
 }
 
 function assistantText(message: unknown): string {

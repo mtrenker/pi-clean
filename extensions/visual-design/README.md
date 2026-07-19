@@ -81,6 +81,7 @@ Mutations participate in Pi's per-file mutation queue so parallel built-in write
 - Browser clients can request agent work but cannot directly mutate files.
 - Request bodies and context depth are bounded; the server derives node context from its validated document rather than trusting browser-supplied JSON.
 - The page uses a restrictive same-origin Content Security Policy.
+- While the relay is open, its token-bearing tabs receive all Pi assistant status/output, not only turns initiated from the design browser. Close or stop the relay before unrelated sensitive work.
 
 This is safe-localhost prototype behavior, not a production authentication or deployment model. Anyone who obtains the reported URL while the session is running has the session capability.
 

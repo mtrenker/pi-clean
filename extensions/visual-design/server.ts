@@ -159,7 +159,18 @@ export class VisualDesignServer {
 
   broadcast(event: DesignServerEvent): void {
     const payload = `data: ${JSON.stringify(event)}\n\n`;
-    for (const client of this.clients) client.write(payload);
+    for (const client of this.clients) {
+      if (client.destroyed || client.writableEnded) {
+        this.clients.delete(client);
+        continue;
+      }
+      try {
+        client.write(payload);
+      } catch {
+        this.clients.delete(client);
+        client.destroy();
+      }
+    }
   }
 
   async stop(): Promise<void> {
@@ -217,7 +228,9 @@ export class VisualDesignServer {
       });
       response.write(`data: ${JSON.stringify({ type: "design", document: this.store.document, source: "initial" })}\n\n`);
       this.clients.add(response);
-      request.once("close", () => this.clients.delete(response));
+      const removeClient = () => this.clients.delete(response);
+      request.once("close", removeClient);
+      response.once("error", removeClient);
       return;
     }
     if (method === "POST" && url.pathname === "/api/chat") {

@@ -75,6 +75,7 @@ const TEXT_TYPES = new Set<DesignNodeType>(["text", "button"]);
 const ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]{1,79}$/;
 const CLASS_NAME_PATTERN = /^[a-zA-Z0-9_:\-/\s]+$/;
 const RESERVED_NODE_KEYS = new Set(["id", "type", "children", "__proto__", "constructor", "prototype"]);
+const RESERVED_TEXT_MARKS = new Set(["id", "type", "children", "className", "__proto__", "constructor", "prototype"]);
 
 export function parseDesign(input: string | unknown): DesignDocument {
   let value: unknown;
@@ -139,6 +140,7 @@ function validateText(value: unknown, path: string): asserts value is DesignText
   }
   if (value.text.length > 10_000) throw new Error(`${path}.text is too long`);
   for (const [key, mark] of Object.entries(value)) {
+    if (RESERVED_TEXT_MARKS.has(key)) throw new Error(`${path}.${key} is reserved for design node structure`);
     if (key !== "text" && typeof mark !== "boolean") {
       throw new Error(`${path}.${key} must be a boolean text mark`);
     }
@@ -165,7 +167,7 @@ export function applyDesignMutation(document: DesignDocument, mutation: DesignMu
     case "add": {
       const node = parseNewNode(mutation.node, next);
       const destination = childList(next, mutation.parentId);
-      destination.splice(normalizeIndex(mutation.index, destination.length, true), 0, node);
+      destination.splice(normalizeIndex(mutation.index, destination.length), 0, node);
       break;
     }
     case "move": {
@@ -177,13 +179,16 @@ export function applyDesignMutation(document: DesignDocument, mutation: DesignMu
       }
       source.siblings.splice(source.index, 1);
       const destination = childList(next, mutation.parentId);
-      destination.splice(normalizeIndex(mutation.index, destination.length, true), 0, source.node);
+      destination.splice(normalizeIndex(mutation.index, destination.length), 0, source.node);
       break;
     }
     case "remove": {
       const located = findNode(next, mutation.nodeId);
       if (!located) throw new Error(`Node not found: ${mutation.nodeId}`);
       if (!located.parent && next.root.length === 1) throw new Error("Cannot remove the only root node");
+      if (located.parent && located.siblings.length === 1) {
+        throw new Error(`Cannot remove the only child of ${located.parent.id}; remove or replace its parent instead`);
+      }
       located.siblings.splice(located.index, 1);
       break;
     }
@@ -291,9 +296,9 @@ function requiredNode(document: DesignDocument, id: string): LocatedNode {
   return located;
 }
 
-function normalizeIndex(index: number | undefined, length: number, allowEnd: boolean): number {
+function normalizeIndex(index: number | undefined, length: number): number {
   if (index === undefined) return length;
-  const maximum = allowEnd ? length : Math.max(0, length - 1);
+  const maximum = length;
   if (!Number.isInteger(index) || index < 0 || index > maximum) {
     throw new Error(`index must be between 0 and ${maximum}`);
   }
