@@ -28,6 +28,10 @@ npx playwright install chromium
 
 Prototypes repo-native, Plate-compatible visual artifacts: select a stable design node in the browser, discuss it with Pi, and watch validated agent mutations or external file edits appear live. Start the included artifact with `/design designs/example.design.json`.
 
+### ⛨ [OpenShell Agent](extensions/openshell-agent/README.md)
+
+Runs bounded autonomous research, sandbox-side Git development, and opt-in persistent authenticated-browser jobs inside isolated OpenShell workspaces. Requires a matching OpenShell v0.0.86+ CLI/gateway and a current official Codex login; Pi uses `gpt-5.6-terra` through an image-owned placeholder relay while real OAuth tokens remain gateway-owned. Untrusted final answers render in TUI-only tool details and terminate without a host-model follow-up.
+
 ## Interactive delegation with Herdr
 
 Pi-clean intentionally does not ship a subprocess delegation tool or a package-owned Herdr skill. Use the externally managed `herdr` skill discovered from `~/.agents/skills/` as the canonical guide to current pane, workspace, output, focus, and intervention commands.
@@ -83,6 +87,7 @@ Set `FLIGHTDECK_TELEMETRY_FILE` to emit compatible worktree and agent-start even
 pi-clean/
 ├── extensions/agent-guard/ # Shell, path, and output safety guardrails
 ├── extensions/browser/     # Playwright browser automation
+├── extensions/openshell-agent/ # Sandboxed autonomous-agent jobs
 ├── extensions/visual-design/ # PlateJS visual artifact relay
 ├── designs/                # Example repo-native visual artifacts
 ├── skills/                 # GitHub workflow and code-quality skills

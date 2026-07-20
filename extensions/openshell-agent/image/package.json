@@ -1,0 +1,8 @@
+{
+  "name": "openshell-browser-runtime",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "playwright-core": "1.61.1"
+  }
+}

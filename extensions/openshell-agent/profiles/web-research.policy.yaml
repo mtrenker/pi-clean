@@ -1,0 +1,31 @@
+version: 1
+
+filesystem_policy:
+  include_workdir: true
+  read_only: [/usr, /lib, /proc, /dev/urandom, /app, /etc, /var/log, /opt]
+  read_write: [/sandbox, /tmp, /dev/null]
+
+landlock:
+  compatibility: best_effort
+
+process:
+  run_as_user: sandbox
+  run_as_group: sandbox
+
+# Deny-first except for the image-owned, fixed-destination Codex relay. No
+# research or business credential provider is attached. Policy Advisor may
+# propose narrow binary-bound research access; only empty prover deltas auto-approve.
+network_policies:
+  codex_relay:
+    name: codex-relay
+    endpoints:
+      - host: chatgpt.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow:
+              method: POST
+              path: /backend-api/codex/responses
+    binaries:
+      - path: /opt/openshell-agent/relay-node

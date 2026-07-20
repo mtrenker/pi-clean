@@ -1,0 +1,31 @@
+version: 1
+
+filesystem_policy:
+  include_workdir: true
+  read_only: [/usr, /lib, /proc, /dev/urandom, /app, /etc, /var/log, /opt]
+  read_write: [/sandbox, /tmp, /dev/null, /var/lib/openshell-browser, /run/openshell-browser]
+
+landlock:
+  compatibility: best_effort
+
+process:
+  run_as_user: sandbox
+  run_as_group: sandbox
+
+# Browser egress remains deny-first and binary-bound. Browser storage is
+# protected from the worker by a separate Unix account and is never exported.
+# The image-owned Codex relay has one fixed model endpoint.
+network_policies:
+  codex_relay:
+    name: codex-relay
+    endpoints:
+      - host: chatgpt.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow:
+              method: POST
+              path: /backend-api/codex/responses
+    binaries:
+      - path: /opt/openshell-agent/relay-node

@@ -13,6 +13,7 @@ const packageRoot = resolve(import.meta.dirname, "..");
 const extensionPaths = [
   "extensions/agent-guard/index.ts",
   "extensions/browser/index.ts",
+  "extensions/openshell-agent/index.ts",
   "extensions/visual-design/index.ts",
 ].map((path) => resolve(packageRoot, path));
 
