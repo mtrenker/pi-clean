@@ -202,9 +202,35 @@ export class OpenShellClient {
     return this.runner.run(args, { input: options.input, signal: options.signal });
   }
 
+  async startBrowserService(name: string): Promise<void> {
+    const start = await this.exec(name, ["sh", "-c", "if ! curl -fsS http://127.0.0.1:3010/health >/dev/null 2>&1; then setsid /opt/openshell-browser/entrypoint.sh </dev/null >/var/lib/openshell-browser/service.log 2>&1 & fi"], { timeout: 15 });
+    if (start.code !== 0) throw new Error("Could not start the isolated browser service");
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const health = await this.exec(name, ["curl", "-fsS", "http://127.0.0.1:3010/health"], { timeout: 5 });
+      if (health.code === 0) return;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new Error("The isolated browser service did not become ready");
+  }
+
+  async browserCall(name: string, path: string, body?: unknown): Promise<{ status: number; body: Record<string, unknown> }> {
+    const allowed = new Set(["/health", "/control/initialize", "/control/pause", "/control/resume", "/navigate", "/snapshot", "/click", "/type", "/press"]);
+    if (!allowed.has(path)) throw new Error("Browser bridge path is not allowed");
+    const script = "const [p,has]=process.argv.slice(1);let s='';process.stdin.setEncoding('utf8');for await(const c of process.stdin)s+=c;const r=await fetch('http://127.0.0.1:3010'+p,{method:has==='1'?'POST':'GET',headers:has==='1'?{'content-type':'application/json'}:undefined,body:has==='1'?s:undefined});let b={};try{b=await r.json()}catch{};process.stdout.write(JSON.stringify({status:r.status,body:b}))";
+    const result = await this.exec(name, ["node", "--input-type=module", "-e", script, path, body === undefined ? "0" : "1"], { input: body === undefined ? "" : JSON.stringify(body), timeout: 120 });
+    if (result.code !== 0 || Buffer.byteLength(result.stdout, "utf8") > 128 * 1024) throw new Error("The isolated browser bridge failed closed");
+    try {
+      const parsed = JSON.parse(result.stdout) as { status: number; body: Record<string, unknown> };
+      if (!Number.isInteger(parsed.status) || !parsed.body || typeof parsed.body !== "object") throw new Error();
+      return parsed;
+    } catch {
+      throw new Error("The isolated browser bridge returned malformed output");
+    }
+  }
+
   async initializeBrowserControl(name: string, secret: string): Promise<void> {
-    const result = await this.exec(name, ["sh", "-c", "payload=$(cat); n=0; until printf %s \"$payload\" | curl -fsS -X POST --data-binary @- http://127.0.0.1:3010/control/initialize >/dev/null; do n=$((n+1)); test $n -lt 30 || exit 1; sleep 0.5; done"], { input: JSON.stringify({ secret }), timeout: 20 });
-    if (result.code !== 0) throw new Error("Could not initialize the browser-only takeover control capability");
+    const result = await this.browserCall(name, "/control/initialize", { secret });
+    if (result.status < 200 || result.status >= 300) throw new Error("Could not initialize the browser-only takeover control capability");
   }
 
   async installFile(name: string, sandboxPath: string, content: string, mode = "600"): Promise<void> {

@@ -16,15 +16,21 @@ export async function resolveIdentity(profile: OpenShellProfile, input: OpenShel
   };
   const logicalKey = canonicalHash(logicalMaterial);
   const workspaceId = logicalKey.slice(0, 20);
-  const [imageSource, staticPolicy] = await Promise.all([
+  const [imageSource, staticPolicy, browserImageSource, browserStaticPolicy] = await Promise.all([
     imageSourceFingerprint(profile.image),
     policyStaticMaterial(profile.basePolicy),
+    profile.browser ? imageSourceFingerprint(profile.browser.image) : undefined,
+    profile.browser ? policyStaticMaterial(profile.browser.basePolicy) : undefined,
   ]);
   const staticFingerprint = canonicalHash({
     image: profile.image,
     imageContract: profile.imageContract,
     imageSource,
     staticPolicy,
+    browserImage: profile.browser?.image,
+    browserImageContract: profile.browser?.imageContract,
+    browserImageSource,
+    browserStaticPolicy,
     cpu: profile.cpu,
     memory: profile.memory,
     filesystem: profile.filesystem,
@@ -37,12 +43,14 @@ export async function resolveIdentity(profile: OpenShellProfile, input: OpenShel
 
 export async function dynamicFingerprint(profile: OpenShellProfile): Promise<string> {
   let policy: string;
+  let browserPolicy: string | undefined;
   try {
     policy = await readFile(profile.basePolicy, "utf8");
+    browserPolicy = profile.browser ? await readFile(profile.browser.basePolicy, "utf8") : undefined;
   } catch (error) {
-    throw new Error(`Could not read base policy ${profile.basePolicy}: ${errorMessage(error)}`);
+    throw new Error(`Could not read profile policy: ${errorMessage(error)}`);
   }
-  return canonicalHash({ policy, providers: [...profile.providers].sort(), codexSubscription: profile.codexSubscription, advisorMode: profile.advisorMode });
+  return canonicalHash({ policy, browserPolicy, providers: [...profile.providers].sort(), codexSubscription: profile.codexSubscription, advisorMode: profile.advisorMode });
 }
 
 async function policyStaticMaterial(path: string): Promise<string> {

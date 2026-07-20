@@ -154,6 +154,7 @@ const openshellAgentExtension: ExtensionFactory = (pi) => {
         forwards.get(record.workspaceId)?.stop();
         forwards.delete(record.workspaceId);
         await orchestrator.cli.deleteSandbox(record.sandboxName);
+        if (record.browserSandboxName) await orchestrator.cli.deleteSandbox(record.browserSandboxName);
         await orchestrator.registry.remove(record.logicalKey);
         ctx.ui.notify(`${record.sandboxName} deleted${action === "recreate" ? "; run the next job to create its replacement" : ""}.`, "info");
         return;
@@ -172,8 +173,8 @@ const openshellAgentExtension: ExtensionFactory = (pi) => {
           ctx.ui.notify("Use a local port from 1024 to 65535.", "error");
           return;
         }
-        if (!record.browserControlSecret) {
-          ctx.ui.notify("This browser workspace lacks its host-only takeover capability. Recreate it before use.", "error");
+        if (!record.browserControlSecret || !record.browserSandboxName) {
+          ctx.ui.notify("This browser workspace lacks its isolated browser service or host-only takeover capability. Recreate it before use.", "error");
           return;
         }
         const confirmed = await ctx.ui.confirm(
@@ -182,16 +183,19 @@ const openshellAgentExtension: ExtensionFactory = (pi) => {
         );
         if (!confirmed) return;
         const control = browserControlPacket(record.browserControlSecret, "pause");
-        const paused = await orchestrator.cli.exec(record.sandboxName, ["sh", "-c", "stopped=0; if test -f /sandbox/.openshell-agent/active-process-group; then pgid=$(cat /sandbox/.openshell-agent/active-process-group); kill -STOP -- -$pgid; stopped=1; fi; if ! curl -fsS -X POST --data-binary @- http://127.0.0.1:3010/control/pause >/dev/null; then if test $stopped -eq 1; then kill -CONT -- -$pgid || true; fi; exit 1; fi"], { input: JSON.stringify(control.packet), timeout: 15 });
-        if (paused.code !== 0) {
-          const resume = browserControlPacket(record.browserControlSecret, "resume");
-          await orchestrator.cli.exec(record.sandboxName, ["curl", "-fsS", "-X", "POST", "--data-binary", "@-", "http://127.0.0.1:3010/control/resume"], { input: JSON.stringify(resume.packet), timeout: 15 });
+        const stopped = await orchestrator.cli.exec(record.sandboxName, ["sh", "-c", "if test -f /sandbox/.openshell-agent/active-process-group; then kill -STOP -- -$(cat /sandbox/.openshell-agent/active-process-group); fi"], { timeout: 15 });
+        let paused = false;
+        if (stopped.code === 0) {
+          const response = await orchestrator.cli.browserCall(record.browserSandboxName, "/control/pause", control.packet).catch(() => undefined);
+          paused = Boolean(response && response.status >= 200 && response.status < 300);
+        }
+        if (!paused) {
           await orchestrator.cli.exec(record.sandboxName, ["sh", "-c", "if test -f /sandbox/.openshell-agent/active-process-group; then kill -CONT -- -$(cat /sandbox/.openshell-agent/active-process-group) || true; fi"], { timeout: 15 });
           ctx.ui.notify("Could not pause protected browser automation; the worker was resumed and takeover was not opened.", "error");
           return;
         }
         const vncPassword = control.vncPassword;
-        const handle = orchestrator.cli.startForward(record.sandboxName, record.browser.noVncPort, localPort);
+        const handle = orchestrator.cli.startForward(record.browserSandboxName, record.browser.noVncPort, localPort);
         forwards.set(record.workspaceId, handle);
         ctx.ui.notify(
           `Sensitive manual takeover active\n${handle.url}\nVNC password: ${vncPassword}\n\nThe worker is OS-suspended and every automation route is locked behind a one-time host-authenticated pause. X11 and VNC require browser-user-only credentials, and the controller exposes no CDP socket. Screenshots, tracing, keystroke capture, and controller request-body logging are disabled. The browser process still handles secrets inside this isolated sandbox. Run /openshell resume ${record.workspaceId} when finished.`,
@@ -203,13 +207,17 @@ const openshellAgentExtension: ExtensionFactory = (pi) => {
         const handle = forwards.get(record.workspaceId);
         handle?.stop();
         forwards.delete(record.workspaceId);
-        if (!record.browserControlSecret) {
-          ctx.ui.notify("This browser workspace lacks its host-only takeover capability. Recreate it before use.", "error");
+        if (!record.browserControlSecret || !record.browserSandboxName) {
+          ctx.ui.notify("This browser workspace lacks its isolated browser service or host-only takeover capability. Recreate it before use.", "error");
           return;
         }
         const control = browserControlPacket(record.browserControlSecret, "resume");
-        const resumed = await orchestrator.cli.exec(record.sandboxName, ["sh", "-c", "if ! curl -fsS -X POST --data-binary @- http://127.0.0.1:3010/control/resume >/dev/null; then exit 1; fi; if test -f /sandbox/.openshell-agent/active-process-group; then kill -CONT -- -$(cat /sandbox/.openshell-agent/active-process-group); fi"], { input: JSON.stringify(control.packet), timeout: 15 });
-        ctx.ui.notify(resumed.code === 0 ? "Takeover ended explicitly; controller and worker may resume." : "Resume failed closed; automation remains unavailable.", resumed.code === 0 ? "info" : "error");
+        const browserResumed = await orchestrator.cli.browserCall(record.browserSandboxName, "/control/resume", control.packet).catch(() => undefined);
+        const workerResumed = browserResumed && browserResumed.status >= 200 && browserResumed.status < 300
+          ? await orchestrator.cli.exec(record.sandboxName, ["sh", "-c", "if test -f /sandbox/.openshell-agent/active-process-group; then kill -CONT -- -$(cat /sandbox/.openshell-agent/active-process-group); fi"], { timeout: 15 })
+          : undefined;
+        const resumed = workerResumed?.code === 0;
+        ctx.ui.notify(resumed ? "Takeover ended explicitly; controller and worker may resume." : "Resume failed closed; automation remains unavailable.", resumed ? "info" : "error");
         return;
       }
       ctx.ui.notify("Usage: /openshell <profiles|list|status ID|delete ID|recreate ID|takeover ID [local-port]|resume ID>", "error");
@@ -270,7 +278,7 @@ function terminatingFailure(code: string, message: string) {
 }
 
 function formatWorkspace(record: WorkspaceRecord): string {
-  return `${record.workspaceId} · ${record.sandboxName}\nprofile=${record.profile} trust=${record.trustDomain} providers=${record.providers.join(",") || "none"} inference=${record.inference ? `${record.inference.provider}/${record.inference.model}` : "unknown"}${record.browserProfile ? ` browser=${record.browserProfile}` : ""}`;
+  return `${record.workspaceId} · ${record.sandboxName}\nprofile=${record.profile} trust=${record.trustDomain} providers=${record.providers.join(",") || "none"} inference=${record.inference ? `${record.inference.provider}/${record.inference.model}` : "unknown"}${record.browserProfile ? ` browser=${record.browserProfile}${record.browserSandboxName ? ` service=${record.browserSandboxName}` : ""}` : ""}`;
 }
 
 export default openshellAgentExtension;

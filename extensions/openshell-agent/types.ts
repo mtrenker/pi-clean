@@ -36,6 +36,9 @@ export interface OpenShellProfile {
     persistent: true;
     controllerPort: number;
     noVncPort: number;
+    image: string;
+    imageContract: string;
+    basePolicy: string;
   };
 }
 
@@ -78,6 +81,8 @@ export interface WorkspaceRecord {
   repository?: RepositoryRequest;
   browserProfile?: string;
   browser?: OpenShellProfile["browser"];
+  browserSandboxName?: string;
+  browserSandboxId?: string;
   browserControlSecret?: string;
   createdAt: string;
   updatedAt: string;

@@ -5,17 +5,21 @@ ARG BASE_IMAGE=ghcr.io/nvidia/openshell-community/sandboxes/pi@sha256:88716cf8c3
 FROM ${BASE_IMAGE}
 
 USER root
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/openshell-browser/browsers
+COPY package.json package-lock.json /opt/openshell-browser/
 RUN apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends chromium xvfb x11vnc xauth novnc websockify \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends passwd xvfb x11vnc xauth novnc websockify libnss3-tools \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --system --create-home --home-dir /var/lib/openshell-browser browser \
-    && usermod -a -G sandbox browser \
-    && mkdir -p /opt/openshell-browser /run/openshell-browser /var/lib/openshell-browser/profile \
+    && npm ci --ignore-scripts --prefix /opt/openshell-browser \
+    && node /opt/openshell-browser/node_modules/playwright-core/cli.js install --with-deps chromium \
+    && /usr/sbin/useradd --uid 2000 --user-group --create-home --home-dir /var/lib/openshell-browser browser \
+    && /usr/sbin/usermod -a -G sandbox browser \
+    && mkdir -p /run/openshell-browser /var/lib/openshell-browser/profile \
     && chown -R browser:browser /var/lib/openshell-browser \
     && chown root:sandbox /run/openshell-browser \
     && chmod 0700 /var/lib/openshell-browser /var/lib/openshell-browser/profile \
     && chmod 0770 /run/openshell-browser \
-    && npm install --prefix /opt/openshell-browser playwright-core@1.61.1
+    && chmod -R a+rX /opt/openshell-browser
 
 COPY browser-controller.mjs /opt/openshell-browser/browser-controller.mjs
 COPY codex-relay.mjs /opt/openshell-agent/codex-relay.mjs
@@ -24,6 +28,6 @@ RUN ln /usr/bin/node /opt/openshell-agent/relay-node \
     && chmod 0755 /opt/openshell-browser/entrypoint.sh /opt/openshell-browser/browser-controller.mjs \
     && chmod 0555 /opt/openshell-agent/codex-relay.mjs /opt/openshell-agent/relay-node
 
-# noVNC is loopback-only and must be reached through `openshell forward service`.
-# No browser/debugging port is published by the image.
-ENTRYPOINT ["/opt/openshell-browser/entrypoint.sh"]
+# OpenShell intentionally replaces image entrypoints. The host starts the fixed
+# browser service script through sandbox exec under policy-pinned UID 2000.
+# noVNC remains loopback-only and is reached through `openshell forward service`.

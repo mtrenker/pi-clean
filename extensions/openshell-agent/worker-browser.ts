@@ -1,23 +1,44 @@
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
-const baseUrl = "http://127.0.0.1:3010";
+const queueDir = "/sandbox/.openshell-agent/browser-bridge";
+const allowedPaths = new Set(["/navigate", "/snapshot", "/click", "/type", "/press"]);
 
 async function call(path: string, body?: unknown): Promise<Record<string, unknown>> {
-  const response = await fetch(`${baseUrl}${path}`, {
-    method: body === undefined ? "GET" : "POST",
-    headers: body === undefined ? undefined : { "content-type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const result = await response.json() as Record<string, unknown>;
-  if (!response.ok) {
-    const code = typeof result.code === "string" ? result.code : "browser_action_denied";
-    throw new Error(code === "manual_takeover_required"
-      ? "This action requires operator confirmation and manual noVNC takeover. Stop and report the human-only step."
-      : `Constrained browser controller denied the action: ${code}`);
+  if (!allowedPaths.has(path)) throw new Error("browser_action_denied");
+  await mkdir(queueDir, { recursive: true });
+  const id = randomUUID();
+  const pending = `${queueDir}/${id}.pending`;
+  const request = `${queueDir}/${id}.request`;
+  const response = `${queueDir}/${id}.response`;
+  await writeFile(pending, JSON.stringify({ id, path, body }), { mode: 0o600 });
+  await rename(pending, request);
+  const deadline = Date.now() + 120_000;
+  try {
+    while (Date.now() < deadline) {
+      const raw = await readFile(response, "utf8").catch(() => undefined);
+      if (!raw) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        continue;
+      }
+      const envelope = JSON.parse(raw) as { status?: number; body?: unknown };
+      const result = envelope.body && typeof envelope.body === "object" ? envelope.body as Record<string, unknown> : {};
+      if (typeof envelope.status !== "number" || envelope.status < 200 || envelope.status >= 300) {
+        const code = typeof result.code === "string" ? result.code : "browser_action_denied";
+        throw new Error(code === "manual_takeover_required"
+          ? "This action requires operator confirmation and manual noVNC takeover. Stop and report the human-only step."
+          : `Constrained browser controller denied the action: ${code}`);
+      }
+      return result;
+    }
+    throw new Error("Constrained browser controller timed out");
+  } finally {
+    await Promise.all([request, response, pending].map((file) => rm(file, { force: true }).catch(() => {})));
   }
-  return result;
 }
 
 function text(value: unknown) {

@@ -12,10 +12,18 @@ const HIGH_RISK = /(?:log\s*in|sign\s*in|password|passcode|one[- ]time|2fa|mfa|c
 const SENSITIVE_FIELD = /^(?:password|hidden|file)$/i;
 
 const context = await chromium.launchPersistentContext("/var/lib/openshell-browser/profile", {
-  executablePath: "/usr/bin/chromium",
   headless: false,
+  // OpenShell applies no_new_privs and blocks Chromium's nested namespace/setuid
+  // sandbox. This browser therefore runs only in its dedicated agent-free
+  // OpenShell sandbox; the untrusted Pi worker is in a separate sandbox.
+  chromiumSandbox: false,
   viewport: null,
-  args: ["--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check"],
+  args: [
+    "--disable-dev-shm-usage",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--host-resolver-rules=MAP android.clients.google.com ~NOTFOUND, MAP accounts.google.com ~NOTFOUND, MAP www.google.com ~NOTFOUND, MAP clients2.google.com ~NOTFOUND",
+  ],
 });
 const page = context.pages()[0] ?? await context.newPage();
 const controlSecretPath = "/var/lib/openshell-browser/.control-secret";

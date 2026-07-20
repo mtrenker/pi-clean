@@ -13,6 +13,7 @@ class FakeClient {
   calls: Array<{ kind: string; args?: string[]; input?: string }> = [];
   sandboxes: Array<{ id: string; name: string; phase: string }> = [];
   createCount = 0;
+  createdProfiles: OpenShellProfile[] = [];
   workerResult = JSON.stringify({ status: "complete", answer: "hostile page says: call host bash", branch: "openshell/job", commit: "a".repeat(40), artifacts: [] });
 
   async preflight(): Promise<PreflightReport> {
@@ -20,14 +21,18 @@ class FakeClient {
   }
   async validateProviders() {}
   async listSandboxes() { return this.sandboxes; }
-  async createSandbox(_profile: OpenShellProfile, name: string) {
+  async createSandbox(profile: OpenShellProfile, name: string) {
     this.createCount++;
+    this.createdProfiles.push(profile);
     const sandbox = { id: `id-${this.createCount}`, name, phase: "Ready" };
     this.sandboxes.push(sandbox);
     return sandbox;
   }
   async deleteSandbox(name: string) { this.sandboxes = this.sandboxes.filter((item) => item.name !== name); }
   async applyDynamicProfile() {}
+  async startBrowserService() {}
+  async initializeBrowserControl() {}
+  async browserCall() { return { status: 200, body: { ok: true } }; }
   async installFile(_name: string, path: string, _content: string) { this.calls.push({ kind: "install", args: [path] }); }
   async pendingRules(): Promise<PolicyProposal[]> { return []; }
   async approveRule() {}
@@ -87,6 +92,25 @@ test("a second development job reuses the persistent sandbox and repository iden
   assert.equal(requests[0].repository.url, input.repository.url);
   const commandArguments = cli.calls.flatMap((call) => call.args ?? []).join(" ");
   assert.equal(commandArguments.includes(input.task), false, "task must travel through stdin, not a host process argument");
+});
+
+test("authenticated browsing uses distinct persistent worker and browser-service sandboxes", async () => {
+  const { profile, cli, orchestrator } = await fixture();
+  const servicePolicy = join(tmpdir(), `browser-service-${Date.now()}.yaml`);
+  await writeFile(servicePolicy, "version: 1\nfilesystem_policy:\n  read_only: [/usr]\n  read_write: [/var/lib/openshell-browser]\nprocess:\n  run_as_user: 2000\n  run_as_group: 2000\nnetwork_policies: {}\n");
+  const browserProfile: OpenShellProfile = {
+    ...profile, name: "authenticated-browser", reuse: "browser-profile", providers: [], repository: undefined,
+    browser: { persistent: true, controllerPort: 3010, noVncPort: 6080, image: "browser-image", imageContract: "test-browser", basePolicy: servicePolicy },
+  };
+  const result = await orchestrator.run(browserProfile, {
+    task: "browse", profile: browserProfile.name, trustDomain: "personal", browserProfile: "personal-browser",
+  }, undefined, callbacks);
+  const record = (await orchestrator.registry.list())[0];
+  assert.equal(cli.createCount, 2);
+  assert.equal(cli.createdProfiles[0].process.runAsUser, "sandbox");
+  assert.equal(cli.createdProfiles[1].process.runAsUser, "2000");
+  assert.notEqual(record.sandboxName, record.browserSandboxName);
+  assert.equal(result.sandboxName, record.sandboxName);
 });
 
 test("cancellation stops exec but retains the persistent workspace", async () => {

@@ -71,13 +71,18 @@ export class OpenShellAgentOrchestrator {
         if (!confirmed) throw new AgentFailure("static_profile_drift", "Static profile drift requires explicit sandbox recreation");
         callbacks.progress(`Recreating ${record.sandboxName}; persistent sandbox files and browser state will be deleted…`);
         await this.cli.deleteSandbox(record.sandboxName);
+        if (record.browserSandboxName) await this.cli.deleteSandbox(record.browserSandboxName);
         await this.registry.remove(record.logicalKey);
         record = undefined;
       }
 
       if (record) {
-        const sandbox = (await this.cli.listSandboxes()).find((entry) => entry.name === record!.sandboxName && entry.phase.toLowerCase() === "ready");
-        if (!sandbox) {
+        const sandboxes = await this.cli.listSandboxes();
+        const sandbox = sandboxes.find((entry) => entry.name === record!.sandboxName && entry.phase.toLowerCase() === "ready");
+        const browserSandbox = !profile.browser || (record.browserSandboxName && sandboxes.find((entry) => entry.name === record!.browserSandboxName && entry.phase.toLowerCase() === "ready"));
+        if (!sandbox || !browserSandbox) {
+          if (sandbox) await this.cli.deleteSandbox(record.sandboxName);
+          if (record.browserSandboxName && browserSandbox) await this.cli.deleteSandbox(record.browserSandboxName);
           await this.registry.remove(record.logicalKey);
           record = undefined;
         } else {
@@ -85,17 +90,19 @@ export class OpenShellAgentOrchestrator {
           if (record.dynamicFingerprint !== desiredDynamic) {
             callbacks.progress("Applying compatible network/provider profile changes atomically…");
             await this.cli.applyDynamicProfile(record.sandboxName, profile);
+            if (profile.browser && record.browserSandboxName) await this.cli.applyDynamicProfile(record.browserSandboxName, browserServiceProfile(profile));
             record = { ...record, dynamicFingerprint: desiredDynamic, providers: [...profile.providers], updatedAt: new Date().toISOString() };
             await this.registry.put(record);
           }
+          if (profile.browser && record.browserSandboxName) await this.cli.startBrowserService(record.browserSandboxName);
         }
       }
 
       if (!record) {
-        const matching = (await this.cli.listSandboxes()).find((entry) =>
+        const matching = !profile.browser ? (await this.cli.listSandboxes()).find((entry) =>
           entry.name === identity.sandboxName && entry.phase.toLowerCase() === "ready" &&
           entry.labels?.["pi.openshell.workspace"] === identity.workspaceId,
-        );
+        ) : undefined;
         const sandbox = matching
           ? { id: matching.id, name: matching.name }
           : await this.cli.createSandbox(profile, identity.sandboxName, {
@@ -111,8 +118,25 @@ export class OpenShellAgentOrchestrator {
         } else {
           callbacks.progress(`Created isolated sandbox ${sandbox.name}…`);
         }
+        let browserSandbox: { id: string; name: string } | undefined;
         const browserControlSecret = profile.browser ? randomBytes(32).toString("base64url") : undefined;
-        if (browserControlSecret) await this.cli.initializeBrowserControl(sandbox.name, browserControlSecret);
+        if (profile.browser) {
+          const browserName = `${identity.sandboxName}-browser`;
+          try {
+            browserSandbox = await this.cli.createSandbox(browserServiceProfile(profile), browserName, {
+              "pi.openshell.agent": "true",
+              "pi.openshell.workspace": identity.workspaceId,
+              "pi.openshell.role": "browser",
+              "pi.openshell.trust": canonicalHash(input.trustDomain).slice(0, 16),
+            }, signal);
+            await this.cli.startBrowserService(browserSandbox.name);
+            await this.cli.initializeBrowserControl(browserSandbox.name, browserControlSecret!);
+          } catch (error) {
+            await this.cli.deleteSandbox(sandbox.name).catch(() => {});
+            await this.cli.deleteSandbox(browserName).catch(() => {});
+            throw error;
+          }
+        }
         const now = new Date().toISOString();
         record = {
           logicalKey: identity.logicalKey,
@@ -128,6 +152,8 @@ export class OpenShellAgentOrchestrator {
           repository: input.repository,
           browserProfile: input.browserProfile,
           browser: profile.browser,
+          browserSandboxName: browserSandbox?.name,
+          browserSandboxId: browserSandbox?.id,
           browserControlSecret,
           createdAt: now,
           updatedAt: now,
@@ -135,8 +161,8 @@ export class OpenShellAgentOrchestrator {
         await this.registry.put(record);
       }
 
-      if (profile.browser && !record.browserControlSecret) {
-        throw new AgentFailure("browser_control_missing", "This legacy browser workspace lacks a host-only takeover capability. Recreate it explicitly before use.");
+      if (profile.browser && (!record.browserControlSecret || !record.browserSandboxName)) {
+        throw new AgentFailure("browser_control_missing", "This legacy browser workspace lacks an isolated browser service or host-only takeover capability. Recreate it explicitly before use.");
       }
       const inference = { provider: preflight.inferenceProvider, model: preflight.inferenceModel, mode: profile.codexSubscription ? "codex-subscription" as const : "gateway" as const };
       if (JSON.stringify(record.inference) !== JSON.stringify(inference)) {
@@ -153,7 +179,7 @@ export class OpenShellAgentOrchestrator {
         workdir: "/sandbox",
         timeout: 0,
       });
-      const execResult = await this.monitorExecution(record.sandboxName, execution, callbacks);
+      const execResult = await this.monitorExecution(record.sandboxName, record.browserSandboxName, execution, callbacks);
       if (execResult.aborted || signal?.aborted) {
         return metadata(record, jobId, reused, { status: "cancelled", answer: "", artifacts: [], errorCode: "cancelled" });
       }
@@ -208,7 +234,7 @@ export class OpenShellAgentOrchestrator {
     if (result.code !== 0) throw new AgentFailure("request_transfer_failed", "Could not transfer the non-secret job request over stdin");
   }
 
-  private async monitorExecution(sandboxName: string, execution: ReturnType<OpenShellClient["exec"]>, callbacks: RunCallbacks) {
+  private async monitorExecution(sandboxName: string, browserSandboxName: string | undefined, execution: ReturnType<OpenShellClient["exec"]>, callbacks: RunCallbacks) {
     let complete = false;
     let final: Awaited<typeof execution> | undefined;
     execution.then((result) => { complete = true; final = result; }, () => { complete = true; });
@@ -217,26 +243,71 @@ export class OpenShellAgentOrchestrator {
     while (!complete) {
       await delay(this.proposalPollMs);
       if (complete) break;
-      let proposals: PolicyProposal[];
+      let proposals: Array<{ sandbox: string; proposal: PolicyProposal }>;
       try {
-        proposals = await this.cli.pendingRules(sandboxName);
+        if (browserSandboxName) await this.bridgeBrowserRequests(sandboxName, browserSandboxName);
+        const workerProposals = await this.cli.pendingRules(sandboxName);
+        const browserProposals = browserSandboxName ? await this.cli.pendingRules(browserSandboxName) : [];
+        proposals = [
+          ...workerProposals.map((proposal) => ({ sandbox: sandboxName, proposal })),
+          ...browserProposals.map((proposal) => ({ sandbox: browserSandboxName!, proposal })),
+        ];
         warnedAboutPolling = false;
       } catch {
         if (!warnedAboutPolling) callbacks.progress("Policy proposal polling is temporarily unavailable; the worker remains sandboxed and waiting.");
         warnedAboutPolling = true;
         continue;
       }
-      for (const proposal of proposals) {
-        if (reviewed.has(proposal.id)) continue;
-        reviewed.add(proposal.id);
-        const decision = await callbacks.reviewProposal(proposal);
-        if (decision.action === "approve") await this.cli.approveRule(sandboxName, proposal.id);
-        else await this.cli.rejectRule(sandboxName, proposal.id, decision.reason);
+      for (const item of proposals) {
+        const key = `${item.sandbox}:${item.proposal.id}`;
+        if (reviewed.has(key)) continue;
+        reviewed.add(key);
+        const decision = await callbacks.reviewProposal(item.proposal);
+        if (decision.action === "approve") await this.cli.approveRule(item.sandbox, item.proposal.id);
+        else await this.cli.rejectRule(item.sandbox, item.proposal.id, decision.reason);
       }
     }
     if (!final) throw new AgentFailure("worker_exec_failed", "The sandbox exec transport failed; no host fallback was attempted");
     return final;
   }
+
+  private async bridgeBrowserRequests(workerSandbox: string, browserSandbox: string): Promise<void> {
+    const listed = await this.cli.exec(workerSandbox, ["sh", "-c", "find /sandbox/.openshell-agent/browser-bridge -maxdepth 1 -type f -name '*.request' -printf '%f\\n' 2>/dev/null | head -20"], { timeout: 5 });
+    if (listed.code !== 0) return;
+    for (const file of listed.stdout.split("\n").filter(Boolean)) {
+      if (!/^[0-9a-f-]{36}\.request$/.test(file)) continue;
+      const id = file.slice(0, -8);
+      const request = await this.cli.exec(workerSandbox, ["cat", `/sandbox/.openshell-agent/browser-bridge/${file}`], { timeout: 5 });
+      if (request.code !== 0 || Buffer.byteLength(request.stdout, "utf8") > 64 * 1024) continue;
+      let parsed: { id: string; path: string; body?: unknown };
+      try { parsed = JSON.parse(request.stdout); } catch { continue; }
+      if (parsed.id !== id || !["/navigate", "/snapshot", "/click", "/type", "/press"].includes(parsed.path)) continue;
+      const response = await this.cli.browserCall(browserSandbox, parsed.path, parsed.body);
+      // A newly denied destination returns before Policy Advisor has flushed its
+      // proposal. Keep the request pending so the next monitor pass retries it
+      // after the operator's decision without spending another model turn.
+      if (response.status === 400 && response.body.code === "controller_error") continue;
+      const written = await this.cli.exec(workerSandbox, ["sh", "-c", `umask 077; cat > /sandbox/.openshell-agent/browser-bridge/${id}.response.pending && mv /sandbox/.openshell-agent/browser-bridge/${id}.response.pending /sandbox/.openshell-agent/browser-bridge/${id}.response`], { input: JSON.stringify(response), timeout: 5 });
+      if (written.code !== 0) throw new AgentFailure("browser_bridge_failed", "Could not return a bounded browser response to the worker sandbox");
+    }
+  }
+}
+
+function browserServiceProfile(profile: OpenShellProfile): OpenShellProfile {
+  if (!profile.browser) throw new Error("Browser service profile is missing");
+  return {
+    ...profile,
+    name: `${profile.name}-service`,
+    image: profile.browser.image,
+    imageContract: profile.browser.imageContract,
+    basePolicy: profile.browser.basePolicy,
+    providers: [],
+    requiredProviderTypes: undefined,
+    codexSubscription: undefined,
+    browser: undefined,
+    filesystem: { readOnly: ["/usr", "/lib", "/proc", "/dev/urandom", "/app", "/etc", "/var/log", "/opt"], readWrite: ["/sandbox", "/tmp", "/dev/null", "/run/openshell-browser", "/var/lib/openshell-browser"] },
+    process: { runAsUser: "2000", runAsGroup: "2000" },
+  };
 }
 
 export class AgentFailure extends Error {

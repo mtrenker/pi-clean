@@ -53,9 +53,9 @@ export const BUILTIN_PROFILES: Readonly<Record<string, OpenShellProfile>> = Obje
   },
   "authenticated-browser": {
     name: "authenticated-browser",
-    description: "Persistent isolated browser profile with local noVNC manual takeover",
-    image: join(extensionDir, "image"),
-    imageContract: "repository-owned OpenShell pi browser derivative",
+    description: "Persistent isolated browser service with local noVNC manual takeover and a separate Pi worker sandbox",
+    image: PINNED_PI_IMAGE,
+    imageContract: PINNED_PI_CONTRACT,
     cpu: "2",
     memory: "4G",
     reuse: "browser-profile",
@@ -64,12 +64,16 @@ export const BUILTIN_PROFILES: Readonly<Record<string, OpenShellProfile>> = Obje
     providers: [],
     codexSubscription: DEFAULT_CODEX,
     workerTools: ["read", "bash", "write", "edit", "grep", "find", "ls"],
-    filesystem: {
-      ...DEFAULT_FILESYSTEM,
-      readWrite: [...DEFAULT_FILESYSTEM.readWrite, "/var/lib/openshell-browser"],
-    },
+    filesystem: DEFAULT_FILESYSTEM,
     process: DEFAULT_PROCESS,
-    browser: { persistent: true, controllerPort: 3010, noVncPort: 6080 },
+    browser: {
+      persistent: true,
+      controllerPort: 3010,
+      noVncPort: 6080,
+      image: join(extensionDir, "image"),
+      imageContract: "repository-owned isolated Chromium service, tested with OpenShell v0.0.86",
+      basePolicy: join(extensionDir, "profiles", "authenticated-browser-service.policy.yaml"),
+    },
   },
 });
 
