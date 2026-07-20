@@ -171,6 +171,7 @@ export class OpenShellAgentOrchestrator {
       }
       callbacks.progress(`${reused ? "Reusing" : "Preparing"} Ready sandbox ${record.sandboxName}…`);
       await this.installRuntime(record.sandboxName, Boolean(profile.browser));
+      await this.waitForPolicyAdvisor(record.sandboxName);
       const jobId = randomUUID();
       await this.writeRequest(record.sandboxName, jobId, profile, input, identity.repositoryKey, preflight);
       callbacks.progress(`Running job ${jobId.slice(0, 8)} inside OpenShell…`);
@@ -269,6 +270,15 @@ export class OpenShellAgentOrchestrator {
     }
     if (!final) throw new AgentFailure("worker_exec_failed", "The sandbox exec transport failed; no host fallback was attempted");
     return final;
+  }
+
+  private async waitForPolicyAdvisor(sandboxName: string): Promise<void> {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const ready = await this.cli.exec(sandboxName, ["sh", "-c", "test -r /etc/openshell/skills/policy-advisor/SKILL.md && test -r /etc/openshell/skills/policy_advisor.md"], { timeout: 5 });
+      if (ready.code === 0) return;
+      await delay(100);
+    }
+    throw new AgentFailure("policy_advisor_unavailable", "The gateway did not install its Policy Advisor skill; the job was not started");
   }
 
   private async bridgeBrowserRequests(workerSandbox: string, browserSandbox: string): Promise<void> {

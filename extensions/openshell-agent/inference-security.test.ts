@@ -26,6 +26,7 @@ test("Codex relay is image-owned, fixed-destination, request-bounded, and creden
 
 test("worker uses only a synthetic local Codex identity and disables local OAuth refresh", async () => {
   const worker = await readFile(join(root, "worker-runtime.mjs"), "utf8");
+  assert.match(worker, /readFile\("\/etc\/openshell\/skills\/policy-advisor\/SKILL\.md"[\s\S]*writeFile\(policySkillPath[\s\S]*"--no-skills",[\s\S]*"--skill", policySkillPath/);
   assert.match(worker, /chatgpt_account_id: "openshell-placeholder"/);
   assert.match(worker, /settings\.json[\s\S]*transport: "sse"/);
   assert.match(worker, /spawn\("\/opt\/openshell-agent\/relay-node", \["\/opt\/openshell-agent\/codex-relay\.mjs"\]/);

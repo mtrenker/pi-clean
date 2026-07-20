@@ -125,6 +125,18 @@ test("dynamic update failure restores the prior policy and newly attached provid
   assert.ok(calls.some((args) => args.join(" ") === "sandbox provider detach workspace new-provider"));
 });
 
+test("an auto-approved proposal race is accepted only after it leaves the pending inbox", async () => {
+  await new OpenShellClient(new FakeRunner({
+    "rule approve workspace --chunk-id chunk-auto": { code: 1 },
+    "rule get workspace --status pending": { stdout: "No pending rules\n" },
+  })).approveRule("workspace", "chunk-auto");
+
+  await assert.rejects(new OpenShellClient(new FakeRunner({
+    "rule approve workspace --chunk-id chunk-still-pending": { code: 1 },
+    "rule get workspace --status pending": { stdout: "Chunk ID: chunk-still-pending\nStatus: pending\n" },
+  })).approveRule("workspace", "chunk-still-pending"), /kept the operation closed/);
+});
+
 test("policy proposal parsing exposes structured grant and prover evidence", () => {
   const proposals = parsePolicyProposals(`
 Pending network rules

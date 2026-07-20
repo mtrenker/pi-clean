@@ -27,6 +27,14 @@ try {
   lockOwned = true;
   await mkdir(jobDir, { recursive: true });
   const request = validateRequest(JSON.parse(await readFile(requestPath, "utf8")));
+  const policySkillDir = join(runtimeDir, "policy-advisor");
+  const policySkillPath = join(policySkillDir, "SKILL.md");
+  const policyReferencePath = join(policySkillDir, "reference.md");
+  await mkdir(policySkillDir, { recursive: true });
+  const policySkill = (await readFile("/etc/openshell/skills/policy-advisor/SKILL.md", "utf8"))
+    .replace("/etc/openshell/skills/policy_advisor.md", policyReferencePath);
+  await writeFile(policySkillPath, policySkill, { mode: 0o600 });
+  await writeFile(policyReferencePath, await readFile("/etc/openshell/skills/policy_advisor.md", "utf8"), { mode: 0o600 });
   log = createWriteStream(logPath, { flags: "a", mode: 0o600 });
 
   const agentDir = join(root, ".pi-agent");
@@ -68,6 +76,7 @@ try {
     : request.workerTools;
   const args = [
     "--mode", "json", "-p", "--no-session", "--no-context-files", "--no-skills",
+    "--skill", policySkillPath,
     "--no-prompt-templates", "--no-themes", "--model", `${providerId}/${modelId}`,
     "--tools", activeTools.join(","),
   ];

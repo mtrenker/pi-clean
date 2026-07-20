@@ -279,11 +279,22 @@ export class OpenShellClient {
   }
 
   async approveRule(name: string, id: string): Promise<void> {
-    await this.required(["rule", "approve", name, "--chunk-id", id], "approve policy proposal");
+    await this.resolvePendingRule(name, id, ["rule", "approve", name, "--chunk-id", id], "approve policy proposal");
   }
 
   async rejectRule(name: string, id: string, reason: string): Promise<void> {
-    await this.required(["rule", "reject", name, "--chunk-id", id, "--reason", reason], "reject policy proposal");
+    await this.resolvePendingRule(name, id, ["rule", "reject", name, "--chunk-id", id, "--reason", reason], "reject policy proposal");
+  }
+
+  private async resolvePendingRule(name: string, id: string, args: string[], action: string): Promise<void> {
+    const result = await this.runner.run(args);
+    if (result.code === 0) return;
+    // Auto mode can resolve an empty-prover-delta proposal between the pending
+    // poll and this decision. Treat only that already-resolved race as success.
+    const pending = await this.pendingRules(name);
+    if (pending.some((proposal) => proposal.id === id)) {
+      throw new Error(`Could not ${action}; OpenShell kept the operation closed. Inspect gateway/sandbox logs for secret-safe diagnostics.`);
+    }
   }
 
   startForward(name: string, targetPort: number, localPort: number): ForwardHandle {

@@ -85,7 +85,7 @@ test("a second development job reuses the persistent sandbox and repository iden
   assert.equal(first.reused, false);
   assert.equal(second.reused, true);
 
-  const requestCalls = cli.calls.filter((call) => call.kind === "exec" && call.args?.[0] === "sh");
+  const requestCalls = cli.calls.filter((call) => call.kind === "exec" && call.args?.[0] === "sh" && call.args[2]?.includes("cat > /sandbox/jobs/"));
   assert.equal(requestCalls.length, 2);
   const requests = requestCalls.map((call) => JSON.parse(call.input ?? "{}"));
   assert.equal(requests[0].repository.key, requests[1].repository.key);
