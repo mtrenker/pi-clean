@@ -282,12 +282,17 @@ export class OpenShellAgentOrchestrator {
       let parsed: { id: string; path: string; body?: unknown };
       try { parsed = JSON.parse(request.stdout); } catch { continue; }
       if (parsed.id !== id || !["/navigate", "/snapshot", "/click", "/type", "/press"].includes(parsed.path)) continue;
+      const claimed = await this.cli.exec(workerSandbox, ["mv", `/sandbox/.openshell-agent/browser-bridge/${id}.request`, `/sandbox/.openshell-agent/browser-bridge/${id}.processing`], { timeout: 5 });
+      if (claimed.code !== 0) continue;
       const response = await this.cli.browserCall(browserSandbox, parsed.path, parsed.body);
       // A newly denied destination returns before Policy Advisor has flushed its
-      // proposal. Keep the request pending so the next monitor pass retries it
-      // after the operator's decision without spending another model turn.
-      if (response.status === 400 && response.body.code === "controller_error") continue;
-      const written = await this.cli.exec(workerSandbox, ["sh", "-c", `umask 077; cat > /sandbox/.openshell-agent/browser-bridge/${id}.response.pending && mv /sandbox/.openshell-agent/browser-bridge/${id}.response.pending /sandbox/.openshell-agent/browser-bridge/${id}.response`], { input: JSON.stringify(response), timeout: 5 });
+      // proposal. Requeue it so the next monitor pass retries after the
+      // operator's decision without spending another model turn.
+      if (response.status === 400 && response.body.code === "controller_error") {
+        await this.cli.exec(workerSandbox, ["mv", `/sandbox/.openshell-agent/browser-bridge/${id}.processing`, `/sandbox/.openshell-agent/browser-bridge/${id}.request`], { timeout: 5 });
+        continue;
+      }
+      const written = await this.cli.exec(workerSandbox, ["sh", "-c", `umask 077; cat > /sandbox/.openshell-agent/browser-bridge/${id}.response.pending && mv /sandbox/.openshell-agent/browser-bridge/${id}.response.pending /sandbox/.openshell-agent/browser-bridge/${id}.response && rm -f /sandbox/.openshell-agent/browser-bridge/${id}.processing`], { input: JSON.stringify(response), timeout: 5 });
       if (written.code !== 0) throw new AgentFailure("browser_bridge_failed", "Could not return a bounded browser response to the worker sandbox");
     }
   }

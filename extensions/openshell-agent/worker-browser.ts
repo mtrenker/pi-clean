@@ -37,7 +37,7 @@ async function call(path: string, body?: unknown): Promise<Record<string, unknow
     }
     throw new Error("Constrained browser controller timed out");
   } finally {
-    await Promise.all([request, response, pending].map((file) => rm(file, { force: true }).catch(() => {})));
+    await Promise.all([request, response, pending, `${queueDir}/${id}.processing`, `${response}.pending`].map((file) => rm(file, { force: true }).catch(() => {})));
   }
 }
 
