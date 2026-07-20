@@ -14,23 +14,13 @@ pi install git:git@github.com:mtrenker/pi-clean.git
 
 Adds focused guardrails for catastrophic shell commands, sensitive file paths, and secret-like tool output while preserving normal agent autonomy.
 
-### 🌐 [Browser](extensions/browser/README.md)
-
-Gives the agent a real web browser via Playwright—navigate pages, click links, fill forms, take screenshots, and run JavaScript. Features a persistent profile, visual overlay in headed mode, and a mission briefing gate for domain trust.
-
-Requires Playwright browser binaries:
-
-```bash
-npx playwright install chromium
-```
-
 ### ◩ [Visual Design Relay](extensions/visual-design/README.md)
 
 Prototypes repo-native, Plate-compatible visual artifacts: select a stable design node in the browser, discuss it with Pi, and watch validated agent mutations or external file edits appear live. Start the included artifact with `/design designs/example.design.json`.
 
 ### ⛨ [OpenShell Agent](extensions/openshell-agent/README.md)
 
-Runs bounded autonomous research, sandbox-side Git development, and opt-in persistent authenticated-browser jobs inside isolated OpenShell workspaces. Requires a matching OpenShell v0.0.86+ CLI/gateway and a current official Codex login; Pi uses `gpt-5.6-terra` through an image-owned placeholder relay while real OAuth tokens remain gateway-owned. Untrusted final answers render in TUI-only tool details and terminate without a host-model follow-up.
+Runs bounded autonomous research, sandbox-side Git development, and opt-in persistent authenticated-browser jobs inside isolated OpenShell workspaces. Use this extension for web research and browsing so untrusted content, Chromium, browser profiles, and authenticated sessions remain within the OpenShell boundary. Requires a matching OpenShell v0.0.86+ CLI/gateway and a current official Codex login; Pi uses `gpt-5.6-terra` through an image-owned placeholder relay while real OAuth tokens remain gateway-owned. Untrusted final answers render in TUI-only tool details and terminate without a host-model follow-up.
 
 ## Interactive delegation with Herdr
 
@@ -86,7 +76,6 @@ Set `FLIGHTDECK_TELEMETRY_FILE` to emit compatible worktree and agent-start even
 ```text
 pi-clean/
 ├── extensions/agent-guard/ # Shell, path, and output safety guardrails
-├── extensions/browser/     # Playwright browser automation
 ├── extensions/openshell-agent/ # Sandboxed autonomous-agent jobs
 ├── extensions/visual-design/ # PlateJS visual artifact relay
 ├── designs/                # Example repo-native visual artifacts

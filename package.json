@@ -23,7 +23,6 @@
     "@platejs/core": "^53.2.4",
     "esbuild": "^0.28.1",
     "minimatch": "^10.2.5",
-    "playwright": "^1.61.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
