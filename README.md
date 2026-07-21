@@ -24,7 +24,7 @@ Runs bounded autonomous research, sandbox-side Git development, and opt-in persi
 
 ## Interactive delegation with Herdr
 
-Pi-clean intentionally does not ship a subprocess delegation tool or a package-owned Herdr skill. Use the externally managed `herdr` skill discovered from `~/.agents/skills/` as the canonical guide to current pane, workspace, output, focus, and intervention commands.
+Pi-clean intentionally does not ship a subprocess delegation tool or duplicate Herdr command reference. Its `interactive-agent-sessions` skill maps short requests to predictable Claude and Codex launch profiles and placement; it loads the externally managed `herdr` skill discovered from `~/.agents/skills/` as the canonical guide to current pane, workspace, output, focus, and intervention commands.
 
 Choose the delegation boundary by risk:
 
@@ -34,7 +34,7 @@ Choose the delegation boundary by risk:
 
 Keep delegated agents visible. First observe the pane reach `working`; a pane that never does may not have launched correctly. After that, treat either `done` or `idle` as settled, read the pane output, and surface `blocked` for operator attention. Viewing a completed pane acknowledges Herdr's ephemeral unread `done` state and may change it to `idle`, so never wait only for `done`. The operator can focus the pane at any time to guide, interrupt, or resume the agent.
 
-Managed Claude author and reviewer panes launch with `--permission-mode bypassPermissions`. Managed Codex panes launch with `--full-auto`, which retains Codex's workspace-write sandbox rather than granting `danger-full-access`. These non-prompting local profiles do not authorize publishing reviews, approving, merging, deleting remote branches, or any other protected remote mutation without explicit operator approval. Claude's bypass mode is not a host sandbox; the isolated worktree protects Git state, not the host, pending separate sandbox hardening.
+The `interactive-agent-sessions` skill defines the current version-verified non-prompting profiles: Claude bypasses permission prompts, while Codex suppresses approvals but retains an explicit read-only or workspace-write sandbox. These local profiles do not authorize publishing reviews, approving, merging, deleting remote branches, or any other protected remote mutation without explicit operator approval. Claude's bypass mode is not a host sandbox; the isolated worktree protects Git state, not the host, pending separate sandbox hardening.
 
 ## GitHub issue and pull request workflow
 
@@ -43,6 +43,7 @@ GitHub issues are the durable mental model for work. Each implementation uses on
 The package includes reusable skills:
 
 - `experience-design-quality` for emotionally fitting, distinctive, accessible experience design across product contexts.
+- `interactive-agent-sessions` for visible, focusable Claude, Codex, and Fable sessions with deterministic models, effort, permissions, prompts, and Herdr placement.
 - `github-issues` for Projects, issue hierarchy, dependencies, milestones, grooming, and human/agent readiness.
 - `github-pull-requests` for opening PRs, independent reviews, checks, merge preparation, and cleanup.
 - `react-composition-quality` for maintainable React composition, render-ready data, and simple UI contracts.
