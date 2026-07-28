@@ -67,6 +67,38 @@ Treat `agent-ready` as a strict admission gate when the repository uses it: a co
 
 Propose issue, relationship, label, milestone, and Project-field changes before applying them. Preserve useful original context rather than silently replacing it.
 
+## Report a project grooming pass
+
+Make the report useful to someone who does not remember issue numbers. Never use a bare issue or
+pull-request number as the primary description of work.
+
+- On first mention, render a linked identifier and exact title, for example
+  `[#64 — Add atomic Codex form command](URL)`. In a distant section, repeat the title rather than
+  expecting the reader to recall it.
+- Describe relationships in plain language: name both items, say which one blocks the other, and
+  explain the practical consequence for the queue.
+- Translate mechanical findings into workflow impact. “Structurally clean” must say what was
+  checked and must not imply that scope, priority, or semantic readiness is sound.
+- For every item needing attention, include **why it matters**, the **specific recommended change**,
+  and the **resulting next state or next action**. If recommending a split, name the outcome retained
+  by the current issue and the proposed sibling outcomes.
+- Distinguish facts observed on GitHub from recommendations. Do not present a future gate date,
+  readiness judgment, or proposed restructuring without explaining its source and consequence.
+- End with the smallest decision needed from the operator. Phrase alternatives by outcome and title,
+  not number alone, and recommend a default when the evidence supports one.
+
+Use this compact structure, omitting empty sections:
+
+1. **State at a glance:** counts plus a one-sentence interpretation of flow and capacity.
+2. **Ready queue / active work:** one row per relevant item with linked title, priority/size/readiness,
+   why it is or is not actionable, and the next move.
+3. **Dependencies and review gates:** named relationships, failed checks, and when/how they clear.
+4. **Attention and proposed changes:** concrete diagnosis, recommendation, and expected queue effect.
+5. **Decision:** a descriptive choice or confirmation request.
+
+Do not enumerate every healthy backlog item merely for completeness. Do include every Ready,
+In-progress, In-review, blocked-near-Ready, or otherwise actionable item; summarize the rest by count.
+
 ## Select work
 
 When a repository uses the recommended Project workflow, implementation candidates come from unblocked Ready issues. Agent work additionally requires the repository's agent-readiness marker. Respect Project WIP and human review limits; do not start parent issues, Backlog items, or multiple tasks likely to edit the same boundary.
