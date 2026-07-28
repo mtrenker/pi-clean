@@ -10,8 +10,8 @@
         {
           "id": "hero-section",
           "type": "section",
-          "className": "pad-lg bg-gradient-ink-signal",
-          "tone": "ink",
+          "className": "pad-lg bg-paper",
+          "tone": "paper",
           "children": [
             {
               "id": "hero-layout",
@@ -40,7 +40,7 @@
                       "variant": "display",
                       "children": [
                         {
-                          "text": "A long table for a small neighborhood."
+                          "text": "Pull up a chair. Meet your neighbors."
                         }
                       ]
                     },
