@@ -1,5 +1,12 @@
 # Agent instructions
 
+## Scope and skill location
+
+When Martin asks to write, add, or change a skill while working in this repository, treat it as a
+repository skill. Create or update it under `skills/<skill-name>/SKILL.md`, never under a personal
+home skill directory. A personal skill is only intended when Martin explicitly asks from his home
+directory.
+
 ## GitHub workflow
 
 Use the `github-issues` skill for issue management and `github-pull-requests` for pull requests
