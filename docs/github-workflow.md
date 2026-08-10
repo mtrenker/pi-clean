@@ -76,13 +76,20 @@ Pi-clean does not provide non-interactive Claude or Codex subprocess delegation.
 
 Use a split pane in the current workspace only for a bounded read-only investigation where sharing the checkout is safe. Shared-workspace agents must not mutate the checkout. Any issue implementation, code or configuration mutation uses `start-issue` and its isolated linked-worktree workspace. Independent review uses `review-pr` and its detached review worktree and workspace.
 
+Any delegated work that establishes or materially changes product, UX, interaction, visual,
+architecture, API, or data-model direction must assign that design to Claude Opus 5
+(`claude-opus-5`). Fable may coordinate, while Pi and Codex may investigate constraints, implement
+the durable Opus direction, and validate it. If implementation reveals a material design gap, stop
+that part and return it to Opus rather than improvising. Capture the Opus direction in the issue, a
+design artifact, or repository documentation before dependent implementation starts.
+
 When coordinating with a delegated agent:
 
 1. Observe `working` before considering the launch successful. If the agent becomes `blocked`, read its output and bring it to the operator's attention instead of continuing to wait.
 2. After `working` has been observed, accept either `done` or `idle` as settled and read the final pane output. Herdr's `done` means completed but unread; focusing or reading the completed pane can acknowledge that ephemeral state and return it to `idle`, so a waiter must never require only `done`.
 3. Keep the pane available so the operator can focus it to inspect, guide, interrupt, or resume the agent.
 
-The helper launches managed Claude issue authors and PR reviewers with `--permission-mode bypassPermissions`. It launches managed Codex authors and reviewers with `--full-auto`; Codex therefore keeps its workspace-write sandbox and is not given `danger-full-access`. These profiles avoid repeated prompts for routine local reads, tests, and review commands. They do not authorize publishing a review, approving, merging, deleting remote branches, or another protected remote mutation without explicit operator approval. Claude's bypass mode does not sandbox host filesystem or process access, and a detached worktree isolates Git state rather than untrusted repository code; stronger OpenShell/Herdr sandboxing is separate follow-up work.
+The helper launches managed Claude issue authors and PR reviewers as Claude Opus 5 with `--permission-mode bypassPermissions`. It launches managed Codex authors and reviewers with `--full-auto`; Codex therefore keeps its workspace-write sandbox and is not given `danger-full-access`. Managed Pi and Codex prompts require an Opus handoff instead of inventing unresolved design. These profiles avoid repeated prompts for routine local reads, tests, and review commands. They do not authorize publishing a review, approving, merging, deleting remote branches, or another protected remote mutation without explicit operator approval. Claude's bypass mode does not sandbox host filesystem or process access, and a detached worktree isolates Git state rather than untrusted repository code; stronger OpenShell/Herdr sandboxing is separate follow-up work.
 
 ## Start issue implementation
 

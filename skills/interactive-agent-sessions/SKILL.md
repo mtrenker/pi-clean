@@ -22,14 +22,35 @@ Turn a short request into an operator-visible Claude or Codex TUI. This skill ow
 | --- | --- | --- | --- | --- |
 | Fable review | Claude `fable` | `high` | Claude bypass permissions | `REVIEW_PROMPT` |
 | Delegated bigger task | Claude `fable` coordinator over Claude `claude-opus-5` and Codex `gpt-5.6-sol` | `high` | Claude bypass permissions | `DELEGATION_PROMPT` |
+| Design or architecture | Claude `claude-opus-5` | `high` | Claude bypass permissions | design prompt with durable output |
 | Claude review | Claude `claude-opus-5` | `high` | Claude bypass permissions | `REVIEW_PROMPT` |
 | Claude implementation | Claude `claude-opus-5` | `high` | Claude bypass permissions | task prompt |
 | Claude investigation | Claude `claude-opus-5` | `medium` | Claude bypass permissions; prompt must prohibit edits | investigation prompt |
-| Codex review | Codex `gpt-5.6-sol` | `high` | no approvals, `workspace-write` sandbox | `REVIEW_PROMPT` |
-| Codex implementation | Codex `gpt-5.6-sol` | `high` | no approvals, `workspace-write` sandbox | task prompt |
+| Codex review | Codex `gpt-5.6-sol` | `high` | no approvals, `workspace-write` sandbox | `REVIEW_PROMPT`; no unresolved design judgment |
+| Codex implementation | Codex `gpt-5.6-sol` | `high` | no approvals, `workspace-write` sandbox | approved design required |
 | Codex investigation | Codex `gpt-5.6-sol` | `medium` | no approvals, `read-only` sandbox | investigation prompt |
 
-Claude Opus 5 is the default and preferred development model. Use a different direct-development model only when Martin names it or repository policy requires it. When Martin asks to delegate a bigger task, or explicitly asks for Fable orchestration, launch Claude Fable as the coordinator rather than using a direct Opus or Codex implementation session. A bigger task is broad enough to benefit from multiple bounded workstreams, such as cross-cutting implementation plus independent investigation, review, or validation. Do not add orchestration to narrow work merely because it uses `high` effort. An explicit effort request overrides the matrix when the selected model supports that value.
+Claude Opus 5 is the default and preferred development model. Use a different direct-development model only when Martin names it or repository policy requires it. When Martin asks to delegate a bigger task, or explicitly asks for Fable orchestration, launch Claude Fable as the coordinator rather than using a direct Opus or Codex implementation session. A bigger task is broad enough to benefit from multiple bounded workstreams, such as cross-cutting implementation plus independent investigation, review, or validation. Do not add orchestration to narrow work merely because it uses `high` effort. An explicit effort request overrides the matrix when the selected model supports that value, but it does not override the Opus design-ownership rule.
+
+## Design ownership
+
+Any delegated work that establishes or materially changes a solution direction must assign the
+design phase to Claude Opus 5 (`claude-opus-5`). This includes product, UX, interaction, visual,
+architecture, API, and data-model design.
+
+- Fable may decompose and coordinate the task, but it must delegate design to Opus rather than
+  designing the solution itself.
+- Pi and Codex may investigate constraints, implement a settled Opus design, and independently
+  validate it. They must not originate or materially revise unresolved design.
+- Record the Opus direction in the issue, a design artifact, or repository documentation before
+  dependent implementation begins. The output must state the chosen direction, consequential
+  tradeoffs, constraints, and implementation acceptance criteria.
+- Routine local implementation choices within that approved direction do not require another Opus
+  pass. If implementation exposes a material design gap, pause that part and return it to Opus.
+
+When a request combines design and implementation, either give the whole task to Opus or sequence
+an Opus design task before any other implementation agent. Never ask Codex to "design and build"
+or let a coordinator treat Opus and Codex as interchangeable during the design phase.
 
 ### Review-only prompt
 
@@ -39,17 +60,17 @@ Substitute the concrete target and repository/PR context before launch:
 Review only: <TARGET>. Do not edit files or implement fixes unless Martin explicitly requests fixes in this session. Inspect the relevant issue context, full diff, tests, regressions, error handling, maintainability, and security. Return only evidence-backed findings ordered by severity. For each finding include file and line evidence, the concrete failure mode and impact, and a recommended correction. State explicitly when there are no findings. Do not publish comments, approve, merge, delete branches, or perform other protected remote mutations.
 ```
 
-A review's `workspace-write` sandbox allows tools and tests to create local artifacts; it does not relax the review-only instruction. Review Git changes before declaring the session settled.
+A review's `workspace-write` sandbox allows tools and tests to create local artifacts; it does not relax the review-only instruction. Review Git changes before declaring the session settled. If the review requires judgment about a new or materially changed design direction, use Opus rather than Fable, Pi, or Codex for that design review; other models may still review implementation fidelity against the approved direction.
 
 ### Bigger-task delegation prompt
 
 Substitute the concrete task and repository/issue context before launch:
 
 ```text
-Coordinate this bigger task: <TASK>. Read and follow the repository instructions and relevant issue or PR context. Decompose the work into bounded, non-overlapping subtasks and orchestrate substantive work across both Claude Opus 5 (`claude-opus-5`) and GPT-5.6-sol (`gpt-5.6-sol`). Prefer Claude Opus 5 for primary development. Use GPT-5.6-sol for complementary investigation, an independent review, or validation. Keep a single writer for any shared worktree unless isolated worktrees make concurrent mutation safe. Inspect and synthesize delegated results, resolve discrepancies, run final validation, and remain accountable for the complete result. Respect repository WIP, worktree, review, and authorization rules. Do not merge or perform protected remote mutations without Martin's explicit authorization.
+Coordinate this bigger task: <TASK>. Read and follow the repository instructions and relevant issue or PR context. Decompose the work into bounded, non-overlapping subtasks and orchestrate substantive work across both Claude Opus 5 (`claude-opus-5`) and GPT-5.6-sol (`gpt-5.6-sol`). Assign every product, UX, interaction, visual, architecture, API, or data-model design decision exclusively to Opus and make its direction durable before dependent implementation begins. Use GPT-5.6-sol only for complementary investigation, implementation within that approved design, independent code review, or validation; it must not originate or materially revise unresolved design. Keep a single writer for any shared worktree unless isolated worktrees make concurrent mutation safe. Inspect and synthesize delegated results, resolve discrepancies, run final validation, and remain accountable for the complete result. Respect repository WIP, worktree, review, and authorization rules. Do not merge or perform protected remote mutations without Martin's explicit authorization.
 ```
 
-Fable is the coordinator, not a third interchangeable implementation worker. It must use both named worker models for substantive contributions, prevent overlapping writes, and verify their outputs before reporting completion. Keep the Fable coordinator visible and focusable; its internally delegated workers do not replace the operator-visible coordinator session.
+Fable is the coordinator, not a third interchangeable implementation worker or the design owner. It must assign design to Opus, use both named worker models for substantive contributions outside that exclusive design boundary, prevent overlapping writes, and verify their outputs before reporting completion. Keep the Fable coordinator visible and focusable; its internally delegated workers do not replace the operator-visible coordinator session.
 
 ## Version-sensitive launch table
 
@@ -167,7 +188,7 @@ herdr workspace focus "$WORKSPACE"
 Use the same issue-worktree setup, but launch Fable in the returned root pane with the concrete delegation prompt. Do not launch Opus and Codex as unrelated sibling implementation sessions; Fable owns decomposition, assignment, synthesis, and final validation.
 
 ```bash
-DELEGATION_PROMPT='Coordinate GitHub issue #123 as a bigger delegated task. Read the repository instructions and issue. Decompose it into bounded, non-overlapping subtasks and orchestrate substantive work across both Claude Opus 5 (`claude-opus-5`) and GPT-5.6-sol (`gpt-5.6-sol`). Prefer Opus 5 for primary development and GPT-5.6-sol for complementary investigation or independent review and validation. Keep a single writer in this worktree, inspect and synthesize delegated results, run final validation, and prepare a pull request. Do not merge or perform protected remote mutations.'
+DELEGATION_PROMPT='Coordinate GitHub issue #123 as a bigger delegated task. Read the repository instructions and issue. Decompose it into bounded, non-overlapping subtasks and orchestrate substantive work across both Claude Opus 5 (`claude-opus-5`) and GPT-5.6-sol (`gpt-5.6-sol`). Assign every product, UX, interaction, visual, architecture, API, or data-model design decision exclusively to Opus and record its direction before dependent implementation. Use GPT-5.6-sol only for complementary investigation, implementation within the approved design, independent code review, or validation; it must not originate or materially revise unresolved design. Keep a single writer in this worktree, inspect and synthesize delegated results, run final validation, and prepare a pull request. Do not merge or perform protected remote mutations.'
 herdr pane run "$PANE" "claude --model fable --effort high --permission-mode bypassPermissions $(printf %q "$DELEGATION_PROMPT")"
 herdr workspace focus "$WORKSPACE"
 ```

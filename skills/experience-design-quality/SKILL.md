@@ -7,6 +7,19 @@ description: Use when designing, implementing, or critiquing any user-facing dig
 
 Design the right experience, not a fashionable one. Emotion is a functional requirement: earn it through hierarchy, language, pacing, feedback, and recovery before decoration.
 
+## Delegated design ownership
+
+When this work is delegated to another agent, Claude Opus 5 (`claude-opus-5`) must own the design
+direction. This covers the experience brief, information and interaction structure, visual language,
+responsive behavior, state model, and any material revision to them. Fable may coordinate, while Pi
+or Codex may investigate constraints, implement the approved direction, and validate it; they must
+not originate or materially revise unresolved design.
+
+For a combined design-and-build task, either delegate the whole task to Opus or complete an Opus
+design pass first and persist its thesis, constitution, key states, constraints, and acceptance
+criteria in an issue, design artifact, or repository document. If implementation reveals a material
+design gap, return that decision to Opus rather than filling it in opportunistically.
+
 ## 1. Read the situation
 
 Inspect the product, real content/data, current UI, design tokens, components, technical constraints, and brand signals before proposing a direction. Preserve useful conventions; do not restyle the product by reflex.

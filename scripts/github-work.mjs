@@ -82,7 +82,7 @@ async function startIssue(number, options) {
 
   const labelPrefix = `${context.repoName} · #${issue.number} ·`;
   const label = `${labelPrefix} ${truncate(issue.title, 42)}`;
-  const prompt = `Work on GitHub issue #${issue.number} in ${context.nameWithOwner}. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge.`;
+  const prompt = issueAgentPrompt(agent, issue.number, context.nameWithOwner);
   const launchEnvironment = flightdeckLaunchEnvironment({
     workId,
     projectSlug: context.repoName,
@@ -183,7 +183,7 @@ async function reviewPr(number, options) {
     path,
     label,
     reviewer,
-    `Independently review GitHub pull request #${pr.number} in ${context.nameWithOwner}. Inspect the issue context, full diff, tests, regressions, and security. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization.`,
+    reviewAgentPrompt(reviewer, pr.number, context.nameWithOwner),
     label,
     flightdeckLaunchEnvironment({
       workId,
@@ -429,10 +429,26 @@ function launchAgentInHerdrPane(paneId, agent, prompt, launchEnvironment = {}) {
   return true;
 }
 
+function issueAgentPrompt(agent, number, repository) {
+  const task = `Work on GitHub issue #${number} in ${repository}. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge.`;
+  if (agent === "claude") {
+    return `${task} As Claude Opus 5, own and document any unresolved product, UX, interaction, visual, architecture, API, or data-model design before implementing it.`;
+  }
+  return `${task} Do not originate or materially change unresolved product, UX, interaction, visual, architecture, API, or data-model design. If such design is required and is not already approved, stop and report the required Claude Opus 5 handoff.`;
+}
+
+function reviewAgentPrompt(reviewer, number, repository) {
+  const task = `Independently review GitHub pull request #${number} in ${repository}. Inspect the issue context, full diff, tests, regressions, and security. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization.`;
+  if (reviewer === "claude") {
+    return `${task} As Claude Opus 5, evaluate any new or materially changed product, UX, interaction, visual, architecture, API, or data-model design.`;
+  }
+  return `${task} Review implementation fidelity against approved design, but do not make final judgments on unresolved product, UX, interaction, visual, architecture, API, or data-model design; flag those for Claude Opus 5.`;
+}
+
 function managedAgentCommand(agent, prompt) {
   switch (agent) {
     case "pi": return `pi ${shellQuote(prompt)}`;
-    case "claude": return `claude --permission-mode bypassPermissions ${shellQuote(prompt)}`;
+    case "claude": return `claude --model claude-opus-5 --effort high --permission-mode bypassPermissions ${shellQuote(prompt)}`;
     case "codex": return `codex --full-auto ${shellQuote(prompt)}`;
     default: throw new Error("managed agent must be pi, claude, or codex");
   }

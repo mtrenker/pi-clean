@@ -41,6 +41,19 @@ Read the repository's `AGENTS.md`, `.github/ISSUE_TEMPLATE/`, and pull request t
 
 When a repository defines Ready and agent-ready states, start implementation only from unblocked child issues that satisfy those gates. Parent outcomes, Inbox items, and Backlog items are not implementation work. Human review capacity bounds active agent work and review concurrency.
 
+## Delegated design ownership
+
+Any delegated work that establishes or materially changes a solution direction must assign the
+design to Claude Opus 5 (`claude-opus-5`). Design includes product, UX, interaction, visual,
+architecture, API, and data-model decisions. Fable may coordinate, and Pi or Codex may investigate
+constraints, implement an approved design, or validate it, but they must not originate or materially
+revise unresolved design. Capture the Opus direction durably in the issue, an artifact, or repository
+documentation and make it an explicit dependency of downstream implementation.
+
+Routine implementation choices within an approved direction do not require a new design pass. If
+an implementation agent discovers a material design gap, it must stop that part of the work and
+request an Opus design handoff instead of improvising.
+
 ## Isolated work
 
 Issue implementation and PR review use `../../scripts/github-work.mjs`, resolved against the

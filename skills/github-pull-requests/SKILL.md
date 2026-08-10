@@ -57,8 +57,12 @@ test quality, and issue acceptance criteria. Run focused validation when practic
 - questions caused by missing context;
 - verified strengths worth preserving.
 
-The authoring agent must not be the sole independent reviewer. Do not edit the author worktree.
-Do not publish comments, approval, or requested changes until authorized.
+The authoring agent must not be the sole independent reviewer. When correctness depends on a new
+or materially changed product, UX, interaction, visual, architecture, API, or data-model direction,
+use Claude Opus 5 for the design review. Pi or Codex may review implementation fidelity and code
+quality against an approved design, but must flag unresolved design judgment for Opus rather than
+approving or redesigning it themselves. Do not edit the author worktree. Do not publish comments,
+approval, or requested changes until authorized.
 
 ## Address feedback
 

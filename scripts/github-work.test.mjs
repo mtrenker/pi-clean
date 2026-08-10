@@ -195,7 +195,9 @@ test("managed start creates a native Herdr issue worktree and launches in its ro
     "--branch", "issue/10-native-worktree", "--base", "origin/main",
     "--path", fixture.issuePath, "--label", "repo · #10 · Native worktree", "--no-focus"
   ]);
-  assert.ok(findCommand(log, "herdr", ["pane", "run", "p-create"]));
+  const launch = findCommand(log, "herdr", ["pane", "run", "p-create"]);
+  assert.ok(launch);
+  assert.match(launchedAgentCommand(launch), /required Claude Opus 5 handoff/);
   assert.equal(log.some((entry) => entry.program === "git" && entry.args.includes("add")), false);
 
   const telemetry = (await readFile(fixture.telemetryPath, "utf8")).trim().split("\n").map(JSON.parse);
@@ -205,8 +207,8 @@ test("managed start creates a native Herdr issue worktree and launches in its ro
 });
 
 for (const [agent, expectedLaunch] of [
-  ["claude", "claude --permission-mode bypassPermissions 'Work on GitHub issue #10 in owner/repo. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge.'"],
-  ["codex", "codex --full-auto 'Work on GitHub issue #10 in owner/repo. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge.'"],
+  ["claude", "claude --model claude-opus-5 --effort high --permission-mode bypassPermissions 'Work on GitHub issue #10 in owner/repo. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge. As Claude Opus 5, own and document any unresolved product, UX, interaction, visual, architecture, API, or data-model design before implementing it.'"],
+  ["codex", "codex --full-auto 'Work on GitHub issue #10 in owner/repo. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge. Do not originate or materially change unresolved product, UX, interaction, visual, architecture, API, or data-model design. If such design is required and is not already approved, stop and report the required Claude Opus 5 handoff.'"],
 ]) {
   test(`managed ${agent} issue authors use the exact non-prompting profile`, async (t) => {
     const fixture = await mockEnvironment(t);
@@ -222,8 +224,8 @@ for (const [agent, expectedLaunch] of [
 }
 
 for (const [reviewer, expectedLaunch] of [
-  ["claude", "claude --permission-mode bypassPermissions 'Independently review GitHub pull request #20 in owner/repo. Inspect the issue context, full diff, tests, regressions, and security. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization.'"],
-  ["codex", "codex --full-auto 'Independently review GitHub pull request #20 in owner/repo. Inspect the issue context, full diff, tests, regressions, and security. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization.'"],
+  ["claude", "claude --model claude-opus-5 --effort high --permission-mode bypassPermissions 'Independently review GitHub pull request #20 in owner/repo. Inspect the issue context, full diff, tests, regressions, and security. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization. As Claude Opus 5, evaluate any new or materially changed product, UX, interaction, visual, architecture, API, or data-model design.'"],
+  ["codex", "codex --full-auto 'Independently review GitHub pull request #20 in owner/repo. Inspect the issue context, full diff, tests, regressions, and security. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization. Review implementation fidelity against approved design, but do not make final judgments on unresolved product, UX, interaction, visual, architecture, API, or data-model design; flag those for Claude Opus 5.'"],
 ]) {
   test(`managed ${reviewer} PR reviewers use the exact non-prompting profile`, async (t) => {
     const fixture = await mockEnvironment(t);
