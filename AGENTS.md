@@ -30,8 +30,11 @@ When delegating work that establishes or materially changes a solution direction
 (`claude-opus-5`) must own the design. This includes product, UX, interaction, visual, architecture,
 API, and data-model design. Other models may investigate constraints, implement an approved Opus
 design, and validate it, but must not invent or materially revise unresolved design. Fable may
-coordinate the work, but it must assign the design phase to Opus. Make the Opus design durable in
-the issue, an artifact, or repository documentation before dependent implementation proceeds.
+coordinate the work, but it must assign the design phase to Opus. Fable is not a code implementation
+model: it must not edit implementation files or delegate coding to another Fable instance unless
+Martin explicitly requests Fable implementation for that specific task. Use Opus or Codex as coding
+workers. Make the Opus design durable in the issue, an artifact, or repository documentation before
+dependent implementation proceeds.
 
 ## Worktrees and Herdr
 

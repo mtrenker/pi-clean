@@ -11,9 +11,11 @@ Design the right experience, not a fashionable one. Emotion is a functional requ
 
 When this work is delegated to another agent, Claude Opus 5 (`claude-opus-5`) must own the design
 direction. This covers the experience brief, information and interaction structure, visual language,
-responsive behavior, state model, and any material revision to them. Fable may coordinate, while Pi
-or Codex may investigate constraints, implement the approved direction, and validate it; they must
-not originate or materially revise unresolved design.
+responsive behavior, state model, and any material revision to them. Fable may coordinate, but it
+must not edit implementation files or delegate coding to another Fable unless Martin explicitly
+requests Fable implementation for that specific task. Opus or Codex should perform coding. Pi or
+Codex may investigate constraints, implement the approved direction, and validate it; they must not
+originate or materially revise unresolved design.
 
 For a combined design-and-build task, either delegate the whole task to Opus or complete an Opus
 design pass first and persist its thesis, constitution, key states, constraints, and acceptance

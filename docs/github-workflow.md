@@ -78,10 +78,12 @@ Use a split pane in the current workspace only for a bounded read-only investiga
 
 Any delegated work that establishes or materially changes product, UX, interaction, visual,
 architecture, API, or data-model direction must assign that design to Claude Opus 5
-(`claude-opus-5`). Fable may coordinate, while Pi and Codex may investigate constraints, implement
-the durable Opus direction, and validate it. If implementation reveals a material design gap, stop
-that part and return it to Opus rather than improvising. Capture the Opus direction in the issue, a
-design artifact, or repository documentation before dependent implementation starts.
+(`claude-opus-5`). Fable may coordinate, but it must not edit implementation files or delegate
+coding to another Fable instance unless Martin explicitly requests Fable implementation for that
+specific task. Use Opus or Codex as coding workers. Pi and Codex may investigate constraints,
+implement the durable Opus direction, and validate it. If implementation reveals a material design
+gap, stop that part and return it to Opus rather than improvising. Capture the Opus direction in the
+issue, a design artifact, or repository documentation before dependent implementation starts.
 
 When coordinating with a delegated agent:
 

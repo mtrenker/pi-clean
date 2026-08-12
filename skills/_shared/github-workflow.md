@@ -47,7 +47,9 @@ Any delegated work that establishes or materially changes a solution direction m
 design to Claude Opus 5 (`claude-opus-5`). Design includes product, UX, interaction, visual,
 architecture, API, and data-model decisions. Fable may coordinate, and Pi or Codex may investigate
 constraints, implement an approved design, or validate it, but they must not originate or materially
-revise unresolved design. Capture the Opus direction durably in the issue, an artifact, or repository
+revise unresolved design. Fable must not edit implementation files or assign coding to another Fable
+instance unless Martin explicitly requests Fable implementation for that specific task; use Opus or
+Codex as coding workers. Capture the Opus direction durably in the issue, an artifact, or repository
 documentation and make it an explicit dependency of downstream implementation.
 
 Routine implementation choices within an approved direction do not require a new design pass. If
