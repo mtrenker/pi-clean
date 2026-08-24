@@ -15,6 +15,18 @@ const DEFAULT_PROCESS = { runAsUser: "sandbox", runAsGroup: "sandbox" };
 const PINNED_PI_IMAGE = join(extensionDir, "image-pi");
 const PINNED_PI_CONTRACT = "repository-owned Codex relay derivative of OpenShell Community Pi commit a2afd1ba5d0655ed531d7cd0bd7e1b93cb788a61, tested with OpenShell v0.0.86";
 const BROWSER_IMAGE_CONTRACT = "repository-owned isolated Chromium service, tested with OpenShell v0.0.86";
+/**
+ * Pinned Chromium executable inside the repository-owned browser image.
+ *
+ * OpenShell v0.0.86 enforces `require_binary_identity`, so a browser network
+ * endpoint is denied unless the requesting binary is named by the policy. The
+ * revision segment comes from the `playwright-core` pin in `image/package.json`
+ * (see BROWSER_PLAYWRIGHT_CORE): bumping that pin moves the executable and the
+ * browser service policies must be updated in the same change.
+ */
+export const BROWSER_CHROMIUM_BINARY = "/opt/openshell-browser/browsers/chromium-1228/chrome-linux64/chrome";
+/** Playwright build the pinned Chromium revision above belongs to. */
+export const BROWSER_PLAYWRIGHT_CORE = "1.61.1";
 const DEFAULT_CODEX = Object.freeze({ provider: "codex-subscription", model: "gpt-5.6-terra" });
 
 export const BUILTIN_PROFILES: Readonly<Record<string, OpenShellProfile>> = Object.freeze({

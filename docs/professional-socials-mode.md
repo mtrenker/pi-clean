@@ -150,6 +150,18 @@ byte-identical static sections, so switching never recreates the browser and
 never destroys the login. The safe baseline policy is restored at the end of
 each autonomous job.
 
+Both service policies allow exactly the `site-rules.json` network hosts on port
+443 and bind those endpoints to the pinned Chromium executable
+`/opt/openshell-browser/browsers/chromium-1228/chrome-linux64/chrome`. OpenShell
+v0.0.86 enforces `require_binary_identity`, so an endpoint without that binary is
+denied even when the host is listed. Safe mode carries the same hosts because a
+manual login through noVNC has to load the site's own CSS and JavaScript;
+collecting those hosts one Policy Advisor denial at a time would widen the
+sandbox instead of bounding it. The modes are separated by the mandate and the
+rulebook, not by a wider allowlist. The pinned path follows the `playwright-core`
+version in `extensions/openshell-agent/image/package.json`: bumping that pin
+moves the executable and both policies must be updated in the same change.
+
 Registry v1 → v2 migration adopts each legacy browser sandbox as a shared
 browser workspace, keeping its sandbox, control secret, and login. If two legacy
 workspaces claim one `trustDomain + browserProfile` pair, neither is adopted:

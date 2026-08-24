@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import * as controller from "./image/site-rules.mjs";
+import { BROWSER_CHROMIUM_BINARY } from "./profile.ts";
 import {
   authorizeSurface,
   classifyUrl,
@@ -124,15 +125,107 @@ test("permalinks are recorded only from rule-declared shapes", () => {
   assert.equal(permalinkFor(feed, "https://www.linkedin.com/in/martin"), undefined);
 });
 
+const BROWSER_SERVICE_POLICIES = ["authenticated-browser-service.policy.yaml", "professional-socials-service.policy.yaml"];
+
+interface DeclaredNetworkPolicy {
+  key: string;
+  hosts: string[];
+  ports: string[];
+  binaries: string[];
+}
+
+/**
+ * Minimal reader for the `network_policies` block of a base policy. The tests
+ * deliberately read the shipped YAML instead of a rendered object: OpenShell
+ * consumes these files verbatim, so a grant that is invisible here is a grant
+ * that never reaches the sandbox.
+ */
+function declaredNetworkPolicies(policy: string): DeclaredNetworkPolicy[] {
+  const start = policy.indexOf("network_policies:");
+  if (start < 0) return [];
+  const declared: DeclaredNetworkPolicy[] = [];
+  let current: DeclaredNetworkPolicy | undefined;
+  for (const line of policy.slice(start).split("\n").slice(1)) {
+    if (/^\s*#/.test(line) || line.trim() === "") continue;
+    if (/^\S/.test(line)) break;
+    const key = line.match(/^ {2}([A-Za-z0-9_]+):\s*$/)?.[1];
+    if (key) {
+      current = { key, hosts: [], ports: [], binaries: [] };
+      declared.push(current);
+      continue;
+    }
+    const host = line.match(/^\s+- host: (\S+)$/)?.[1];
+    if (host) current?.hosts.push(host);
+    const port = line.match(/^\s+port: (\S+)$/)?.[1];
+    if (port) current?.ports.push(port);
+    const binary = line.match(/^\s+- path: (\S+)$/)?.[1];
+    if (binary) current?.binaries.push(binary);
+  }
+  return declared;
+}
+
+/** Static profile boundary: the part OpenShell cannot change without recreating the sandbox. */
+function staticSection(policy: string): string {
+  return policy
+    .slice(0, policy.indexOf("network_policies:"))
+    .split("\n")
+    .map((line) => line.replace(/#.*$/, "").trimEnd())
+    .filter((line) => line !== "")
+    .join("\n");
+}
+
 test("mandate origins and the browser network policy stay bound to the rulebook", async () => {
   assert.deepEqual(siteIds(rules), ["linkedin", "xing", "freelance-de", "freelancermap", "gulp", "malt"]);
   assert.deepEqual(originsFor(rules, ["linkedin"]), ["linkedin.com", "www.linkedin.com"]);
-  const policy = await readFile(join(root, "profiles", "professional-socials-service.policy.yaml"), "utf8");
-  assert.equal(policy.includes("host: *"), false, "the browser network policy must never carry a wildcard host");
-  const declared = [...policy.matchAll(/^\s+- host: (\S+)$/gm)].map((match) => match[1]).sort();
-  assert.deepEqual(declared, networkHostsFor(rules, siteIds(rules)));
-  const safePolicy = await readFile(join(root, "profiles", "authenticated-browser-service.policy.yaml"), "utf8");
-  assert.match(safePolicy, /network_policies: \{\}/, "the safe browser default must stay closed");
-  const staticSection = (value: string) => value.slice(0, value.indexOf("network_policies")).replace(/#.*$/gm, "").trim();
-  assert.equal(staticSection(policy), staticSection(safePolicy), "a mode switch must be a dynamic network change, never a sandbox recreation");
+  const expectedHosts = networkHostsFor(rules, siteIds(rules));
+  assert.ok(expectedHosts.includes("www.linkedin.com") && expectedHosts.includes("static.licdn.com"));
+  for (const file of BROWSER_SERVICE_POLICIES) {
+    const policy = await readFile(join(root, "profiles", file), "utf8");
+    assert.equal(/^\s+- host: \S*\*/m.test(policy), false, `${file} must never carry a wildcard host`);
+    const declared = declaredNetworkPolicies(policy);
+    assert.equal(declared.length, 1, `${file} must declare exactly one browser network policy`);
+    assert.deepEqual([...declared[0].hosts].sort(), expectedHosts, `${file} must allow exactly the rulebook hosts`);
+    assert.deepEqual([...new Set(declared[0].ports)], ["443"], `${file} must reach the rulebook hosts over 443 only`);
+  }
+});
+
+test("every browser network endpoint is bound to the pinned Chromium binary", async () => {
+  assert.equal(BROWSER_CHROMIUM_BINARY, "/opt/openshell-browser/browsers/chromium-1228/chrome-linux64/chrome");
+  for (const file of BROWSER_SERVICE_POLICIES) {
+    const policy = await readFile(join(root, "profiles", file), "utf8");
+    const [declared] = declaredNetworkPolicies(policy);
+    // OpenShell v0.0.86 enforces require_binary_identity: an endpoint without
+    // exactly this binary is denied for Chromium even when the host is listed.
+    assert.deepEqual(declared.binaries, [BROWSER_CHROMIUM_BINARY], `${file} must bind its endpoints to the pinned Chromium executable`);
+  }
+});
+
+test("no base policy grants network endpoints without a binary identity", async () => {
+  const files = (await readdir(join(root, "profiles"))).filter((file) => file.endsWith(".policy.yaml")).sort();
+  assert.ok(files.length >= BROWSER_SERVICE_POLICIES.length + 1);
+  for (const file of files) {
+    const policy = await readFile(join(root, "profiles", file), "utf8");
+    for (const declared of declaredNetworkPolicies(policy)) {
+      assert.ok(declared.hosts.length > 0, `${file}: ${declared.key} declares a network policy without any endpoint`);
+      assert.ok(declared.binaries.length > 0, `${file}: ${declared.key} grants egress to every process instead of one binary`);
+    }
+  }
+});
+
+test("safe and autonomous browser service policies differ only in their network section", async () => {
+  const [safePolicy, socialsPolicy] = await Promise.all(
+    BROWSER_SERVICE_POLICIES.map((file) => readFile(join(root, "profiles", file), "utf8")),
+  );
+  assert.equal(
+    staticSection(safePolicy),
+    staticSection(socialsPolicy),
+    "a mode switch must be a dynamic network change, never a sandbox recreation",
+  );
+  const [safe] = declaredNetworkPolicies(safePolicy);
+  const [socials] = declaredNetworkPolicies(socialsPolicy);
+  // Safe login and autonomous maintenance need the same site assets; the modes
+  // are separated by the mandate and the rulebook, not by a wider allowlist.
+  assert.deepEqual(safe.hosts, socials.hosts);
+  assert.deepEqual(safe.binaries, socials.binaries);
+  assert.notEqual(safe.key, socials.key, "each mode keeps its own named policy so denial logs stay attributable");
 });
