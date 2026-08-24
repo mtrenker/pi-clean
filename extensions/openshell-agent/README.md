@@ -185,7 +185,12 @@ autonomous mode share one logged-in browser while keeping their own worker
 sandboxes. Switching mode is a dynamic network-policy change and never
 recreates the browser; the safe baseline policy is restored when the job ends.
 The browser network policy is an explicit per-host allowlist generated from the
-rulebook and contains no wildcard host.
+rulebook and contains no wildcard host. Both modes carry the same bounded host
+set, because a manual login also needs the site's own CSS and JavaScript, and
+every endpoint is bound to the pinned Chromium executable
+(`/opt/openshell-browser/browsers/chromium-1228/chrome-linux64/chrome`) that
+OpenShell v0.0.86 requires for binary identity. What safe mode withholds is the
+mandate, not the network.
 
 **Site rules need live validation.** The shipped path, dialog, and permalink
 patterns are conservative and were not verified against the live sites, which

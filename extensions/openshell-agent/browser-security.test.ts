@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
+import { BROWSER_CHROMIUM_BINARY, BROWSER_PLAYWRIGHT_CORE } from "./profile.ts";
+
 const root = dirname(fileURLToPath(import.meta.url));
 
 test("browser controller exposes no credential, storage, screenshot, trace, or arbitrary evaluation API", async () => {
@@ -42,7 +44,13 @@ test("manual takeover is loopback-only and the browser profile is Unix-isolated"
   assert.match(entrypoint, /No untrusted worker process runs in this sandbox/);
   assert.match(hostExtension, /record\.browserSandboxName/);
   assert.match(servicePolicy, /run_as_user: 2000/);
-  assert.match(servicePolicy, /network_policies: \{\}/);
+  // Safe mode is bounded, not closed: manual login needs the rulebook's site
+  // assets, and every one of those endpoints is bound to the pinned Chromium.
+  assert.match(servicePolicy, /^ {2}browser_sites:$/m);
+  assert.match(servicePolicy, /^ {6}- host: www\.linkedin\.com$/m);
+  assert.match(servicePolicy, /^ {6}- host: static\.licdn\.com$/m);
+  assert.equal(/^\s+- host: \S*\*/m.test(servicePolicy), false, "safe mode must never carry a wildcard host");
+  assert.ok(servicePolicy.includes(`- path: ${BROWSER_CHROMIUM_BINARY}`), "safe mode must bind its endpoints to the pinned Chromium executable");
   assert.equal(workerBridge.includes("127.0.0.1:3010"), false, "the worker must not reach the browser controller directly");
   assert.match(workerBridge, /browser-bridge/);
 });
@@ -93,4 +101,21 @@ test("takeover and resume invalidate refs and force mandate revalidation", async
   assert.match(controller, /if \(drift\) guard\.revoke\("identity_drift"\)/);
   assert.match(hostExtension, /control\/resume[\s\S]*?mandate\/revalidate/);
   assert.match(controller, /if \(paused\) throw new ControllerError\("automation_paused"\);[\s\S]*?url\.pathname\.startsWith\("\/ps\/"\)/, "paused automation blocks the autonomous routes too");
+});
+
+test("the browser service policies name the Chromium build the image actually pins", async () => {
+  const [manifest, safePolicy, socialsPolicy] = await Promise.all([
+    readFile(join(root, "image", "package.json"), "utf8"),
+    readFile(join(root, "profiles", "authenticated-browser-service.policy.yaml"), "utf8"),
+    readFile(join(root, "profiles", "professional-socials-service.policy.yaml"), "utf8"),
+  ]);
+  // The pinned executable path carries a Playwright-owned Chromium revision, so
+  // a playwright-core bump moves it and silently breaks binary identity.
+  assert.equal(
+    (JSON.parse(manifest) as { dependencies: Record<string, string> }).dependencies["playwright-core"],
+    BROWSER_PLAYWRIGHT_CORE,
+    "bumping playwright-core moves the pinned Chromium revision; update BROWSER_CHROMIUM_BINARY and both browser service policies in the same change",
+  );
+  assert.match(BROWSER_CHROMIUM_BINARY, /^\/opt\/openshell-browser\/browsers\/chromium-\d+\/chrome-linux64\/chrome$/);
+  for (const policy of [safePolicy, socialsPolicy]) assert.ok(policy.includes(`- path: ${BROWSER_CHROMIUM_BINARY}`));
 });
