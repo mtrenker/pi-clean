@@ -32,7 +32,7 @@ class FakeClient {
   async applyDynamicProfile() {}
   async startBrowserService() {}
   async initializeBrowserControl() {}
-  async browserCall() { return { status: 200, body: { ok: true } }; }
+  async browserCall() { return { status: 200, body: { ok: true, epoch: "epoch-1" } }; }
   async installFile(_name: string, path: string, _content: string) { this.calls.push({ kind: "install", args: [path] }); }
   async pendingRules(): Promise<PolicyProposal[]> { return []; }
   async approveRule() {}
@@ -105,12 +105,38 @@ test("authenticated browsing uses distinct persistent worker and browser-service
   const result = await orchestrator.run(browserProfile, {
     task: "browse", profile: browserProfile.name, trustDomain: "personal", browserProfile: "personal-browser",
   }, undefined, callbacks);
-  const record = (await orchestrator.registry.list())[0];
+  const state = await orchestrator.registry.read();
+  const record = state.workspaces[0];
+  const browser = state.browserWorkspaces[0];
   assert.equal(cli.createCount, 2);
   assert.equal(cli.createdProfiles[0].process.runAsUser, "sandbox");
   assert.equal(cli.createdProfiles[1].process.runAsUser, "2000");
-  assert.notEqual(record.sandboxName, record.browserSandboxName);
+  assert.notEqual(record.sandboxName, browser.sandboxName);
+  assert.equal(record.browserWorkspaceKey, browser.browserWorkspaceKey);
   assert.equal(result.sandboxName, record.sandboxName);
+  assert.equal(browser.controlSecret.length >= 40, true);
+  assert.equal(result.report, undefined, "the safe profile produces no mandate report");
+});
+
+test("recreating a drifted worker sandbox keeps the logged-in browser workspace", async () => {
+  const { profile, cli, orchestrator } = await fixture();
+  const servicePolicy = join(tmpdir(), `browser-service-keep-${Date.now()}.yaml`);
+  await writeFile(servicePolicy, "version: 1\nfilesystem_policy:\n  read_only: [/usr]\n  read_write: [/var/lib/openshell-browser]\nprocess:\n  run_as_user: 2000\n  run_as_group: 2000\nnetwork_policies: {}\n");
+  const browserProfile: OpenShellProfile = {
+    ...profile, name: "authenticated-browser", reuse: "browser-profile", providers: [], repository: undefined,
+    browser: { persistent: true, controllerPort: 3010, noVncPort: 6080, image: "browser-image", imageContract: "test-browser", basePolicy: servicePolicy },
+  };
+  const job = { task: "browse", profile: browserProfile.name, trustDomain: "personal", browserProfile: "personal-browser" };
+  await orchestrator.run(browserProfile, job, undefined, callbacks);
+  const before = (await orchestrator.registry.read()).browserWorkspaces[0];
+
+  const drifted = { ...browserProfile, memory: "8G" };
+  await orchestrator.run(drifted, job, undefined, callbacks);
+  const after = (await orchestrator.registry.read()).browserWorkspaces;
+  assert.equal(after.length, 1);
+  assert.equal(after[0].sandboxName, before.sandboxName, "worker drift never deletes the browser workspace");
+  assert.equal(after[0].controlSecret, before.controlSecret);
+  assert.equal(cli.sandboxes.filter((sandbox) => sandbox.name === before.sandboxName).length, 1);
 });
 
 test("cancellation stops exec but retains the persistent workspace", async () => {

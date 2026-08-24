@@ -14,6 +14,7 @@ const DEFAULT_FILESYSTEM = {
 const DEFAULT_PROCESS = { runAsUser: "sandbox", runAsGroup: "sandbox" };
 const PINNED_PI_IMAGE = join(extensionDir, "image-pi");
 const PINNED_PI_CONTRACT = "repository-owned Codex relay derivative of OpenShell Community Pi commit a2afd1ba5d0655ed531d7cd0bd7e1b93cb788a61, tested with OpenShell v0.0.86";
+const BROWSER_IMAGE_CONTRACT = "repository-owned isolated Chromium service, tested with OpenShell v0.0.86";
 const DEFAULT_CODEX = Object.freeze({ provider: "codex-subscription", model: "gpt-5.6-terra" });
 
 export const BUILTIN_PROFILES: Readonly<Record<string, OpenShellProfile>> = Object.freeze({
@@ -71,8 +72,34 @@ export const BUILTIN_PROFILES: Readonly<Record<string, OpenShellProfile>> = Obje
       controllerPort: 3010,
       noVncPort: 6080,
       image: join(extensionDir, "image"),
-      imageContract: "repository-owned isolated Chromium service, tested with OpenShell v0.0.86",
+      imageContract: BROWSER_IMAGE_CONTRACT,
       basePolicy: join(extensionDir, "profiles", "authenticated-browser-service.policy.yaml"),
+      mode: "safe",
+    },
+  },
+  "professional-socials": {
+    name: "professional-socials",
+    description: "Task-authorized autonomous professional-social maintenance in the same persistent browser workspace, with host mandate, rulebook confinement, declared diffs, and a trusted post-run report",
+    image: PINNED_PI_IMAGE,
+    imageContract: PINNED_PI_CONTRACT,
+    cpu: "2",
+    memory: "4G",
+    reuse: "browser-profile",
+    basePolicy: join(extensionDir, "profiles", "professional-socials.policy.yaml"),
+    advisorMode: "manual",
+    providers: [],
+    codexSubscription: DEFAULT_CODEX,
+    workerTools: ["read", "bash", "write", "edit", "grep", "find", "ls"],
+    filesystem: DEFAULT_FILESYSTEM,
+    process: DEFAULT_PROCESS,
+    browser: {
+      persistent: true,
+      controllerPort: 3010,
+      noVncPort: 6080,
+      image: join(extensionDir, "image"),
+      imageContract: BROWSER_IMAGE_CONTRACT,
+      basePolicy: join(extensionDir, "profiles", "professional-socials-service.policy.yaml"),
+      mode: "professional-socials",
     },
   },
 });
@@ -156,6 +183,9 @@ export function validateProfile(profile: OpenShellProfile, source = "profile con
   if (new Set(profile.providers).size !== profile.providers.length) throw new Error(`${profile.name} repeats a provider name`);
   if (profile.reuse === "repository" && !profile.repository) throw new Error(`${profile.name} requires repository settings`);
   if (profile.reuse === "browser-profile" && !profile.browser) throw new Error(`${profile.name} requires browser settings`);
+  if (profile.browser?.mode && !(["safe", "professional-socials"] as const).includes(profile.browser.mode)) {
+    throw new Error(`${profile.name} in ${source} has an invalid browser mode`);
+  }
   if (profile.codexSubscription) {
     validateName(profile.codexSubscription.provider, "Codex provider");
     validateName(profile.codexSubscription.model, "Codex model");

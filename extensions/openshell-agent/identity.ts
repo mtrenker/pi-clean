@@ -16,21 +16,25 @@ export async function resolveIdentity(profile: OpenShellProfile, input: OpenShel
   };
   const logicalKey = canonicalHash(logicalMaterial);
   const workspaceId = logicalKey.slice(0, 20);
-  const [imageSource, staticPolicy, browserImageSource, browserStaticPolicy] = await Promise.all([
+  const [imageSource, staticPolicy] = await Promise.all([
     imageSourceFingerprint(profile.image),
     policyStaticMaterial(profile.basePolicy),
-    profile.browser ? imageSourceFingerprint(profile.browser.image) : undefined,
-    profile.browser ? policyStaticMaterial(profile.browser.basePolicy) : undefined,
   ]);
+  // The browser image and browser static policy deliberately no longer take
+  // part in worker identity: they belong to the separately keyed browser
+  // workspace, so a browser image update recreates only the browser service
+  // after explicit confirmation instead of the worker sandbox as well. The
+  // keys stay in the canonical shape so non-browser workspaces keep their
+  // existing fingerprints across this migration.
   const staticFingerprint = canonicalHash({
     image: profile.image,
     imageContract: profile.imageContract,
     imageSource,
     staticPolicy,
-    browserImage: profile.browser?.image,
-    browserImageContract: profile.browser?.imageContract,
-    browserImageSource,
-    browserStaticPolicy,
+    browserImage: undefined,
+    browserImageContract: undefined,
+    browserImageSource: undefined,
+    browserStaticPolicy: undefined,
     cpu: profile.cpu,
     memory: profile.memory,
     filesystem: profile.filesystem,
@@ -39,6 +43,35 @@ export async function resolveIdentity(profile: OpenShellProfile, input: OpenShel
   });
   const sandboxName = `${slug(profile.name, 24)}-${workspaceId.slice(0, 10)}-${staticFingerprint.slice(0, 8)}`;
   return { logicalKey, workspaceId, staticFingerprint, sandboxName, repositoryKey };
+}
+
+/**
+ * Browser workspace identity. It intentionally excludes the worker profile so a
+ * safe `authenticated-browser` run and an autonomous `professional-socials` run
+ * in the same trust domain reuse one logged-in browser workspace.
+ */
+export function browserWorkspaceKey(trustDomain: string, browserProfile: string): string {
+  return canonicalHash({ kind: "openshell-browser-workspace-v1", trustDomain, browserProfile });
+}
+
+/**
+ * Static drift for the browser service. Network policy is deliberately excluded
+ * because OpenShell applies it dynamically; a mode switch must never destroy
+ * the persistent login state by recreating the sandbox.
+ */
+export async function browserStaticFingerprint(profile: OpenShellProfile, trustDomain: string): Promise<string> {
+  if (!profile.browser) throw new Error("Profile has no browser workspace");
+  const [imageSource, staticPolicy] = await Promise.all([
+    imageSourceFingerprint(profile.browser.image),
+    policyStaticMaterial(profile.browser.basePolicy),
+  ]);
+  return canonicalHash({
+    image: profile.browser.image,
+    imageContract: profile.browser.imageContract,
+    imageSource,
+    staticPolicy,
+    trustDomain,
+  });
 }
 
 export async function dynamicFingerprint(profile: OpenShellProfile): Promise<string> {
@@ -117,7 +150,7 @@ export function canonicalHash(value: unknown): string {
   return createHash("sha256").update(stableStringify(value)).digest("hex");
 }
 
-function stableStringify(value: unknown): string {
+export function stableStringify(value: unknown): string {
   if (value === undefined) return "null";
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;

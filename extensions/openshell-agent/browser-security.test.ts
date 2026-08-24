@@ -46,3 +46,51 @@ test("manual takeover is loopback-only and the browser profile is Unix-isolated"
   assert.equal(workerBridge.includes("127.0.0.1:3010"), false, "the worker must not reach the browser controller directly");
   assert.match(workerBridge, /browser-bridge/);
 });
+
+test("the autonomous mode adds no credential, storage, script, or path escape route", async () => {
+  const [controller, workerBridge, entrypoint] = await Promise.all([
+    readFile(join(root, "image", "browser-controller.mjs"), "utf8"),
+    readFile(join(root, "worker-browser.ts"), "utf8"),
+    readFile(join(root, "image", "entrypoint.sh"), "utf8"),
+  ]);
+  for (const forbiddenRoute of ["/ps/cookies", "/ps/storage", "/ps/evaluate", "/ps/screenshot", "/ps/download", "/ps/cdp", "/ps/profile"]) {
+    assert.equal(controller.includes(`"${forbiddenRoute}"`), false, `${forbiddenRoute} must not exist`);
+  }
+  assert.equal(/case "\/ps\/[a-z]+": return ps[A-Za-z]+/.test(controller), true, "every autonomous route is an explicit case");
+  assert.equal(workerBridge.includes("setInputFiles"), false, "the worker never names a browser-side path");
+  assert.match(controller, /join\(UPLOAD_DIR, body\.stageId\)/, "uploads are addressed by staged id only");
+  assert.match(controller, /STAGE_PATTERN\.test\(body\.stageId\)/);
+  assert.equal(controller.includes("process.env.OPENSHELL_BROWSER_PLAYWRIGHT"), true);
+  assert.equal(entrypoint.includes("OPENSHELL_BROWSER_FIXTURE"), false, "the production entrypoint never enables fixture mode");
+  assert.equal(entrypoint.includes("OPENSHELL_BROWSER_PLAYWRIGHT"), false);
+  assert.match(controller, /const FIXTURE = process\.env\.OPENSHELL_BROWSER_FIXTURE === "1"/);
+  assert.match(controller, /const PLAYWRIGHT = FIXTURE[\s\S]*?"\/opt\/openshell-browser\/node_modules\/playwright-core\/index\.mjs"/);
+});
+
+test("a task mandate never unlocks the legacy selector surface and refuses selector input", async () => {
+  const controller = await readFile(join(root, "image", "browser-controller.mjs"), "utf8");
+  assert.match(controller, /if \(guard\.active\) throw new ControllerError\("legacy_path_denied"\)/);
+  assert.match(controller, /REF_PATTERN = \/\^e\[0-9\]\{1,6\}-\[0-9\]\{1,4\}\$\//);
+  assert.match(controller, /if \(Number\(ref\.slice\(1\)\.split\("-"\)\[0\]\) !== generation\) throw new ControllerError\("stale_ref"\)/);
+  assert.match(controller, /page\.locator\(`\[data-osref="\$\{ref\}"\]`\)/);
+});
+
+test("sensitive fields and denied surfaces are redacted before a worker snapshot", async () => {
+  const controller = await readFile(join(root, "image", "browser-controller.mjs"), "utf8");
+  assert.match(controller, /if \(classification\.hardDeny \|\| context\.humanRequired\) \{[\s\S]*?redacted: true[\s\S]*?elements: \[\],[\s\S]*?text: "",/);
+  assert.match(controller, /if \(sensitive && element\.type !== "file"\) continue;/);
+  assert.match(controller, /const secret = type === "password" \|\| type === "hidden"/);
+  assert.match(controller, /manual_takeover_required/);
+});
+
+test("takeover and resume invalidate refs and force mandate revalidation", async () => {
+  const [controller, hostExtension] = await Promise.all([
+    readFile(join(root, "image", "browser-controller.mjs"), "utf8"),
+    readFile(join(root, "index.ts"), "utf8"),
+  ]);
+  assert.match(controller, /paused = false;[\s\S]*?invalidateRefs\(\);/);
+  assert.match(controller, /url\.pathname === "\/mandate\/revalidate"[\s\S]*?authorizeControl\(body, "mandate-revalidate"\)/);
+  assert.match(controller, /if \(drift\) guard\.revoke\("identity_drift"\)/);
+  assert.match(hostExtension, /control\/resume[\s\S]*?mandate\/revalidate/);
+  assert.match(controller, /if \(paused\) throw new ControllerError\("automation_paused"\);[\s\S]*?url\.pathname\.startsWith\("\/ps\/"\)/, "paused automation blocks the autonomous routes too");
+});
