@@ -32,7 +32,8 @@ Built-ins all use the Codex inference provider through the fixed relay; it is in
 
 - `web-research`: no research/business provider, default-deny network except the fixed model relay, persistent per trust domain. Policy Advisor `auto` is opt-in at sandbox scope and OpenShell only auto-approves an **empty prover delta**.
 - `development`: persistent per trust domain + repository, sandbox-side clone/worktrees, built-in GitHub provider name `github`, manual policy review. Override the provider name when your gateway instance has another name. Preflight resolves every provider instance and requires at least one Providers v2 `github` profile type; a same-named arbitrary provider is not accepted.
-- `authenticated-browser`: repository-owned Pi/Chromium derivative, persistent per trust domain + `browserProfile`, no business provider by default, manual policy review and noVNC takeover.
+- `authenticated-browser`: repository-owned Pi/Chromium derivative, persistent per trust domain + `browserProfile`, no business provider by default, manual policy review and noVNC takeover. Consequential actions stay blocked for the operator.
+- `professional-socials`: the same persistent browser workspace, but one task-level authorization mints a bounded host mandate so the worker edits, submits, and publishes autonomously on LinkedIn, Xing, freelance.de, freelancermap, GULP, and Malt. See [Task-authorized professional-social maintenance](#task-authorized-professional-social-maintenance).
 
 Invoke from the model with a request shaped like:
 
@@ -97,7 +98,7 @@ Escape cancellation terminates the active `sandbox exec` process group. It does 
 
 ## Authenticated browser and manual takeover
 
-Authenticated browsing uses a paired persistent workspace: Pi runs in the normal worker sandbox, while Chromium, its profile, the constrained controller, and noVNC run under pinned UID 2000 in a separate browser-service sandbox. The worker can reach neither that sandbox nor its profile files. An image-owned file queue and bounded host bridge expose only navigate, bounded text snapshot, non-consequential click/type, and navigation-key operations. There are no cookie/storage/export, download, screenshot, trace, raw CDP, or arbitrary-JavaScript endpoints. Password, OTP, CAPTCHA, submit, login, profile/account, application, message/post, purchase/payment, consent/terms, and delete actions are blocked for manual takeover.
+Authenticated browsing uses a paired persistent workspace: Pi runs in the normal worker sandbox, while Chromium, its profile, the constrained controller, and noVNC run under pinned UID 2000 in a separate browser-service sandbox keyed by `trustDomain + browserProfile` and shared with the autonomous mode. The worker can reach neither that sandbox nor its profile files. An image-owned file queue and bounded host bridge expose only navigate, bounded text snapshot, non-consequential click/type, and navigation-key operations. There are no cookie/storage/export, download, screenshot, trace, raw CDP, or arbitrary-JavaScript endpoints. Password, OTP, CAPTCHA, submit, login, profile/account, application, message/post, purchase/payment, consent/terms, and delete actions are blocked for manual takeover.
 
 ```text
 /openshell takeover <workspace-id> [local-port]
@@ -106,7 +107,92 @@ Authenticated browsing uses a paired persistent workspace: Pi runs in the normal
 
 Takeover first suspends the worker process group in the worker sandbox, then submits a timestamped, one-time HMAC control packet to the separate browser-service sandbox so the controller enters a paused state before opening a loopback-only noVNC forward. The shared control secret is initialized before the first worker starts, persists only in the host mode-`0600` registry and browser-user mode-`0600` storage, and is never transmitted after initialization. The VNC password is derived independently by host and controller from that secret during pre-worker initialization, so it is never sent in a control packet or returned by any in-sandbox endpoint. If controller pause fails, the worker is resumed and no forward opens; explicit `/openshell resume` also repairs a stranded pause. Chromium exposes no CDP/debugging socket to the worker. Xvfb requires a browser-user-only Xauthority cookie and x11vnc requires the one-time VNC password. While paused, every automation route returns `automation_paused`; no automation, screenshots, tracing, keystroke capture, or request-body logging runs during takeover. Password and 2FA values travel directly through noVNC to the sandbox browser process; they do enter that browser process, but not Pi context, OpenShell provider values, command arguments, logs, tool results/details, or artifacts. The operator must explicitly run `resume`; closing the page is not enough.
 
-CAPTCHA and site-security challenges are always handed to the operator. The extension does not spoof browser identity, solve challenges, evade rate limits/robots/paywalls/access controls, or export browser bearer state. Consequential authenticated actions remain manual in this first slice even after confirmation, which is deliberately safer than letting a compromised worker forge an approval.
+CAPTCHA and site-security challenges are always handed to the operator. The extension does not spoof browser identity, solve challenges, evade rate limits/robots/paywalls/access controls, or export browser bearer state. In this `authenticated-browser` mode every consequential authenticated action stays manual, which is deliberately safer than letting a compromised worker forge an approval. Autonomous editing and publishing is a separate, explicitly authorized mode; see below.
+
+## Task-authorized professional-social maintenance
+
+`professional-socials` is the autonomous mode. The operator authorizes the task
+once, up front, and then reviews the result; there is no per-action prompt.
+
+```json
+{
+  "task": "Update my LinkedIn headline to \"Fractional CTO\" and publish the launch post from /sandbox/jobs/<id>/uploads/post.md.",
+  "profile": "professional-socials",
+  "trustDomain": "personal",
+  "browserProfile": "personal-browser",
+  "professionalSocials": {
+    "sites": ["linkedin", "xing"],
+    "allow": ["edit-profile", "publish-post"],
+    "budget": { "submits": 2, "publishes": 1 },
+    "ttlMinutes": 30
+  }
+}
+```
+
+The confirmation dialog shows the sites and their origins, the action classes,
+the budget, the TTL, and the browser workspace. Approving it mints a single
+mandate bound to the job, workspace, browser workspace, controller process,
+task hash, origins, classes, budget, and expiry. Declining stops before any
+browser action.
+
+**Authority boundary.** The mandate is minted by the host, verified again by the
+browser controller with a key derived from the host-only browser control secret,
+and never reaches the worker sandbox in any form. The worker cannot mint, read,
+forge, replay, extend, or reuse it across jobs, workspaces, expiry, or a
+controller restart. Every action is authorized twice — once by the host bridge
+and once by the controller — against the repository-owned rulebook in
+`site-rules.json`, a byte-identical copy of which is baked into the browser
+image.
+
+**What the worker can do.** Snapshot with element refs (no CSS selectors),
+click, fill, clear, check/uncheck, select, combobox, contenteditable edit,
+allowed Enter, scroll, wait, back, dialog accept/dismiss, staged upload,
+checkpoint, and submit/publish. Arbitrary JavaScript, raw CDP, cookie and
+storage APIs, downloads, browser-profile export, and screenshots stay
+unavailable.
+
+**What always stops it.** Global hard denies beat every site rule: credentials,
+account security and recovery, sessions and devices, OAuth consent, billing and
+payment, terms acceptance, delete or deactivate, plus messaging, connection
+requests, endorsements, and job applications, which are out of scope for this
+slice. Sensitive fields never receive a ref, denied surfaces are redacted out of
+worker snapshots, an unmapped path stays read-only, and an unlisted origin is
+never an explicit navigation target.
+
+**Declared diffs.** A submit or publish must declare every changed field with
+its exact before and after value against a checkpoint taken before the edits.
+The controller compares that with what it observed and refuses on an undeclared
+field, a missing field, or a different value. Two mismatches, three consecutive
+authorization denials, or five denials in total revoke the mandate for the rest
+of the job.
+
+**Login and challenges.** Login, password, OTP, CAPTCHA, and security challenges
+are refused with `manual_takeover_required` and belong to `/openshell takeover`.
+Explicit `/openshell resume` invalidates every ref and checkpoint, revalidates
+the mandate TTL, and compares the logged-in account identity per origin: a
+different account revokes the mandate.
+
+**Review.** Every job writes a trusted host ledger to
+`~/.pi/agent/openshell-agent-audit/<workspace-id>/<job-id>.jsonl` and renders a
+report from controller-observed facts: sites, surfaces, before/after values,
+submits, publications and permalinks, denials, anomalies, and budget use. The
+worker narrative is rendered separately and labeled untrusted. Read a stored
+report again with `/openshell audit <workspace-id> [job-id]`.
+
+**Shared browser workspace.** Browser identity is `trustDomain +
+browserProfile`, separate from worker profile identity, so the safe and the
+autonomous mode share one logged-in browser while keeping their own worker
+sandboxes. Switching mode is a dynamic network-policy change and never
+recreates the browser; the safe baseline policy is restored when the job ends.
+The browser network policy is an explicit per-host allowlist generated from the
+rulebook and contains no wildcard host.
+
+**Site rules need live validation.** The shipped path, dialog, and permalink
+patterns are conservative and were not verified against the live sites, which
+needs authenticated accounts. Unmatched paths and dialogs fail closed, so an
+outdated rule stops a run with review evidence instead of widening anything.
+Validate a site with the live check below before relying on it, and refine
+`site-rules.json` from the report.
 
 ## Management and cleanup
 
@@ -114,11 +200,17 @@ CAPTCHA and site-security challenges are always handed to the operator. The exte
 /openshell profiles
 /openshell list
 /openshell status <workspace-id>
+/openshell audit <workspace-id> [job-id]
 /openshell recreate <workspace-id>
 /openshell delete <workspace-id>
+/openshell browser-recreate <workspace-id>
 ```
 
-Delete/recreate explicitly warns that checkout, cache, artifact, download, history, cookie, local-storage, and browser-profile state will be removed. There is no browser-profile backup/export path.
+`delete` and `recreate` act on the worker sandbox only and keep the shared
+browser workspace and its logged-in sessions. `browser-recreate` is the explicit
+destructive path for the browser workspace itself: it deletes cookies, local
+storage, history, and every session, and you log in again through
+`/openshell takeover`. Delete/recreate explicitly warns that checkout, cache, artifact, download, history, cookie, local-storage, and browser-profile state will be removed. There is no browser-profile backup/export path.
 
 ## Validation
 
@@ -127,5 +219,37 @@ Deterministic tests use injected fake CLI responses for compatibility, identity 
 ```bash
 OPENSHELL_AGENT_E2E=1 npm run test:openshell-agent:e2e
 ```
+
+The professional-socials slice adds deterministic tests for mandate
+canonicalization/MAC/replay/TTL/budgets, dual authorization, origin, surface and
+class confinement, global-deny precedence, declared diffs, circuit breaking,
+takeover and resume transitions, identity drift, audit generation and redaction,
+workspace reuse and isolation, and the v1 to v2 registry migration, plus a
+parity check that the host and the in-image rulebook reach identical verdicts.
+
+Two opt-in checks go further:
+
+```bash
+# Real controller against local fixture pages; needs playwright-core + Chromium.
+npm i --no-save playwright-core
+node node_modules/playwright-core/cli.js install chromium
+OPENSHELL_BROWSER_FIXTURE=1 npm run test:openshell-agent:browser-fixture
+
+# One low-risk field change and revert on an operator-owned account.
+OPENSHELL_PROFESSIONAL_SOCIALS_LIVE=1 PS_LIVE_TRUST_DOMAIN=personal \
+  PS_LIVE_BROWSER_PROFILE=personal-browser PS_LIVE_SITE=linkedin \
+  PS_LIVE_PROFILE_URL=https://www.linkedin.com/in/you PS_LIVE_FIELD=Headline \
+  PS_LIVE_VALUE="temporary value" PS_LIVE_ORIGINAL="current value" \
+  npm run test:openshell-agent:live
+```
+
+The fixture harness maps the authorized hostnames to a local server through
+Chromium's host resolver, so it exercises the real rulebook, dialogs, refs,
+declared diffs, hostile page instructions, sensitive surfaces, staged uploads,
+single-page saves, and pause/resume without contacting any site. The live check
+requires a browser workspace that is already logged in, changes exactly one
+designated field, reverts it, checks the trusted report, scans the ledger for
+credential canaries, and verifies persistent session reuse. Site terms of
+service remain the operator's responsibility.
 
 Live validation on OpenShell v0.0.86 ran that check with Pi and `gpt-5.6-terra` through the placeholder relay, scanned sandbox files/environment/process arguments/diagnostics for host token canaries, and reused the same persistent workspace for a second successful job.

@@ -17,7 +17,7 @@ export interface CommandResult {
 }
 
 export interface CommandRunner {
-  run(args: string[], options?: { input?: string; signal?: AbortSignal; env?: Record<string, string> }): Promise<CommandResult>;
+  run(args: string[], options?: { input?: string; signal?: AbortSignal; env?: Record<string, string>; maxCaptureBytes?: number }): Promise<CommandResult>;
 }
 
 export class SpawnCommandRunner implements CommandRunner {
@@ -27,7 +27,8 @@ export class SpawnCommandRunner implements CommandRunner {
     this.executable = executable;
   }
 
-  run(args: string[], options: { input?: string; signal?: AbortSignal; env?: Record<string, string> } = {}): Promise<CommandResult> {
+  run(args: string[], options: { input?: string; signal?: AbortSignal; env?: Record<string, string>; maxCaptureBytes?: number } = {}): Promise<CommandResult> {
+    const captureLimit = Math.min(options.maxCaptureBytes ?? MAX_CAPTURE_BYTES, 16 * 1024 * 1024);
     return new Promise((resolve, reject) => {
       let settled = false;
       let aborted = false;
@@ -55,7 +56,7 @@ export class SpawnCommandRunner implements CommandRunner {
       const abort = () => { aborted = true; kill(); };
       const append = (current: Buffer<ArrayBufferLike>, chunk: Buffer<ArrayBufferLike>): Buffer<ArrayBufferLike> => {
         const next = Buffer.concat([current, chunk]);
-        if (next.length > MAX_CAPTURE_BYTES && !settled) {
+        if (next.length > captureLimit && !settled) {
           settled = true;
           options.signal?.removeEventListener("abort", abort);
           kill();
@@ -194,12 +195,12 @@ export class OpenShellClient {
     await this.required(["sandbox", "delete", name], "delete sandbox");
   }
 
-  async exec(name: string, command: string[], options: { input?: string; signal?: AbortSignal; timeout?: number; workdir?: string } = {}): Promise<CommandResult> {
+  async exec(name: string, command: string[], options: { input?: string; signal?: AbortSignal; timeout?: number; workdir?: string; maxCaptureBytes?: number } = {}): Promise<CommandResult> {
     const args = ["sandbox", "exec", "--name", name, "--no-tty"];
     if (options.workdir) args.push("--workdir", options.workdir);
     if (options.timeout !== undefined) args.push("--timeout", String(options.timeout));
     args.push("--", ...command);
-    return this.runner.run(args, { input: options.input, signal: options.signal });
+    return this.runner.run(args, { input: options.input, signal: options.signal, maxCaptureBytes: options.maxCaptureBytes });
   }
 
   async startBrowserService(name: string): Promise<void> {
@@ -214,7 +215,13 @@ export class OpenShellClient {
   }
 
   async browserCall(name: string, path: string, body?: unknown): Promise<{ status: number; body: Record<string, unknown> }> {
-    const allowed = new Set(["/health", "/control/initialize", "/control/pause", "/control/resume", "/navigate", "/snapshot", "/click", "/type", "/press"]);
+    const allowed = new Set([
+      "/health", "/control/initialize", "/control/pause", "/control/resume",
+      "/mandate/activate", "/mandate/revalidate", "/mandate/revoke",
+      "/navigate", "/snapshot", "/click", "/type", "/press",
+      "/ps/navigate", "/ps/snapshot", "/ps/act", "/ps/scroll", "/ps/wait", "/ps/back",
+      "/ps/dialog", "/ps/upload", "/ps/checkpoint", "/ps/submit",
+    ]);
     if (!allowed.has(path)) throw new Error("Browser bridge path is not allowed");
     const script = "const [p,has]=process.argv.slice(1);let s='';process.stdin.setEncoding('utf8');for await(const c of process.stdin)s+=c;const r=await fetch('http://127.0.0.1:3010'+p,{method:has==='1'?'POST':'GET',headers:has==='1'?{'content-type':'application/json'}:undefined,body:has==='1'?s:undefined});let b={};try{b=await r.json()}catch{};process.stdout.write(JSON.stringify({status:r.status,body:b}))";
     const result = await this.exec(name, ["node", "--input-type=module", "-e", script, path, body === undefined ? "0" : "1"], { input: body === undefined ? "" : JSON.stringify(body), timeout: 120 });
@@ -228,8 +235,8 @@ export class OpenShellClient {
     }
   }
 
-  async initializeBrowserControl(name: string, secret: string): Promise<void> {
-    const result = await this.browserCall(name, "/control/initialize", { secret });
+  async initializeBrowserControl(name: string, secret: string, browserWorkspaceKey?: string): Promise<void> {
+    const result = await this.browserCall(name, "/control/initialize", { secret, browserWorkspaceKey });
     if (result.status < 200 || result.status >= 300) throw new Error("Could not initialize the browser-only takeover control capability");
   }
 

@@ -22,10 +22,14 @@ RUN apt-get update \
     && chmod -R a+rX /opt/openshell-browser
 
 COPY browser-controller.mjs /opt/openshell-browser/browser-controller.mjs
+COPY mandate.mjs /opt/openshell-browser/mandate.mjs
+COPY site-rules.mjs /opt/openshell-browser/site-rules.mjs
+COPY site-rules.json /opt/openshell-browser/site-rules.json
 COPY codex-relay.mjs /opt/openshell-agent/codex-relay.mjs
 COPY entrypoint.sh /opt/openshell-browser/entrypoint.sh
 RUN ln /usr/bin/node /opt/openshell-agent/relay-node \
     && chmod 0755 /opt/openshell-browser/entrypoint.sh /opt/openshell-browser/browser-controller.mjs \
+    && chmod 0444 /opt/openshell-browser/mandate.mjs /opt/openshell-browser/site-rules.mjs /opt/openshell-browser/site-rules.json \
     && chmod 0555 /opt/openshell-agent/codex-relay.mjs /opt/openshell-agent/relay-node
 
 # OpenShell intentionally replaces image entrypoints. The host starts the fixed
