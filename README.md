@@ -47,6 +47,7 @@ The package includes reusable skills:
 - `interactive-agent-sessions` for visible, focusable Claude, Codex, and Fable sessions with deterministic models, effort, permissions, prompts, and Herdr placement.
 - `github-issues` for Projects, issue hierarchy, dependencies, milestones, grooming, and human/agent readiness.
 - `github-pull-requests` for opening PRs, independent reviews, checks, merge preparation, and cleanup.
+- `prose-quality` for direct, natural human-facing prose that keeps technical meaning exact.
 - `react-composition-quality` for maintainable React composition, render-ready data, and simple UI contracts.
 
 The package also provides deterministic, read-only cross-repository issue grooming. User portfolio configuration lives in `~/.pi/agent/github-workflow.json` (override with `PI_GITHUB_WORKFLOW_CONFIG`); the package never creates it during inspection. Use `/github-add`, `/github-groom`, or `/github-daily`, or run:
