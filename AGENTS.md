@@ -7,6 +7,11 @@ repository skill. Create or update it under `skills/<skill-name>/SKILL.md`, neve
 home skill directory. A personal skill is only intended when Martin explicitly asks from his home
 directory.
 
+## Prose
+
+Follow the `prose-quality` skill for human-facing prose, including replies, commits, PR and issue
+bodies, reviews, docs, release notes, and social drafts.
+
 ## GitHub workflow
 
 Use the `github-issues` skill for issue management and `github-pull-requests` for pull requests
