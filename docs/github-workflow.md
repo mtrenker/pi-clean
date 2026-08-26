@@ -74,7 +74,11 @@ they may compact after workspaces or panes close.
 
 Pi-clean does not provide non-interactive Claude or Codex subprocess delegation. Delegated work must remain visible in Herdr, and the externally managed `herdr` skill discovered from `~/.agents/skills/` is the canonical source for current CLI commands.
 
-Use a split pane in the current workspace only for a bounded read-only investigation where sharing the checkout is safe. Shared-workspace agents must not mutate the checkout. Any issue implementation, code or configuration mutation uses `start-issue` and its isolated linked-worktree workspace. Independent review uses `review-pr` and its detached review worktree and workspace.
+Use a split pane in the current workspace only for a bounded read-only investigation where sharing the checkout is safe. Starting another issue, or mutating any other checkout, uses `start-issue` and its isolated linked-worktree workspace. Independent review uses `review-pr` and its detached review worktree and workspace.
+
+Placement follows the checkout, not the agent. One worktree has exactly one semantic Herdr workspace, so an agent delegated from inside an issue worktree stays in that worktree's workspace as a sibling pane or a named tab. Read the live `workspace_id` from `herdr pane current` and add to it; do not call `herdr workspace create` for a checkout that already has a workspace. A second workspace on one issue worktree fragments issue context and blocks `finish-issue`, which refuses cleanup with `multiple Herdr workspaces represent issue worktree`. Panes and tabs are placement inside a shared checkout, never a substitute for worktree isolation.
+
+Keep one writer at a time in a shared worktree. Read-only delegates may run alongside the writer, and a writing delegate takes that role exclusively while the coordinator stops editing. Concurrent writers require separate worktrees.
 
 Any delegated work that establishes or materially changes product, UX, interaction, visual,
 architecture, API, or data-model direction must assign that design to Claude Opus 5

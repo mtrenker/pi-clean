@@ -430,7 +430,7 @@ function launchAgentInHerdrPane(paneId, agent, prompt, launchEnvironment = {}) {
 }
 
 function issueAgentPrompt(agent, number, repository) {
-  const task = `Work on GitHub issue #${number} in ${repository}. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge.`;
+  const task = `Work on GitHub issue #${number} in ${repository}. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge. Keep any delegated agent that shares this worktree in this Herdr workspace as a sibling pane or a named tab, never a second workspace.`;
   if (agent === "claude") {
     return `${task} As Claude Opus 5, own and document any unresolved product, UX, interaction, visual, architecture, API, or data-model design before implementing it.`;
   }

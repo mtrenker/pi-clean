@@ -71,10 +71,10 @@ A review's `workspace-write` sandbox allows tools and tests to create local arti
 Substitute the concrete task and repository/issue context before launch:
 
 ```text
-Coordinate this bigger task: <TASK>. Read and follow the repository instructions and relevant issue or PR context. You are the coordinator only: do not edit implementation files or perform coding yourself, and never spawn or assign another Fable instance for coding. Martin has not authorized Fable implementation. Decompose the work into bounded, non-overlapping subtasks and orchestrate substantive work across Claude Opus 5 (`claude-opus-5`) and GPT-5.6-sol (`gpt-5.6-sol`). Assign every product, UX, interaction, visual, architecture, API, or data-model design decision exclusively to Opus and make its direction durable before dependent implementation begins. Assign coding only to Opus or GPT-5.6-sol. Use GPT-5.6-sol for complementary investigation, implementation within the approved design, independent code review, or validation; it must not originate or materially revise unresolved design. Keep a single writer for any shared worktree unless isolated worktrees make concurrent mutation safe. Inspect and synthesize delegated results, resolve discrepancies, run final validation, and remain accountable for the complete result. Respect repository WIP, worktree, review, and authorization rules. Do not merge or perform protected remote mutations without Martin's explicit authorization.
+Coordinate this bigger task: <TASK>. Read and follow the repository instructions and relevant issue or PR context. You are the coordinator only: do not edit implementation files or perform coding yourself, and never spawn or assign another Fable instance for coding. Martin has not authorized Fable implementation. Decompose the work into bounded, non-overlapping subtasks and orchestrate substantive work across Claude Opus 5 (`claude-opus-5`) and GPT-5.6-sol (`gpt-5.6-sol`). Assign every product, UX, interaction, visual, architecture, API, or data-model design decision exclusively to Opus and make its direction durable before dependent implementation begins. Assign coding only to Opus or GPT-5.6-sol. Use GPT-5.6-sol for complementary investigation, implementation within the approved design, independent code review, or validation; it must not originate or materially revise unresolved design. Keep a single writer for any shared worktree unless isolated worktrees make concurrent mutation safe. Place every delegate that shares this worktree in the current semantic Herdr workspace as a sibling pane or a named tab, and never create a second workspace for a checkout that already has one; create a separate worktree and workspace only when a subtask needs a checkout this one must not disturb. Inspect and synthesize delegated results, resolve discrepancies, run final validation, and remain accountable for the complete result. Respect repository WIP, worktree, review, and authorization rules. Do not merge or perform protected remote mutations without Martin's explicit authorization.
 ```
 
-Fable is the coordinator, not a third interchangeable implementation worker or the design owner. By default it must not write code, edit implementation files, or delegate coding to another Fable. Only an explicit request from Martin for Fable implementation may override that boundary for the named task; a general request to delegate, orchestrate, review, or use Fable does not. It must assign design to Opus, use Opus and Codex as workers, prevent overlapping writes, and verify their outputs before reporting completion. Keep the Fable coordinator visible and focusable; its internally delegated workers do not replace the operator-visible coordinator session.
+Fable is the coordinator, not a third interchangeable implementation worker or the design owner. By default it must not write code, edit implementation files, or delegate coding to another Fable. Only an explicit request from Martin for Fable implementation may override that boundary for the named task; a general request to delegate, orchestrate, review, or use Fable does not. It must assign design to Opus, use Opus and Codex as workers, prevent overlapping writes, and verify their outputs before reporting completion. Its workers stay in the coordinator's workspace whenever they share its worktree. Keep the Fable coordinator visible and focusable; its internally delegated workers do not replace the operator-visible coordinator session.
 
 ## Version-sensitive launch table
 
@@ -114,14 +114,29 @@ Neither profile authorizes publishing a review, approving or merging a PR, pushi
 
 ## Placement policy
 
+Workspace identity follows the checkout, not the agent. One worktree has exactly one semantic Herdr workspace, and any agent whose working directory is an existing issue or review worktree belongs in that worktree's workspace. Placement inside a workspace is a pane or tab choice; isolation is a worktree choice. Never trade one for the other.
+
+Decide placement in this order:
+
+1. Does the delegate need a checkout this one must not disturb, such as a different branch, base, or issue? If yes, give it a separate worktree and its own semantic workspace through `scripts/github-work.mjs start-issue` or `review-pr`. Never assemble that pair by hand.
+2. Otherwise the delegate shares this worktree and stays in the current workspace. Use a sibling pane for bounded work meant to be watched next to the coordinator, such as a quick investigation, a test run, or a log tail. Use a named tab for a subtask with its own lifetime or output volume, such as an implementation subtask, a review of the in-progress diff, or a long investigation, and when the current tab already holds two panes.
+3. Keep one writer at a time in a shared worktree. Read-only delegates may run alongside the writer. A writing delegate takes that role exclusively: the coordinator stops editing while it runs and lends the role to only one agent at a time. Concurrent writers still require separate worktrees.
+
 | Work | Placement | Filesystem rule |
 | --- | --- | --- |
 | Bounded same-context investigation | Sibling pane in the current tab | Read-only; sharing the checkout must be safe |
 | Separate read-only subcontext in the same worktree | Named tab in the current workspace | Still shares the worktree; a tab is not isolation |
-| Issue implementation or any mutation | Dedicated issue worktree and semantic Herdr workspace | Use `scripts/github-work.mjs start-issue`; never mutate from a sibling pane |
+| Delegated subtask of the current issue, including a coding subtask | Sibling pane or named tab in the current issue workspace | Same worktree, one writer at a time; never a second workspace |
+| Starting another issue, or mutating any other checkout | Dedicated issue worktree and semantic Herdr workspace | Use `scripts/github-work.mjs start-issue`; never mutate from a sibling pane |
 | Independent PR review | Detached review worktree and semantic Herdr workspace | Use `scripts/github-work.mjs review-pr`; never review in the author worktree |
 
-Use labels such as `pi-clean · #26 · interactive sessions` and `pi-clean · PR #42 · review/codex`. Tabs are only subcontexts within one worktree, never substitutes for worktree isolation.
+Read the current placement rather than assuming it. `herdr pane current` returns the running session's `workspace_id`, `tab_id`, and `pane_id`. Split from that pane, or create a tab with `herdr tab create --workspace "$WORKSPACE" --cwd "$PWD"`. Do not call `herdr workspace create` for a checkout that already has a workspace, and do not rename the issue workspace for a subtask; name the tab or pane instead.
+
+A second workspace on the same issue worktree is not merely untidy. Herdr reports both as linked worktrees on one `checkout_path`, and `finish-issue` then refuses cleanup with `multiple Herdr workspaces represent issue worktree`.
+
+If the current pane is not in the issue's semantic workspace, for example after `--agent none` or a manually opened folder, look for an existing workspace whose `worktree.checkout_path` is this worktree and place the delegate there. If none exists, rename the current workspace to the semantic label and use it.
+
+Use workspace labels such as `pi-clean · #26 · interactive sessions` and `pi-clean · PR #42 · review/codex`, tab labels such as `impl/opus`, `review/codex`, or `investigate/opus`, and pane labels such as `Codex · review`. Tabs are only subcontexts within one worktree, never substitutes for worktree isolation.
 
 Start the TUI with its initial prompt in the created terminal. Focus the new pane, tab, or workspace for direct interaction unless Martin asks to keep the current focus. Report the semantic workspace, tab, and pane label after launch; IDs may be included only as current routing handles.
 
@@ -173,6 +188,20 @@ herdr pane run "$NEW_PANE" "claude --model claude-opus-5 --effort medium --permi
 
 Codex investigation uses the read-only template from the launch table.
 
+### Delegated subtask inside the current issue workspace
+
+Use this when the coordinator already runs in an issue worktree and the subtask shares that checkout. Read the live workspace from the current pane and add a named tab; do not create a workspace.
+
+```bash
+PROMPT='Review only: the working-tree change for issue #123. Do not edit files. Return evidence-backed findings ordered by severity, with file and line evidence, concrete failure mode and impact, and a recommended correction. State explicitly when there are no findings.'
+WORKSPACE=$(herdr pane current | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["workspace_id"])')
+TAB_PANE=$(herdr tab create --workspace "$WORKSPACE" --cwd "$PWD" --label 'review/codex' --no-focus | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["root_pane"]["pane_id"])')
+herdr pane rename "$TAB_PANE" 'Codex · review'
+herdr pane run "$TAB_PANE" "codex --model gpt-5.6-sol -c 'model_reasoning_effort=\"high\"' --ask-for-approval never --sandbox workspace-write $(printf %q "$PROMPT")"
+```
+
+For bounded work meant to sit next to the coordinator, split the current pane instead of creating a tab. A coding subtask uses the same placement, with the coordinator holding still while that one writer runs. Report the existing workspace label rather than announcing a new workspace.
+
 ### Issue implementation with an explicit profile
 
 First let the repository helper create the issue worktree and semantic Herdr workspace without starting its built-in agent profile; then launch the chosen exact profile in the returned root pane:
@@ -192,7 +221,7 @@ herdr workspace focus "$WORKSPACE"
 Use the same issue-worktree setup, but launch Fable in the returned root pane with the concrete delegation prompt. Fable owns decomposition, assignment, synthesis, and final validation, but must not edit implementation files or assign coding to another Fable. It assigns design to Opus and coding to Opus or Codex.
 
 ```bash
-DELEGATION_PROMPT='Coordinate GitHub issue #123 as a bigger delegated task. Read the repository instructions and issue. You are the coordinator only: do not edit implementation files or perform coding yourself, and never spawn or assign another Fable instance for coding. Martin has not authorized Fable implementation. Decompose the work into bounded, non-overlapping subtasks across Claude Opus 5 (`claude-opus-5`) and GPT-5.6-sol (`gpt-5.6-sol`). Assign every product, UX, interaction, visual, architecture, API, or data-model design decision exclusively to Opus and record its direction before dependent implementation. Assign coding only to Opus or GPT-5.6-sol. Use GPT-5.6-sol for complementary investigation, implementation within the approved design, independent code review, or validation; it must not originate or materially revise unresolved design. Keep a single writer in this worktree, inspect and synthesize delegated results, run final validation, and prepare a pull request. Do not merge or perform protected remote mutations.'
+DELEGATION_PROMPT='Coordinate GitHub issue #123 as a bigger delegated task. Read the repository instructions and issue. You are the coordinator only: do not edit implementation files or perform coding yourself, and never spawn or assign another Fable instance for coding. Martin has not authorized Fable implementation. Decompose the work into bounded, non-overlapping subtasks across Claude Opus 5 (`claude-opus-5`) and GPT-5.6-sol (`gpt-5.6-sol`). Assign every product, UX, interaction, visual, architecture, API, or data-model design decision exclusively to Opus and record its direction before dependent implementation. Assign coding only to Opus or GPT-5.6-sol. Use GPT-5.6-sol for complementary investigation, implementation within the approved design, independent code review, or validation; it must not originate or materially revise unresolved design. Keep a single writer in this worktree and place every delegate that shares it in this Herdr workspace as a sibling pane or a named tab, never a second workspace; create a separate worktree and workspace only for a subtask that needs an isolated checkout. Inspect and synthesize delegated results, run final validation, and prepare a pull request. Do not merge or perform protected remote mutations.'
 herdr pane run "$PANE" "claude --model fable --effort high --permission-mode bypassPermissions $(printf %q "$DELEGATION_PROMPT")"
 herdr workspace focus "$WORKSPACE"
 ```
