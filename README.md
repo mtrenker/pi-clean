@@ -29,8 +29,10 @@ Pi-clean intentionally does not ship a subprocess delegation tool or duplicate H
 Choose the delegation boundary by risk:
 
 - Assign any product, UX, interaction, visual, architecture, API, or data-model design exclusively to Claude Opus 5. Fable may coordinate but must not implement code or delegate coding to another Fable unless Martin explicitly requests Fable implementation for that specific task. Use Opus or Codex as coding workers. Pi and Codex may investigate constraints, implement the durable Opus direction, and validate it, but must not originate or materially revise unresolved design.
-- For bounded read-only investigation, split a pane in the current Herdr workspace only when sharing the checkout is safe. Do not let another pane mutate the shared checkout.
-- For issue implementation or any other code/configuration mutation, use `scripts/github-work.mjs start-issue` so the agent receives an isolated linked worktree and workspace.
+- For bounded read-only investigation, split a pane in the current Herdr workspace only when sharing the checkout is safe.
+- When delegating from inside an issue worktree, keep the delegate in that worktree's existing workspace as a sibling pane or a named tab. One worktree has one semantic workspace, so never open a second one for the same checkout.
+- Keep one writer at a time in a shared worktree. Read-only delegates may run alongside the writer; a writing delegate takes that role exclusively while the coordinator holds still.
+- For a new issue's implementation, or any mutation of another checkout, use `scripts/github-work.mjs start-issue` so the agent receives an isolated linked worktree and workspace.
 - For independent pull-request review, use `scripts/github-work.mjs review-pr` so the reviewer receives a detached review worktree and separate workspace.
 
 Keep delegated agents visible. First observe the pane reach `working`; a pane that never does may not have launched correctly. After that, treat either `done` or `idle` as settled, read the pane output, and surface `blocked` for operator attention. Viewing a completed pane acknowledges Herdr's ephemeral unread `done` state and may change it to `idle`, so never wait only for `done`. The operator can focus the pane at any time to guide, interrupt, or resume the agent.
