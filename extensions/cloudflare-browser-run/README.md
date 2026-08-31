@@ -37,14 +37,7 @@ token, so use `/browser check` to verify it rather than that endpoint.
 
 ### 2. Tell the extension where the credentials live
 
-Either export them:
-
-```bash
-export CLOUDFLARE_ACCOUNT_ID=...
-export CLOUDFLARE_BROWSER_RUN_TOKEN=...
-```
-
-or write a locator, never a value, to `~/.pi/agent/cloudflare-browser-run/config.json`:
+Preferred: write a locator, never a value, to `~/.pi/agent/cloudflare-browser-run/config.json`:
 
 ```jsonc
 {
@@ -60,6 +53,20 @@ or write a locator, never a value, to `~/.pi/agent/cloudflare-browser-run/config
 
 `source: "command"` takes an `argv` array containing a `{field}` placeholder, for any other secret
 manager. Credential configuration is user scoped only; a project cannot supply one.
+
+The alternative is exporting them:
+
+```bash
+export CLOUDFLARE_ACCOUNT_ID=...
+export CLOUDFLARE_BROWSER_RUN_TOKEN=...
+```
+
+This works and is supported, but understand what it costs. Pi's environment is inherited by every
+child process, including the `bash` tool the model can call, so an exported token is readable by any
+shell command the model runs. The extension never writes credentials into the environment, and it
+cannot take them back out of one: by the time it reads them they are already there. `/browser`
+status says so when this is the active source. Use it for CI and the opt-in live test; use a locator
+for ordinary work.
 
 Nothing is resolved until the first call that needs a token. Opening Pi never unlocks your vault,
 and `/browser` reports configuration shape without touching the secret store. Run `/browser check`
@@ -136,12 +143,15 @@ that believes it is signed in and is not will misread every page that follows.
   config.json                  operator-editable, non-secret
   profiles/<name>.sealed       AES-256-GCM ciphertext of the filtered state
   profiles/<name>.meta.json    counts and dates, never cookie names or values
-  crawls/index.json            durable non-secret crawl metadata
+  crawls/<jobId>/record.json   durable non-secret crawl metadata, one file per job
   crawls/<jobId>/page-*.json   cached result pages
   activity.jsonl               rotating activity log
 ```
 
-Everything is mode 0600 inside a 0700 directory, outside any repository.
+Everything is mode 0600 inside a 0700 directory, outside any repository, and every write goes
+through a temporary file and a rename so a crash cannot truncate one. A file that cannot be read is
+reported with its path rather than treated as absent, so a permission problem never looks like an
+empty registry or a missing profile.
 
 ### Key backends
 
@@ -170,6 +180,13 @@ These are enforced in code:
   through a tool.
 - **Navigation confinement.** A profile-backed session refuses to navigate outside the profile's
   origins by default. The origin check runs before DNS, so an out-of-scope host is never resolved.
+- **Page-driven navigation is checked after the fact.** A click or a submitted form decides where it
+  goes, so every action that can navigate ends by checking where the page landed. A prohibited
+  target, or an origin outside the profile, means the page's content is not returned. This is
+  detection, not prevention: the request has already left Cloudflare's network.
+- **The sign-in browser is closed when login ends.** `/browser-login` runs in its own fresh context
+  and tears it down whether you finish or abandon, so an authenticated context is never left
+  reachable as an ordinary anonymous session. Reopen it with `browser_open` and the profile name.
 - **The Live View URL never reaches the model.** It carries a JWT, so it goes into a one-shot
   loopback redirector; your browser opens `http://127.0.0.1:<port>/<nonce>`, valid for one request
   and two minutes. The JWT URL is never written to disk, never logged, and never placed in a
@@ -189,6 +206,9 @@ These are not:
 - **Prompt injection is reduced, not solved.** Page text is sanitized, wrapped in an
   `<untrusted-page-content>` envelope it cannot close early, and bounded. A page can still address
   the model. What bounds the damage is the capability list above, not the wrapper.
+- **Redaction is exact-match, not clairvoyant.** Resolved credentials and restored cookie values are
+  removed from anything the extension emits, and so are JWT and bearer patterns. A secret this
+  extension never resolved, or one a page paraphrases rather than repeats, is not detectable.
 - **"It will not apply for a job" is workflow guidance.** A generic browser cannot tell a mutating
   click from a harmless one: a link can POST, and a single-page application routes both through the
   same event. This extension does not claim a gate it cannot enforce.
@@ -265,7 +285,7 @@ never agreed to have.
 | `no_session` | The interaction tools are listed but nothing is open | `browser_open` |
 | `busy_handoff` | You are signing in | Finish or cancel the handoff |
 | `busy_queue` | Too many parallel browser actions | Retry after the batch |
-| `profile_expired` / `profile_unreadable` | Stored state is stale or the key is gone | `/browser-login <name>` |
+| `profile_expired` / `profile_unreadable` | Stored state is stale, no longer matches the profile's origins, or the key is gone | `/browser-login <name>` |
 | `target_rejected` | The URL guard refused it | The message names the rule |
 | `content_signals_declined` | The site refuses the declared crawl purpose | Read what you need with `browser_read` |
 | `quota_exhausted` | Action budget or daily crawl cap | Reopen the browser, or wait |
@@ -357,3 +377,8 @@ An authenticated-site run is a manual exercise you start yourself, not something
 - Stored state covers cookies and local storage. IndexedDB is not captured.
 - Tool names are not namespaced by Pi, so a second browser extension would collide with `browser_*`.
 - A mid-flight redirect cannot be blocked. The settled URL is checked afterwards and reported.
+- The per-day crawl cap is serialized within one Pi process. Two Pi processes starting crawls at the
+  same instant can exceed it; it is a cost guard, not a security control.
+- Cloudflare's REST endpoint for deleting a browser session is not reachable through a
+  `connectOverCDP` connection, which never exposes the session id. Closing the browser drops the
+  websocket and the idle timer releases the rest.

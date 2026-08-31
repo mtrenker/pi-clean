@@ -336,12 +336,26 @@ that silently disables a bound is worse than a startup error.
 
 All read-modify-write cycles on these files run inside `withFileMutationQueue(absolutePath, …)`,
 with the whole read, mutate, and write window inside the callback, and each write goes to a
-temporary file that is then renamed. The honest limit: that helper serializes within one Pi
-process. Two Pi processes writing `crawls/index.json` at the same instant can still interleave.
-Records are keyed by job id and are effectively append-then-update, so the merge rule on write is
-to re-read, apply this process's change to that record only, and keep every other record from disk.
-That converts a whole-file clobber into a per-record last-writer-wins, which is acceptable for
-status metadata.
+temporary file that is then renamed.
+
+The original plan kept every crawl job in one `crawls/index.json` and claimed that re-reading before
+each write reduced a conflict to a per-record last-writer-wins. Review showed that claim was wrong
+twice over, so the storage shape changed (section 25, revision 2):
+
+- a transient read failure or a truncated file read as an empty registry, and the next write then
+  erased every other job while the remote crawls kept running;
+- two processes could each read the same document and rename over one another, losing a whole job
+  rather than merging per record.
+
+Crawl state is therefore one file per job, `crawls/<jobId>/record.json`. Two processes never write
+the same file unless they are updating the same job, and an unreadable record costs that one job
+rather than all of them. The residual is small and stated: two processes refreshing the same job's
+status can still overwrite one another, and the loser is one status refresh that the next poll
+re-reads from Cloudflare.
+
+Reads never treat a failure as absence. Only `ENOENT` means "nothing here"; any other read or parse
+error is reported with the path, so a permission problem or a corrupt file cannot masquerade as an
+empty registry, a missing profile, or an empty configuration.
 
 ## 7. Credential resolution
 
@@ -582,11 +596,25 @@ carries `keep_alive` from config, creates an isolated context with `browser.newC
 the profile if one was named, and opens a tab.
 
 Teardown runs on `browser_close`, on `session_shutdown` for every reason (`quit`, `reload`, `new`,
-`resume`, `fork`), and when a second `browser_open` replaces a session. It is idempotent and it
-runs in a `finally`: close the context, close the Playwright browser handle, `DELETE
-/devtools/browser/{session_id}` so the Cloudflare session does not linger until the idle timer,
-stop the Live View redirector, zero key material, and clear the ref maps. Failures during teardown
-are logged and swallowed, never surfaced as a session-blocking error.
+`resume`, `fork`), when a second `browser_open` replaces a session, and before any reconnect from
+`expired` or `failed`. That last case matters: reopening used to overwrite the old handles, leaking
+a Playwright connection and its context. Teardown is idempotent and runs in a `finally`: close the
+context, close the Playwright browser handle, stop the Live View redirector, zero key material, and
+clear the ref maps. Failures during teardown are logged and swallowed, never surfaced as a
+session-blocking error.
+
+Closing first moves the state to `closing`, which makes the guard reject new actions, then drains
+the action queue so teardown does not cut across an action that is already running. The drain is
+bounded by `actionTimeoutMs`: a hung action must not be able to block shutdown. An action that was
+queued but had not started when close began is rejected with `busy_closing` rather than run against
+a session that is going away.
+
+This design originally promised an explicit `DELETE /devtools/browser/{session_id}` so a session
+would not linger until Cloudflare's idle timer. That is not reachable from here (section 25,
+revision 3): `chromium.connectOverCDP` opens the websocket directly and never surfaces the session
+id Cloudflare assigned, so there is no id to put in the path. Closing the Playwright browser handle
+drops the websocket, and the idle timer releases the rest. The helper that built that URL was
+removed rather than left as dead code.
 
 Isolated contexts are how a profile stays scoped. A context holds its own cookies, local storage,
 and cache, which is what makes profile restore and profile isolation meaningful, and it is what the
@@ -606,8 +634,13 @@ Pi executes sibling tool calls from one assistant message concurrently. Two brow
 one page in parallel is a race with no correct outcome, so `session.ts` holds a promise-chain mutex
 per context.
 
-- Each browser tool acquires the mutex for its whole window: act, wait for the page to settle, and
-  build orientation. Not just the click.
+- Every model-facing operation acquires the mutex for its whole window: act, wait for the page to
+  settle, check where it landed, and build orientation. Not just the click, and not only the page
+  actions: listing, opening, selecting, and closing tabs go through the same queue, because they
+  mutate the shared active-tab pointer that the page actions read. A snapshot returns its own source
+  URL from inside that window, so a sibling tab switch cannot attribute page text to the wrong page.
+- Where a click needs operator confirmation, the confirmation runs inside the queued window too, so
+  the page the operator approved is the page that gets clicked.
 - Arrival order is preserved, so a `click` then `snapshot` pair from the same assistant message
   resolves in the order the model wrote them.
 - Queue depth is capped at `queueDepth` (default 4). The fifth waiter is rejected immediately with
@@ -701,6 +734,11 @@ version, `createdAt`, `lastRefreshedAt`, cookie count, per-origin local storage 
 `earliestCookieExpiry`, `carriesDomainCookies`, and the key backend id. It holds no cookie names,
 no values, and no page data.
 
+Restore re-filters. The sealed blob was written under the origin list in force at the time, and an
+operator who later narrows a profile expects the removed origin's cookies to stop being restored.
+So `load` filters again on the way out against the current definition, reports what it dropped to
+the activity log, and fails closed with a reauthentication instruction when nothing survives.
+
 Expiry. Before restore, if `earliestCookieExpiry` is in the past the profile is `expired` and
 `browser_open` fails with `profile_expired`. Cookie expiry is a lower bound, not proof of validity;
 sites invalidate sessions server side whenever they like. The extension does not try to detect a
@@ -782,7 +820,13 @@ JavaScript, which section 20 lists as a non-goal for this slice.
 7. On `success: true`, read `context.storageState()`, filter it (11.2), seal it (11.3), write
    metadata, and report counts only: cookies kept, origins kept, cookies dropped, earliest expiry.
    On `success: false` or timeout, save nothing and report why.
-8. Release the mutex and return to `active` or tear down, depending on what the operator chose.
+8. Release the mutex and tear the login context down, whatever the operator chose.
+
+Step 8 is not optional. The sign-in context holds live cookies and is not profile-backed, so leaving
+it open would hand the model an authenticated session with no origin confinement and no screenshot
+gate, exactly the properties the profile mechanism exists to attach. The context is also created
+fresh: any existing session is closed first, so a previous session's cookies cannot be folded into
+the new profile. `browser_open` with the profile name is the supported way back in.
 
 Two rules hold for the whole handoff window, and both are enforced in code:
 
@@ -819,6 +863,9 @@ Every byte of page-derived text is third-party input. It is handled as data.
   attacker.example".
 - The extension itself never acts on URLs found in page content. A link is followed only when the
   model passes it to a tool, and that call goes through the URL guard like any other.
+- Every action that can navigate ends by checking where the page actually landed (section 15.2).
+  A page that steers the browser to a prohibited target through a link or a form does not get its
+  content relayed back to the model.
 
 ### 13.2 What is not solved
 
@@ -889,7 +936,28 @@ cannot be implemented honestly.
 8. Order matters: when the session confines navigation to a profile's origins, the origin check
    runs before DNS, so a URL outside the allowlist is rejected without being resolved at all.
 
-### 15.2 An honest statement of what this protects
+### 15.2 Page-driven navigation
+
+The guard in 15.1 covers URLs the model supplies. A click, a submitted form, a select, or a key
+press can navigate too, and nothing checks those before they happen because the page decides where
+they go. So every action that can navigate ends with a settled-target check, and so does opening or
+selecting a tab:
+
+1. Structural. The settled URL must still pass the scheme, userinfo, and address rules of 15.1. A
+   page that lands the browser on `http://169.254.169.254/` or a `file:` URL fails here.
+2. Confinement. When the session has an origin allowlist, the settled origin must be in it.
+
+On failure the action throws `target_rejected` and the page's content is not returned. That is the
+enforceable part, and this design claims no more than it: the request has already left Cloudflare's
+network by the time the settled URL is visible, so this is detection, not prevention. DNS is not
+re-resolved on the settled URL, because the browser has already resolved the host and a second
+local lookup would answer a different question.
+
+The structural half runs for unconfined sessions too. An anonymous context has no allowlist to
+check, but it can still be steered at Cloudflare's internal addressing, and withholding that
+content is worth doing whether or not a profile is loaded.
+
+### 15.3 An honest statement of what this protects
 
 The remote browser runs on Cloudflare's network, not on this machine and not on this LAN. From that
 browser, `127.0.0.1` is a Cloudflare container, and `192.168.1.1` is whatever sits on Cloudflare's
@@ -952,14 +1020,17 @@ Cloudflare's defaults are wrong for this use: `limit` 10 but `depth` 100000, `re
 | `formats` | `["markdown"]` | fixed | Markdown is what a model reads; HTML multiplies bytes for no gain |
 | `render` | `false` | `true` requires `allowRenderedCrawl` in config | rendered crawls are metered; `render: false` is currently unmetered |
 | `limit` | 25 | `maxLimit`, default 500 | bounded cost and bounded result paging |
-| `depth` | 2 | 5 | documentation sites are shallow; 100000 is not a depth, it is an absence of one |
+| `depth` | 2 | 5 | documentation sites are shallow; 100000 is not a depth, it is an absence of one. `defaultDepth` is the default, not the cap: a caller may go deeper, up to the ceiling |
 | `options.includeExternalLinks` | `false` | not settable by the model | a crawl that wanders off site is unbounded |
 | `options.includeSubdomains` | `false` | model may not widen it | same |
 | `maxAge` | 86400 | 604800 | reuse Cloudflare's cache rather than re-fetching |
 | `crawlPurposes` | `["ai-input"]` | config only; `ai-train` rejected | see below |
 
 Cost controls beyond the defaults: `maxJobsPerDay` (default 10) counted from the registry, and a
-refusal with `quota_exhausted` when it is hit. `browserSecondsUsed` from each status read is stored
+refusal with `quota_exhausted` when it is hit. Counting, requesting, and registering run as one
+serialized step, because three parallel starts checking a count of zero would all pass. That
+serialization is process local, which is the honest limit: the cap is a cost guard, not a security
+control, and two Pi processes starting crawls at the same instant can still exceed it. `browserSecondsUsed` from each status read is stored
 and shown by `/browser-crawls`, so spend is visible rather than inferred.
 
 ### 16.3 Honest Content Signals purposes
@@ -1033,7 +1104,10 @@ lifecycle than the profile vault. In that case the truncation footer suggests a 
 ### 17.2 Screenshots
 
 - Explicit only. No tool takes a screenshot as part of orientation.
-- Viewport default 1280x800. Element and viewport captures are capped at 1600x1600.
+- Viewport default 1280x800. Element and viewport captures are capped at 1600x1600. An element is
+  measured before it is captured: a very large but highly compressible element would otherwise stay
+  under the byte cap while blowing past the pixel cap, so an oversized element is captured through a
+  page screenshot clipped to the cap, and the clip is reported.
 - `full_page` is capped at 4000 px of height, and the whole encoded image is capped at 1.5 MB.
 - JPEG at quality 70 by default, PNG only on request. A screenshot is a photograph, not a diagram,
   and PNG typically costs several times the bytes for no readability gain.
@@ -1066,7 +1140,14 @@ Never logged: tokens, account id, Live View URLs, cookie names or values, local 
 screenshots, form field values, handoff instructions, or full URLs.
 
 `redact.ts` runs over every string that leaves the extension, whether to a tool result, a log line,
-or the TUI. It removes the resolved account id and token by value, anything matching `jwt=…`, any
+or the TUI. That is enforced structurally rather than by remembering to call it: every tool is
+registered through one wrapper that scrubs content, details, streamed updates, and thrown errors,
+and every notification goes through one helper. The session passes driver errors through the same
+scrubber before they become tool failures, because Playwright and CDP errors routinely embed the
+endpoint they were talking to, which carries the account id. Cookie and local-storage values from a
+restored profile are registered as redaction targets when the profile is loaded, with a higher
+length floor than credentials, so a page that echoes a session token back cannot carry it into model
+context while a short cookie value like a locale is left alone. It removes the resolved account id and token by value, anything matching `jwt=…`, any
 `Authorization: Bearer …` echo, and any `wss://api.cloudflare.com/…` endpoint. It is the last line
 of defense for an error string from `playwright-core` or `fetch` that embeds the request URL, which
 they routinely do.
@@ -1328,3 +1409,63 @@ arrives.
 5. Where layer 1 lives. This design assumes a future `skills/` entry consuming the tool contract,
    which matches how this repository already packages workflow knowledge. Worth confirming before
    anyone starts writing job-board recipes, so layer 0 is not reshaped to suit it.
+
+## 25. Revisions after independent review
+
+An independent review of the implementation (GPT-5.6-sol, 14 findings) produced three corrections to
+this design and a set of implementation fixes. The corrections are recorded here because each one
+replaces a claim the design previously made.
+
+### Revision 1: environment credentials are the weaker option, and say so
+
+Finding 2 argued that supporting `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_BROWSER_RUN_TOKEN` in the
+environment contradicts the containment guarantee, since Pi's environment is inherited by every bash
+command the model runs and agent-guard's env stripping is disabled.
+
+Ruling: keep environment support. Issue #36 requires it, and removing it would break the documented
+setup path and the opt-in live test. What was wrong was the presentation, not the capability. The
+containment guarantees in sections 7 and 18 are about values the extension resolves and handles;
+they never covered a value the operator exported into a shared process environment, and no
+implementation can retract that. Section 7.2 now states the asymmetry, the README leads with the
+locator and marks the environment path as the weaker one, and `/browser status` says plainly that
+every bash command inherits the values when they came from the environment.
+
+### Revision 2: crawl state is one file per job, not a shared index
+
+Finding 5 showed the shared `crawls/index.json` could lose every running job: any read or parse
+failure produced an empty document, and the next write persisted it. It also showed the design's
+"re-read and merge per record" claim did not survive two processes, which could each read the same
+document and rename over one another.
+
+Ruling: per-job record files, `crawls/<jobId>/record.json`. Section 6 carries the reasoning and the
+residual. This also removes the shared-document class of bug rather than patching one instance of
+it, and it makes an unreadable record cost one job instead of all of them.
+
+### Revision 3: the explicit session delete is not reachable
+
+Finding 8 noted that `cdpSessionUrl` was never called, so teardown never issued the REST delete this
+design promised in section 10.1.
+
+Ruling: the promise was unimplementable as written. `chromium.connectOverCDP` opens the websocket
+directly and never surfaces the session id Cloudflare assigned, so there is no id for that path.
+Section 10.1 now describes what actually releases the session, the unused helper was deleted rather
+than left as dead code, and teardown-before-reconnect was added, which was the real leak behind the
+finding.
+
+### Design questions answered in place
+
+Finding 4 asked whether page-driven navigation could be brought under the target policy or whether
+the contract had to weaken. Neither: section 15.2 adds a settled-target check after every action
+that can navigate, including in unconfined sessions, and states plainly that it is detection rather
+than prevention, since the request has already left Cloudflare's network. Content from a prohibited
+target is withheld, which is the part that is actually enforceable.
+
+### Implementation fixes carrying no design change
+
+Findings 1, 3, 6, 7, 9, 10, 11, 12, 13, and 14 were gaps between this document and the code rather
+than faults in the design. The scrubbing boundary, the login context teardown, the queue covering
+tab operations and close, the click confirmation that refused to lapse without an operator, the
+re-filter on profile restore, atomic writes everywhere, the crawl `maxAge` and depth ceiling,
+element screenshot bounds, the resumed-session error class, and socket-free redirector tests all
+moved the implementation to what sections 8 through 18 already specified. Sections 10.1, 10.3, 11.4,
+12.3, 16.2, 17.2, and 18 gained the detail that made each contract unambiguous.
