@@ -41,6 +41,9 @@ interface Sandbox {
   agentDir: string;
   fetchCalls: Array<{ url: string; init: RequestInit }>;
   setResponse(response: { status?: number; body?: unknown; headers?: Record<string, string> }): void;
+  setResponseFactory(
+    factory: () => { status?: number; body?: unknown; headers?: Record<string, string> },
+  ): void;
 }
 
 async function sandbox(t: {
@@ -60,12 +63,14 @@ async function sandbox(t: {
   let scripted: { status?: number; body?: unknown; headers?: Record<string, string> } = {
     body: { success: true, result: "# Example\n\nBody text." },
   };
+  let scriptedFactory: (() => typeof scripted) | undefined;
 
   globalThis.fetch = (async (url: string, init: RequestInit) => {
     fetchCalls.push({ url: String(url), init });
-    return new Response(JSON.stringify(scripted.body ?? { success: true, result: "" }), {
-      status: scripted.status ?? 200,
-      headers: scripted.headers ?? {},
+    const response = scriptedFactory ? scriptedFactory() : scripted;
+    return new Response(JSON.stringify(response.body ?? { success: true, result: "" }), {
+      status: response.status ?? 200,
+      headers: response.headers ?? {},
     });
   }) as unknown as typeof globalThis.fetch;
 
@@ -87,6 +92,10 @@ async function sandbox(t: {
     fetchCalls,
     setResponse(response) {
       scripted = response;
+      scriptedFactory = undefined;
+    },
+    setResponseFactory(factory) {
+      scriptedFactory = factory;
     },
   };
 }
@@ -160,12 +169,18 @@ test("a resumed branch that used the interaction tools keeps their schemas activ
     assert.ok(box.pi.activeTools.includes(name), `${name} should stay active after resume`);
   }
 
-  // The browser itself is gone, so a stale call fails with an actionable class.
+  // The browser itself is gone. A resumed branch is not a never-opened one: the
+  // model has browser calls in its history, so it gets the expired contract from
+  // DESIGN.md section 8.6, naming the profile that would be restored.
   const tool = box.pi.tools.get("browser_click");
   assert.ok(tool);
   await assert.rejects(
     () => tool.execute("call-r", { ref: "e1" }, undefined, undefined, ctx),
-    (error: unknown) => error instanceof BrowserRunError && error.errorClass === "no_session",
+    (error: unknown) =>
+      error instanceof BrowserRunError &&
+      error.errorClass === "session_expired" &&
+      /ended with the previous Pi process/.test(error.message) &&
+      /profile example-site will be restored/.test(error.message),
   );
 
   const command = box.pi.commands.get("browser");
@@ -1089,4 +1104,273 @@ test("/browser-crawls lists, shows, and forgets durable jobs", async (t) => {
   assert.match(ui.notifications.at(-1)?.text ?? "", /removed from the local registry/);
   await command.handler("list", ctx);
   assert.match(ui.notifications.at(-1)?.text ?? "", /No crawls in the registry/);
+});
+
+// ---------------------------------------------------------------------------
+// Review follow-ups: the scrubbing boundary, login teardown, click gate,
+// crawl admission, and configuration merging.
+// ---------------------------------------------------------------------------
+
+test("a driver error carrying the account id is scrubbed before it reaches the model", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  cloudflareBrowserRun(box.pi.api, {
+    lookup: publicLookup,
+    connect: async () => {
+      throw new Error(
+        `connect ECONNRESET wss://api.cloudflare.com/client/v4/accounts/${FIXTURE_ACCOUNT_ID}/browser-rendering/devtools/browser`,
+      );
+    },
+  });
+  const { ctx } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+
+  await assert.rejects(
+    () => box.pi.tools.get("browser_open")!.execute("o", {}, undefined, undefined, ctx),
+    (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      assert.ok(!message.includes(FIXTURE_ACCOUNT_ID), `account id leaked: ${message}`);
+      assert.match(message, /\[redacted\]/);
+      return true;
+    },
+  );
+});
+
+test("a restored cookie value echoed by a page is redacted out of the snapshot", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  process.env[PROFILE_KEY_ENV] = PROFILE_MASTER_KEY;
+  t.after(() => {
+    delete process.env[PROFILE_KEY_ENV];
+  });
+  await writeConfig(box.agentDir, {
+    profileVault: { backend: "env" },
+    profiles: { "example-site": { origins: ["https://www.example.com"] } },
+  });
+  await seedProfile(box.agentDir, "example-site", ["https://www.example.com"]);
+
+  const page = createFakePage({
+    url: "https://www.example.com/account",
+    // A debug panel that prints the session cookie back into the page.
+    snapshot: '- text: "session=seeded-session-value" [ref=e1]',
+  });
+  const fake = createFakeBrowser({ page });
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser, lookup: publicLookup });
+  const { ctx } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+  await box.pi.tools
+    .get("browser_open")!
+    .execute("o", { profile: "example-site" }, undefined, undefined, ctx);
+
+  const snapshot = await box.pi.tools
+    .get("browser_snapshot")!
+    .execute("s", {}, undefined, undefined, ctx);
+  const text = snapshot.content[0]?.text ?? "";
+  assert.ok(!text.includes("seeded-session-value"), "a restored cookie value reached the model");
+  assert.match(text, /\[redacted\]/);
+});
+
+test("confirmClicks always refuses rather than lapsing when there is no operator", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  await writeConfig(box.agentDir, { browser: { confirmClicks: "always" } });
+
+  const log: string[] = [];
+  const page = createFakePage({ log, locators: { e1: {} } });
+  const fake = createFakeBrowser({ page, log });
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser, lookup: publicLookup });
+  const { ctx } = createFakeContext({ hasUI: false });
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+  await box.pi.tools.get("browser_open")!.execute("o", {}, undefined, undefined, ctx);
+
+  await assert.rejects(
+    () => box.pi.tools.get("browser_click")!.execute("c", { ref: "e1" }, undefined, undefined, ctx),
+    (error: unknown) =>
+      error instanceof BrowserRunError &&
+      /cannot ask the operator/.test(error.message),
+  );
+  assert.ok(!log.some((entry) => entry.startsWith("click:")), "nothing was clicked");
+});
+
+test("parallel crawl starts cannot both pass the daily cap", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  await writeConfig(box.agentDir, { crawl: { maxJobsPerDay: 1 } });
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
+  const { ctx } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+
+  let issued = 0;
+  box.setResponseFactory(() => ({
+    body: { success: true, result: { jobId: `job-${(issued += 1)}` } },
+  }));
+
+  const tool = box.pi.tools.get("browser_crawl_start")!;
+  const results = await Promise.allSettled([
+    tool.execute("a", { url: "https://docs.example.com/" }, undefined, undefined, ctx),
+    tool.execute("b", { url: "https://docs.example.com/" }, undefined, undefined, ctx),
+    tool.execute("c", { url: "https://docs.example.com/" }, undefined, undefined, ctx),
+  ]);
+
+  assert.equal(results.filter((entry) => entry.status === "fulfilled").length, 1);
+  for (const entry of results.filter((item) => item.status === "rejected")) {
+    assert.match(String((entry as PromiseRejectedResult).reason), /quota_exhausted/);
+  }
+  assert.equal(issued, 1, "only the admitted start reached Cloudflare");
+});
+
+test("an unreadable configuration is left alone rather than replaced", async (t) => {
+  const box = await sandbox(t);
+  const paths = statePaths(box.agentDir);
+  await ensureStateDir(paths);
+  await writeFile(paths.configFile, "{ not json", "utf8");
+
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
+  const { ctx, ui } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+
+  await box.pi.commands.get("browser-login")?.handler("new-profile", ctx);
+  assert.match(ui.notifications.at(-1)?.text ?? "", /could not be read|not valid JSON/);
+  assert.equal(await readFile(paths.configFile, "utf8"), "{ not json", "the file was not replaced");
+});
+
+test("/browser status names the environment credential tradeoff", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
+  const { ctx, ui } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+
+  await box.pi.commands.get("browser")?.handler("status", ctx);
+  const text = ui.notifications.at(-1)?.text ?? "";
+  assert.match(text, /every bash command/);
+  assert.match(text, /locator keeps them out of the environment/);
+  assert.ok(!text.includes(FIXTURE_TOKEN));
+});
+
+/**
+ * The full attended login, driven against doubles. Gated on loopback listen
+ * because the flow starts the real redirector; the redirector's own policy is
+ * covered without a socket in liveview.test.ts.
+ */
+async function loopbackBlocked(): Promise<string | false> {
+  const { startRedirector } = await import("./liveview.ts");
+  try {
+    const probe = await startRedirector("https://example.com/", { ttlMs: 50 });
+    await probe.close();
+    return false;
+  } catch (error) {
+    return `loopback listen is not permitted here: ${(error as Error).message}`;
+  }
+}
+
+const LOGIN_SKIP = await loopbackBlocked();
+
+test("/browser-login saves the profile and never leaves the signed-in context open", {
+  skip: LOGIN_SKIP,
+}, async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  process.env[PROFILE_KEY_ENV] = PROFILE_MASTER_KEY;
+  t.after(() => {
+    delete process.env[PROFILE_KEY_ENV];
+  });
+  await writeConfig(box.agentDir, {
+    profileVault: { backend: "env" },
+    profiles: { "example-site": { origins: ["https://www.example.com"] } },
+  });
+
+  const liveViewUrl =
+    "https://live.browser.run/ui/inspector?wss=abc&jwt=eyJhbGciOiJIUzI1NiJ9.fixture.signature";
+  const page = createFakePage({ url: "https://www.example.com/" });
+  const fake = createFakeBrowser({
+    page,
+    cdpResponses: { "Cloudflare.getLiveView": { url: liveViewUrl } },
+    storageState: {
+      cookies: [
+        {
+          name: "sid",
+          value: "value-from-the-attended-login",
+          domain: "www.example.com",
+          path: "/",
+          expires: Math.floor(Date.now() / 1000) + 86_400,
+        },
+      ],
+      origins: [{ origin: "https://www.example.com", localStorage: [] }],
+    },
+  });
+
+  const openedUrls: string[] = [];
+  cloudflareBrowserRun(box.pi.api, {
+    connect: async () => fake.browser,
+    lookup: publicLookup,
+    open: (url) => {
+      openedUrls.push(url);
+      // The operator finishes as soon as the link is handed over.
+      setTimeout(() => fake.cdp.emit("Cloudflare.handoffComplete", { success: true }), 5);
+      return true;
+    },
+  });
+  const { ctx, ui } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+
+  await box.pi.commands.get("browser-login")?.handler("example-site", ctx);
+
+  const messages = ui.notifications.map((entry) => entry.text);
+  assert.ok(
+    messages.some((text) => /Profile example-site saved/.test(text)),
+    `login did not save: ${messages.join(" | ")}`,
+  );
+
+  // AC-X2: the capability URL never leaves the redirector.
+  for (const text of [...messages, ...ui.status.filter((v): v is string => typeof v === "string")]) {
+    assert.ok(!text.includes("jwt="), `a JWT URL reached the UI: ${text}`);
+    assert.ok(!text.includes("live.browser.run"));
+  }
+  assert.equal(openedUrls.length, 1);
+  assert.match(openedUrls[0] as string, /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]{43}$/);
+
+  // The signed-in context is closed, not left as an unconfined anonymous session.
+  assert.ok(fake.log.includes("browser.close"), "the login browser was closed");
+
+  const store = new ProfileStore(
+    statePaths(box.agentDir),
+    new ProfileVault(statePaths(box.agentDir), {
+      backend: createEnvBackend({ [PROFILE_KEY_ENV]: PROFILE_MASTER_KEY }),
+      canMintKeys: false,
+    }),
+  );
+  assert.equal((await store.status("example-site")).state, "saved");
+});
+
+test("an abandoned login saves nothing and still closes the context", { skip: LOGIN_SKIP }, async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  process.env[PROFILE_KEY_ENV] = PROFILE_MASTER_KEY;
+  t.after(() => {
+    delete process.env[PROFILE_KEY_ENV];
+  });
+  await writeConfig(box.agentDir, {
+    profileVault: { backend: "env" },
+    profiles: { "example-site": { origins: ["https://www.example.com"] } },
+  });
+
+  const fake = createFakeBrowser({
+    page: createFakePage({ url: "https://www.example.com/" }),
+    cdpResponses: { "Cloudflare.getLiveView": { url: "https://live.browser.run/ui?jwt=x.y.z" } },
+  });
+  cloudflareBrowserRun(box.pi.api, {
+    connect: async () => fake.browser,
+    lookup: publicLookup,
+    open: () => {
+      setTimeout(() => fake.cdp.emit("Cloudflare.handoffComplete", { success: false }), 5);
+      return true;
+    },
+  });
+  const { ctx, ui } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+  await box.pi.commands.get("browser-login")?.handler("example-site", ctx);
+
+  assert.match(ui.notifications.at(-1)?.text ?? "", /Nothing was saved for example-site/);
+  assert.ok(fake.log.includes("browser.close"), "an abandoned login still closes the context");
 });

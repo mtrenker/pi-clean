@@ -3,7 +3,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -61,11 +61,11 @@ test("AC-R1 a registered job holds no account id, token, or page content", async
   const { registry } = await makeRegistry(t);
   await registry.add(record());
 
-  const raw = await readFile(registry.indexPath, "utf8");
+  const raw = await readFile(registry.recordPath("job-1"), "utf8");
   assert.ok(!raw.includes(FIXTURE_ACCOUNT_ID));
   assert.ok(!raw.includes(FIXTURE_TOKEN));
   assert.ok(!raw.includes("cookie"));
-  assert.equal((await stat(registry.indexPath)).mode & 0o777, 0o600);
+  assert.equal((await stat(registry.recordPath("job-1"))).mode & 0o777, 0o600);
 
   const stored = await registry.require("job-1");
   assert.equal(stored.startUrl, "https://docs.example.com/");
@@ -83,18 +83,37 @@ test("AC-R2 the registry survives a restart", async (t) => {
   assert.equal(jobs[0]?.jobId, "job-1");
 });
 
-test("updates apply to one record and keep every other record from disk", async (t) => {
+test("a concurrent process writing another job cannot clobber this one", async (t) => {
   const { registry, dir } = await makeRegistry(t);
   await registry.add(record({ jobId: "job-1" }));
   await registry.add(record({ jobId: "job-2", cwd: "/repo/two" }));
 
-  // Simulate another process writing while this one holds a stale view.
+  // Another Pi process holding its own view of the registry. With one file per
+  // job there is no shared document for the two of them to race over.
   const other = new CrawlRegistry(statePaths(dir), () => NOW + 1000);
   await other.update("job-2", { status: "running", local: false });
 
   const updated = await registry.update("job-1", { status: "running", local: false, pagesSeen: 7 });
   assert.equal(updated.pagesSeen, 7);
   assert.equal((await registry.require("job-2")).status, "running", "the other record survived");
+  assert.equal((await registry.list()).length, 2);
+});
+
+test("a job added by another process after this one read is still discoverable", async (t) => {
+  const { registry, dir } = await makeRegistry(t);
+  await registry.add(record({ jobId: "job-1" }));
+  assert.equal((await registry.list()).length, 1);
+
+  // The original shared-index design lost this record: both processes read the
+  // same document and the second rename won.
+  const other = new CrawlRegistry(statePaths(dir), () => NOW + 1000);
+  await other.add(record({ jobId: "job-2" }));
+  await registry.add(record({ jobId: "job-3" }));
+
+  assert.deepEqual(
+    (await registry.list()).map((job) => job.jobId).sort(),
+    ["job-1", "job-2", "job-3"],
+  );
 });
 
 test("updating an unknown job reports job_not_found", async (t) => {
@@ -191,16 +210,38 @@ test("AC-R6 forgetting a job removes its record and its cache", async (t) => {
   await registry.forget("job-1");
 });
 
-test("a corrupt index is treated as empty rather than crashing the session", async (t) => {
+test("one corrupt record costs one job, not the whole registry", async (t) => {
+  const { registry } = await makeRegistry(t);
+  await registry.add(record({ jobId: "good" }));
+  await registry.add(record({ jobId: "broken" }));
+  await writeFile(registry.recordPath("broken"), "{ not json", "utf8");
+
+  const jobs = await registry.list();
+  assert.deepEqual(jobs.map((job) => job.jobId), ["good"]);
+  assert.deepEqual(registry.unreadableJobIds(), ["broken"]);
+
+  // Reading the broken job directly reports it rather than answering "no job".
+  await assert.rejects(
+    () => registry.require("broken"),
+    (error: unknown) =>
+      error instanceof BrowserRunError && /could not be read or parsed/.test(error.detail),
+  );
+  // And the good job is untouched by the failure.
+  assert.equal((await registry.require("good")).jobId, "good");
+});
+
+test("a legacy shared index is migrated to per-job records once", async (t) => {
   const { registry, dir } = await makeRegistry(t);
-  await (await import("node:fs/promises")).writeFile(
-    join(statePaths(dir).crawlsDir, "index.json"),
-    "{ not json",
+  const legacy = join(statePaths(dir).crawlsDir, "index.json");
+  await writeFile(
+    legacy,
+    JSON.stringify({ version: 1, jobs: { "job-old": record({ jobId: "job-old" }) } }),
     "utf8",
   );
-  assert.deepEqual(await registry.list(), []);
-  await registry.add(record());
-  assert.equal((await registry.list()).length, 1);
+
+  assert.deepEqual((await registry.list()).map((job) => job.jobId), ["job-old"]);
+  await assert.rejects(() => readFile(legacy, "utf8"), /ENOENT/);
+  assert.match(await readFile(`${legacy}.migrated`, "utf8"), /job-old/);
 });
 
 test("local and Cloudflare statuses stay distinguishable", () => {

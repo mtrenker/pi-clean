@@ -10,6 +10,7 @@ import test from "node:test";
 
 import { BrowserRunError } from "./errors.ts";
 import {
+  decideRedirect,
   getLiveViewUrl,
   HANDOFF_MAX_MS,
   openInBrowser,
@@ -26,6 +27,24 @@ interface FakeCdp extends CdpSessionLike {
   sent: Array<{ method: string; params?: Record<string, unknown> }>;
   emit(event: string, payload: unknown): void;
 }
+
+/**
+ * Binding a loopback port is not permitted in every sandbox. The policy tests
+ * below run everywhere against `decideRedirect`; the socket tests additionally
+ * exercise the real listener wherever the environment allows one, and say so
+ * when they are skipped rather than passing silently.
+ */
+async function loopbackListenAllowed(): Promise<string | false> {
+  try {
+    const probe = await startRedirector("https://example.com/", { ttlMs: 50 });
+    await probe.close();
+    return false;
+  } catch (error) {
+    return `loopback listen is not permitted here: ${(error as Error).message}`;
+  }
+}
+
+const SOCKET_SKIP = await loopbackListenAllowed();
 
 function fakeCdp(responses: Record<string, unknown> = {}): FakeCdp {
   const handlers = new Map<string, Set<(payload: unknown) => void>>();
@@ -55,7 +74,7 @@ function fakeCdp(responses: Record<string, unknown> = {}): FakeCdp {
   };
 }
 
-test("AC-X2 the redirector hands out a loopback nonce, never the capability URL", async () => {
+test("AC-X2 the redirector hands out a loopback nonce, never the capability URL", { skip: SOCKET_SKIP }, async () => {
   const redirector = await startRedirector(LIVE_VIEW_URL);
   try {
     assert.match(redirector.url, /^http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]{43}$/);
@@ -66,7 +85,7 @@ test("AC-X2 the redirector hands out a loopback nonce, never the capability URL"
   }
 });
 
-test("AC-X3 the redirector serves exactly one redirect and then stops", async () => {
+test("AC-X3 the redirector serves exactly one redirect and then stops", { skip: SOCKET_SKIP }, async () => {
   const redirector = await startRedirector(LIVE_VIEW_URL);
   try {
     const first = await fetch(redirector.url, { redirect: "manual" });
@@ -83,7 +102,7 @@ test("AC-X3 the redirector serves exactly one redirect and then stops", async ()
   }
 });
 
-test("a wrong path gets 404 and does not consume the nonce", async () => {
+test("a wrong path gets 404 and does not consume the nonce", { skip: SOCKET_SKIP }, async () => {
   const redirector = await startRedirector(LIVE_VIEW_URL);
   try {
     const base = new URL(redirector.url);
@@ -98,7 +117,7 @@ test("a wrong path gets 404 and does not consume the nonce", async () => {
   }
 });
 
-test("the redirector expires on its own and binds loopback only", async () => {
+test("the redirector expires on its own and binds loopback only", { skip: SOCKET_SKIP }, async () => {
   const redirector = await startRedirector(LIVE_VIEW_URL, { ttlMs: 30 });
   const host = new URL(redirector.url).hostname;
   assert.equal(host, "127.0.0.1");
@@ -109,7 +128,7 @@ test("the redirector expires on its own and binds loopback only", async () => {
   assert.equal(REDIRECT_TTL_MS, 120_000);
 });
 
-test("closing twice is safe", async () => {
+test("closing twice is safe", { skip: SOCKET_SKIP }, async () => {
   const redirector = await startRedirector(LIVE_VIEW_URL);
   await redirector.close();
   await redirector.close();
@@ -210,4 +229,41 @@ test("the handoff timeout stays inside Cloudflare's documented maximum", async (
   cdp.emit("Cloudflare.handoffComplete", { success: true });
   await pending;
   assert.equal((cdp.sent[0]?.params as { timeoutMs: number }).timeoutMs, HANDOFF_MAX_MS);
+});
+
+// ---------------------------------------------------------------------------
+// The redirector's policy, tested without a socket so it runs in every sandbox.
+// ---------------------------------------------------------------------------
+
+test("only one GET on the exact nonce path redirects", () => {
+  const state = { nonce: "abc123", used: false };
+
+  const hit = decideRedirect({ method: "GET", url: "/abc123" }, state, LIVE_VIEW_URL);
+  assert.deepEqual(hit, { status: 302, location: LIVE_VIEW_URL, consumes: true });
+
+  for (const request of [
+    { method: "GET", url: "/" },
+    { method: "GET", url: "/guess" },
+    { method: "GET", url: "/abc123?extra=1" },
+    { method: "GET", url: "/abc123/" },
+    { method: "POST", url: "/abc123" },
+    { method: "HEAD", url: "/abc123" },
+    { method: undefined, url: "/abc123" },
+    { method: "GET", url: undefined },
+  ]) {
+    const decision = decideRedirect(request, state, LIVE_VIEW_URL);
+    assert.equal(decision.status, 404, JSON.stringify(request));
+    assert.equal(decision.location, undefined);
+    assert.equal(decision.consumes, false);
+  }
+});
+
+test("a consumed nonce never redirects again", () => {
+  const decision = decideRedirect(
+    { method: "GET", url: "/abc123" },
+    { nonce: "abc123", used: true },
+    LIVE_VIEW_URL,
+  );
+  assert.equal(decision.status, 404);
+  assert.equal(decision.location, undefined);
 });

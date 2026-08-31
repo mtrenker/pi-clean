@@ -10,7 +10,7 @@
  * typo that silently disables a bound is worse than a startup error.
  */
 
-import { mkdir, readFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -25,6 +25,8 @@ export const KEEP_ALIVE_MAX_MS = 600_000;
 export const CRAWL_LIMIT_CEILING = 100_000;
 /** This extension's own ceiling for crawl depth; see DESIGN.md section 16.2. */
 export const CRAWL_DEPTH_CEILING = 5;
+/** Cloudflare's `maxAge` default, in seconds. Its documented maximum is 604800. */
+export const CRAWL_MAX_AGE_SECONDS = 86_400;
 
 export const CRAWL_PURPOSES = ["search", "ai-input"] as const;
 export type CrawlPurpose = (typeof CRAWL_PURPOSES)[number];
@@ -141,6 +143,26 @@ export async function ensureStateDir(paths: StatePaths): Promise<void> {
   await mkdir(paths.root, { recursive: true, mode: 0o700 });
   await mkdir(paths.profilesDir, { recursive: true, mode: 0o700 });
   await mkdir(paths.crawlsDir, { recursive: true, mode: 0o700 });
+}
+
+/**
+ * Write through a temporary file and rename, so a crash mid-write leaves the
+ * previous file intact rather than a truncated one. Every state file this
+ * extension owns goes through here (DESIGN.md section 6).
+ *
+ * The temporary file carries the same owner-only mode as the destination, so the
+ * content is never briefly world readable.
+ */
+export async function writeFileAtomic(path: string, text: string, mode = 0o600): Promise<void> {
+  const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(temporary, text, { encoding: "utf8", mode });
+  await chmod(temporary, mode);
+  await rename(temporary, path);
+}
+
+/** True only for a genuinely absent file. Any other read failure must not read as empty. */
+export function isMissingFile(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
 }
 
 // ---------------------------------------------------------------------------
@@ -474,7 +496,7 @@ export async function loadConfig(paths: StatePaths): Promise<BrowserRunConfig> {
   try {
     text = await readFile(paths.configFile, "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return parseConfig({});
+    if (isMissingFile(error)) return parseConfig({});
     throw new BrowserRunError("invalid_request", `config could not be read: ${paths.configFile}`, {
       cause: error,
     });

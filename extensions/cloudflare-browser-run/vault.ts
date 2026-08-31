@@ -22,12 +22,12 @@
 
 import { spawn } from "node:child_process";
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
-import { chmod, readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 
-import { type StatePaths } from "./config.ts";
+import { isMissingFile, writeFileAtomic, type StatePaths } from "./config.ts";
 import { BrowserRunError, errorMessage } from "./errors.ts";
 
 export const KEY_BYTES = 32;
@@ -382,8 +382,9 @@ export class ProfileVault {
         await this.#resolution.backend.set(profile, key);
       }
       const blob = seal(plaintext, key, profile);
-      await writeFile(path, JSON.stringify(blob), { encoding: "utf8", mode: 0o600 });
-      await chmod(path, 0o600);
+      // Atomic: a crash mid-refresh must leave the previous sealed profile intact
+      // rather than a truncated file whose key still exists.
+      await writeFileAtomic(path, JSON.stringify(blob));
     });
   }
 
@@ -399,6 +400,13 @@ export class ProfileVault {
     try {
       text = await readFile(this.sealedPath(profile), "utf8");
     } catch (error) {
+      if (!isMissingFile(error)) {
+        throw new BrowserRunError(
+          "profile_unreadable",
+          `the sealed state for profile ${profile} could not be read`,
+          { cause: error },
+        );
+      }
       throw new BrowserRunError(
         "profile_missing",
         `profile ${profile} has no saved authentication state. Run /browser-login ${profile}.`,

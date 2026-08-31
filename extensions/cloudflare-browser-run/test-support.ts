@@ -186,13 +186,20 @@ export function collectStrings(value: unknown, into: string[] = []): string[] {
 // or return oversized buffers.
 // ---------------------------------------------------------------------------
 
-import type { BrowserLike, ContextLike, LocatorLike, PageLike } from "./session.ts";
+import type {
+  BrowserLike,
+  CdpSessionLike,
+  ContextLike,
+  LocatorLike,
+  PageLike,
+} from "./session.ts";
 
 export interface FakeLocatorBehavior {
   attributes?: Record<string, string | null>;
   onClick?: () => Promise<void> | void;
   screenshotBytes?: number;
   missing?: boolean;
+  box?: { x: number; y: number; width: number; height: number } | null;
 }
 
 export interface FakePageOptions {
@@ -253,7 +260,12 @@ export function createFakePage(options: FakePageOptions = {}): PageLike & { setU
       },
       async screenshot() {
         await guard();
+        log.push(`locator.screenshot:${ref}`);
         return Buffer.alloc(behavior?.screenshotBytes ?? 500, 3);
+      },
+      async boundingBox() {
+        await guard();
+        return behavior?.box === undefined ? { x: 0, y: 0, width: 400, height: 300 } : behavior.box;
       },
       async count() {
         return behavior && !behavior.missing ? 1 : 0;
@@ -293,7 +305,8 @@ export function createFakePage(options: FakePageOptions = {}): PageLike & { setU
         log.push(`key:${key}`);
       },
     },
-    async screenshot() {
+    async screenshot(options?: Record<string, unknown>) {
+      log.push(`page.screenshot:${JSON.stringify(options?.["clip"] ?? null)}`);
       return nextScreenshot();
     },
     async setViewportSize() {
@@ -312,11 +325,19 @@ export interface FakeBrowserOptions {
   storageState?: unknown;
   log?: string[];
   connectError?: Error;
+  /** Responses for Cloudflare-domain CDP commands, keyed by method name. */
+  cdpResponses?: Record<string, unknown>;
+}
+
+export interface FakeCdpSession extends CdpSessionLike {
+  sent: Array<{ method: string; params?: Record<string, unknown> }>;
+  emit(event: string, payload: unknown): void;
 }
 
 export function createFakeBrowser(options: FakeBrowserOptions = {}): {
   browser: BrowserLike;
   context: ContextLike;
+  cdp: FakeCdpSession;
   log: string[];
 } {
   const log = options.log ?? [];
@@ -335,6 +356,28 @@ export function createFakeBrowser(options: FakeBrowserOptions = {}): {
       log.push("context.close");
     },
   };
+  const handlers = new Map<string, Set<(payload: unknown) => void>>();
+  const cdp: FakeCdpSession = {
+    sent: [],
+    async send(method, params) {
+      cdp.sent.push(params === undefined ? { method } : { method, params });
+      const response = options.cdpResponses?.[method];
+      if (response instanceof Error) throw response;
+      return response ?? {};
+    },
+    on(event, handler) {
+      const set = handlers.get(event) ?? new Set();
+      set.add(handler);
+      handlers.set(event, set);
+    },
+    off(event, handler) {
+      handlers.get(event)?.delete(handler);
+    },
+    emit(event, payload) {
+      for (const handler of handlers.get(event) ?? []) handler(payload);
+    },
+  };
+
   const browser: BrowserLike = {
     async newContext() {
       log.push("newContext");
@@ -345,6 +388,9 @@ export function createFakeBrowser(options: FakeBrowserOptions = {}): {
       log.push("browser.close");
     },
     isConnected: () => true,
+    async newBrowserCDPSession() {
+      return cdp;
+    },
   };
-  return { browser, context, log };
+  return { browser, context, cdp, log };
 }

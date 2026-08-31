@@ -435,3 +435,220 @@ test("a failed connect leaves no half-open session", async () => {
   await session.close();
   assert.equal(session.state, "idle");
 });
+
+// ---------------------------------------------------------------------------
+// Review follow-ups: settled targets, queued tabs, teardown, element bounds.
+// ---------------------------------------------------------------------------
+
+test("a click that navigates to a prohibited target withholds the page", async () => {
+  const page = createFakePage({ url: "https://example.com/", locators: { e1: {} } });
+  page.locator = ((selector: string) => ({
+    async click() {
+      (page as unknown as { setUrl(url: string): void }).setUrl("http://169.254.169.254/latest/meta-data/");
+    },
+    async fill() {},
+    async selectOption() {
+      return [];
+    },
+    async press() {},
+    async getAttribute() {
+      return null;
+    },
+    async screenshot() {
+      return Buffer.alloc(10);
+    },
+    async boundingBox() {
+      return { x: 0, y: 0, width: 10, height: 10 };
+    },
+    async count() {
+      return 1;
+    },
+    selector,
+  })) as unknown as typeof page.locator;
+
+  const harness = makeSession({}, createFakeBrowser({ page }));
+  await harness.session.open({});
+
+  await assert.rejects(
+    () => harness.session.click("e1"),
+    (error: unknown) =>
+      error instanceof BrowserRunError &&
+      error.errorClass === "target_rejected" &&
+      /prohibited target and its content was not returned/.test(error.detail) &&
+      /link-local/.test(error.detail),
+  );
+});
+
+test("the settled check runs for anonymous contexts, not only confined ones", async () => {
+  const page = createFakePage({ url: "https://example.com/", locators: { e1: {} } });
+  const harness = makeSession({}, createFakeBrowser({ page }));
+  await harness.session.open({});
+  assert.deepEqual(harness.session.allowedOrigins, [], "no allowlist: the context is unconfined");
+
+  (page as unknown as { setUrl(url: string): void }).setUrl("file:///etc/passwd");
+  await assert.rejects(
+    () => harness.session.press("Enter", undefined),
+    (error: unknown) =>
+      error instanceof BrowserRunError && error.errorClass === "target_rejected",
+  );
+});
+
+test("tab operations share the action queue with page actions", async () => {
+  const order: string[] = [];
+  const page = createFakePage({
+    url: "https://example.com/",
+    locators: { e1: { onClick: async () => {
+      order.push("enter:click");
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      order.push("exit:click");
+    } } },
+  });
+  const harness = makeSession({}, createFakeBrowser({ page }));
+  await harness.session.open({});
+
+  const click = harness.session.click("e1");
+  const tabs = harness.session.listTabs().then(() => order.push("tabs"));
+  await Promise.all([click, tabs]);
+
+  assert.deepEqual(order, ["enter:click", "exit:click", "tabs"]);
+});
+
+test("close waits for a running action instead of cutting across it", async () => {
+  const order: string[] = [];
+  const page = createFakePage({
+    locators: { e1: { onClick: async () => {
+      order.push("enter:click");
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      order.push("exit:click");
+    } } },
+  });
+  const fake = createFakeBrowser({ page });
+  const harness = makeSession({}, fake);
+  await harness.session.open({});
+
+  const click = harness.session.click("e1");
+  // Let the click actually start. An action that has not begun yet is rejected
+  // by the closing guard instead, which is the safer of the two outcomes.
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const closing = harness.session.close().then(() => order.push("closed"));
+  await Promise.allSettled([click, closing]);
+
+  assert.deepEqual(order, ["enter:click", "exit:click", "closed"]);
+  assert.equal(fake.log.filter((entry) => entry === "browser.close").length, 1);
+});
+
+test("an action queued but not started when close begins is rejected", async () => {
+  const page = createFakePage({ locators: { e1: {} } });
+  const harness = makeSession({}, createFakeBrowser({ page }));
+  await harness.session.open({});
+
+  const click = harness.session.click("e1");
+  const closing = harness.session.close();
+  await assert.rejects(
+    () => click,
+    (error: unknown) => error instanceof BrowserRunError && error.errorClass === "busy_closing",
+  );
+  await closing;
+  assert.equal(harness.session.state, "idle");
+});
+
+test("close does not wait forever on a hung action", async () => {
+  const page = createFakePage({
+    locators: { e1: { onClick: () => new Promise<void>(() => undefined) } },
+  });
+  const harness = makeSession({ actionTimeoutMs: 40 }, createFakeBrowser({ page }));
+  await harness.session.open({});
+
+  void harness.session.click("e1").catch(() => undefined);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  await harness.session.close();
+  assert.equal(harness.session.state, "idle");
+});
+
+test("reopening after expiry releases the previous connection first", async () => {
+  const page = createFakePage();
+  page.goto = async () => {
+    throw new Error("Target closed");
+  };
+  const fake = createFakeBrowser({ page });
+  const harness = makeSession({}, fake);
+
+  await harness.session.open({});
+  await assert.rejects(() => harness.session.navigate({ url: "https://example.com/x" }));
+  assert.equal(harness.session.state, "expired");
+
+  const closesBefore = fake.log.filter((entry) => entry === "browser.close").length;
+  await harness.session.open({}).catch(() => undefined);
+  const closesAfter = fake.log.filter((entry) => entry === "browser.close").length;
+  assert.equal(closesAfter - closesBefore, 1, "the expired handles were torn down before reconnecting");
+});
+
+test("an oversized element is captured through a clipped page screenshot", async () => {
+  const log: string[] = [];
+  const page = createFakePage({
+    log,
+    screenshotBytes: 1_000,
+    locators: {
+      e1: { box: { x: 0, y: 0, width: 400, height: 300 }, screenshotBytes: 800 },
+      e2: { box: { x: 10, y: 20, width: 5_000, height: 400 }, screenshotBytes: 800 },
+    },
+  });
+  const harness = makeSession({}, createFakeBrowser({ page }));
+  await harness.session.open({});
+
+  const small = await harness.session.screenshot({ ref: "e1" });
+  assert.equal(small.clipped, false);
+  assert.ok(log.includes("locator.screenshot:e1"), "a bounded element uses the element capture");
+
+  log.length = 0;
+  const wide = await harness.session.screenshot({ ref: "e2" });
+  assert.equal(wide.clipped, true, "an oversized element is reported as clipped");
+  assert.ok(!log.some((entry) => entry.startsWith("locator.screenshot:")));
+  const clipEntry = log.find((entry) => entry.startsWith("page.screenshot:"));
+  assert.ok(clipEntry);
+  const clip = JSON.parse(clipEntry.slice("page.screenshot:".length)) as { width: number; height: number };
+  assert.equal(clip.width, 1_600, "clipped to the documented pixel cap");
+  assert.equal(clip.height, 400);
+});
+
+test("a click confirmation runs inside the queued window", async () => {
+  const order: string[] = [];
+  const page = createFakePage({
+    locators: { e1: { onClick: () => { order.push("click"); } } },
+  });
+  const harness = makeSession({}, createFakeBrowser({ page }));
+  await harness.session.open({});
+
+  await harness.session.click("e1", {
+    confirm: async ({ url, ref }) => {
+      order.push(`confirm:${ref}:${url}`);
+      return true;
+    },
+  });
+  assert.deepEqual(order, ["confirm:e1:https://example.com/", "click"]);
+
+  await assert.rejects(
+    () => harness.session.click("e1", { confirm: async () => false }),
+    (error: unknown) => error instanceof BrowserRunError && /declined this click/.test(error.detail),
+  );
+  assert.equal(order.filter((entry) => entry === "click").length, 1, "a refusal clicks nothing");
+});
+
+test("driver errors are scrubbed before they leave the session", async () => {
+  const session = new BrowserSession({
+    config: CONFIG,
+    scrub: (text) => text.replace(/secret-account/g, "[redacted]"),
+    connect: async () => {
+      throw new Error("connect failed: wss://api.cloudflare.com/accounts/secret-account/x");
+    },
+  });
+  await assert.rejects(
+    () => session.open({}),
+    (error: unknown) => {
+      assert.ok(error instanceof BrowserRunError);
+      assert.ok(!error.message.includes("secret-account"));
+      assert.match(error.message, /\[redacted\]/);
+      return true;
+    },
+  );
+});

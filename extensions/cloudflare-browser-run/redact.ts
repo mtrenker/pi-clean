@@ -25,6 +25,13 @@ export const REDACTED = "[redacted]";
 /** Values shorter than this are never redacted by value: too likely to appear in ordinary text. */
 const MIN_SECRET_LENGTH = 8;
 
+/**
+ * Floor for restored profile material. Session tokens are long; a short cookie
+ * value is far more likely to be a locale or a flag, and redacting those would
+ * corrupt page text for no gain.
+ */
+export const PROFILE_VALUE_MIN_LENGTH = 16;
+
 const PATTERN_RULES: Array<{ pattern: RegExp; replace: string }> = [
   // Live View capability URLs carry the JWT in a query parameter.
   { pattern: /([?&]jwt=)[^&\s"'<>]+/gi, replace: `$1${REDACTED}` },
@@ -43,10 +50,15 @@ const PATTERN_RULES: Array<{ pattern: RegExp; replace: string }> = [
 export class SecretRegistry {
   readonly #values = new Set<string>();
 
-  remember(value: string | undefined | null): void {
+  /**
+   * `minLength` guards against redacting ordinary words. Credentials use the
+   * default; profile material passes a higher floor, because a cookie value can
+   * legitimately be something short and common like a locale or a boolean.
+   */
+  remember(value: string | undefined | null, minLength: number = MIN_SECRET_LENGTH): void {
     if (typeof value !== "string") return;
     const trimmed = value.trim();
-    if (trimmed.length < MIN_SECRET_LENGTH) return;
+    if (trimmed.length < Math.max(minLength, MIN_SECRET_LENGTH)) return;
     this.#values.add(trimmed);
   }
 

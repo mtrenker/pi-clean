@@ -28,6 +28,28 @@ export const HANDOFF_MAX_MS = 30 * 60 * 1000;
 /** Cloudflare's own default Live View validity is five minutes. */
 export const LIVE_VIEW_DEFAULT_MS = 5 * 60 * 1000;
 
+export interface RedirectDecision {
+  status: 302 | 404;
+  location?: string;
+  consumes: boolean;
+}
+
+/**
+ * The redirector's whole policy, separated from the socket so it can be tested
+ * without binding a port. Sandboxes that forbid `listen(127.0.0.1)` still run
+ * these checks.
+ */
+export function decideRedirect(
+  request: { method?: string | undefined; url?: string | undefined },
+  state: { nonce: string; used: boolean },
+  target: string,
+): RedirectDecision {
+  if (state.used) return { status: 404, consumes: false };
+  if (request.method !== "GET") return { status: 404, consumes: false };
+  if (request.url !== `/${state.nonce}`) return { status: 404, consumes: false };
+  return { status: 302, location: target, consumes: true };
+}
+
 export interface Redirector {
   /** Loopback URL carrying only the nonce. Safe for argv and for ephemeral UI. */
   url: string;
@@ -51,9 +73,10 @@ export async function startRedirector(
   let closed = false;
 
   const server: Server = createServer((request, response) => {
-    if (!used && request.method === "GET" && request.url === `/${nonce}`) {
+    const decision = decideRedirect(request, { nonce, used }, target);
+    if (decision.status === 302 && decision.location) {
       used = true;
-      response.writeHead(302, { location: target, "cache-control": "no-store" });
+      response.writeHead(302, { location: decision.location, "cache-control": "no-store" });
       response.end();
       // One redirect is all this capability is worth.
       setImmediate(() => {

@@ -135,7 +135,7 @@ test("AC-P5 metadata records counts and never a cookie name or value", async (t)
 test("a saved profile restores exactly the filtered state", async (t) => {
   const { store } = await makeStore(t);
   await store.save("example-site", DEFINITION, state());
-  const loaded = await store.load("example-site");
+  const loaded = await store.load("example-site", DEFINITION);
   assert.deepEqual(
     loaded.state.cookies.map((cookie) => cookie.name).sort(),
     ["pref", "session", "sid"],
@@ -166,7 +166,7 @@ test("AC-P8 expired and missing profiles fail closed with the recovery step", as
   assert.match(status.reason ?? "", /a stored cookie has expired/);
 
   await assert.rejects(
-    () => later.load("example-site"),
+    () => later.load("example-site", DEFINITION),
     (error: unknown) =>
       error instanceof BrowserRunError &&
       error.errorClass === "profile_expired" &&
@@ -174,7 +174,7 @@ test("AC-P8 expired and missing profiles fail closed with the recovery step", as
   );
 
   await assert.rejects(
-    () => store.load("never-created"),
+    () => store.load("never-created", DEFINITION),
     (error: unknown) =>
       error instanceof BrowserRunError &&
       error.errorClass === "profile_missing" &&
@@ -242,8 +242,48 @@ test("a profile written by a future format version is unreadable rather than mis
   const status = await store.status("example-site");
   assert.equal(status.state, "unreadable");
   await assert.rejects(
-    () => store.load("example-site"),
+    () => store.load("example-site", DEFINITION),
     (error: unknown) =>
       error instanceof BrowserRunError && error.errorClass === "profile_unreadable",
+  );
+});
+
+test("restore re-filters against the current allowlist, not the one it was saved under", async (t) => {
+  const { store } = await makeStore(t);
+  await store.save("example-site", { origins: ["https://www.example.com", "https://app.example.com"], allowNavigationOutsideProfile: false }, {
+    cookies: [
+      { name: "a", value: "one", domain: "www.example.com", path: "/", expires: FUTURE },
+      { name: "b", value: "two", domain: "app.example.com", path: "/", expires: FUTURE },
+    ],
+    origins: [
+      { origin: "https://www.example.com", localStorage: [{ name: "t", value: "v" }] },
+      { origin: "https://app.example.com", localStorage: [{ name: "t", value: "v" }] },
+    ],
+  });
+
+  // The operator narrows the profile afterwards.
+  const narrowed = await store.load("example-site", {
+    origins: ["https://www.example.com"],
+    allowNavigationOutsideProfile: false,
+  });
+  assert.deepEqual(narrowed.state.cookies.map((cookie) => cookie.domain), ["www.example.com"]);
+  assert.deepEqual(narrowed.state.origins.map((entry) => entry.origin), ["https://www.example.com"]);
+  assert.equal(narrowed.refiltered.droppedCookies, 1);
+  assert.equal(narrowed.refiltered.droppedOrigins, 1);
+});
+
+test("a profile whose origins no longer match anything fails closed", async (t) => {
+  const { store } = await makeStore(t);
+  await store.save("example-site", DEFINITION, state());
+  await assert.rejects(
+    () =>
+      store.load("example-site", {
+        origins: ["https://unrelated.example.org"],
+        allowNavigationOutsideProfile: false,
+      }),
+    (error: unknown) =>
+      error instanceof BrowserRunError &&
+      error.errorClass === "profile_expired" &&
+      /nothing in profile example-site matches its current origins/.test(error.detail),
   );
 });

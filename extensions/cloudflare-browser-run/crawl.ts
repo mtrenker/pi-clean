@@ -13,7 +13,7 @@
  * a Content Signals rejection is never retried with a narrower purpose.
  */
 
-import { type CrawlSettings } from "./config.ts";
+import { CRAWL_DEPTH_CEILING, CRAWL_MAX_AGE_SECONDS, type CrawlSettings } from "./config.ts";
 import { type Credentials } from "./credentials.ts";
 import { crawlUrl } from "./endpoints.ts";
 import { BrowserRunError, isBrowserRunError } from "./errors.ts";
@@ -64,10 +64,13 @@ export function buildCrawlBody(input: CrawlStartInput, settings: CrawlSettings):
   }
   if (limit < 1) limit = 1;
 
+  // `defaultDepth` is the default, not the cap. The ceiling is the extension's,
+  // because Cloudflare's own maximum of 100000 is an absence of a bound rather
+  // than a bound.
   let depth = input.depth ?? settings.defaultDepth;
-  if (depth > settings.defaultDepth) {
-    clamps.push(`depth ${depth} clamped to ${settings.defaultDepth}`);
-    depth = settings.defaultDepth;
+  if (depth > CRAWL_DEPTH_CEILING) {
+    clamps.push(`depth ${depth} clamped to ${CRAWL_DEPTH_CEILING}`);
+    depth = CRAWL_DEPTH_CEILING;
   }
   if (depth < 0) depth = 0;
 
@@ -85,6 +88,8 @@ export function buildCrawlBody(input: CrawlStartInput, settings: CrawlSettings):
     limit,
     depth,
     render,
+    // Reuse Cloudflare's cache rather than re-fetching pages it already has.
+    maxAge: CRAWL_MAX_AGE_SECONDS,
     crawlPurposes: [...settings.crawlPurposes],
     options: {
       includeExternalLinks: false,

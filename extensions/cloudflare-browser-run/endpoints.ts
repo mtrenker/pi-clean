@@ -64,10 +64,9 @@ export function cdpWebSocketUrl(accountId: string, keepAliveMs: number): string 
   return `${base}/devtools/browser?keep_alive=${Math.floor(keepAliveMs)}`;
 }
 
-/** REST path used to delete a CDP session explicitly rather than waiting for the idle timer. */
-export function cdpSessionUrl(accountId: string, sessionId: string): string {
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(sessionId)) {
-    throw new BrowserRunError("invalid_request", "session id is not well formed");
-  }
-  return `${accountBase(accountId)}/devtools/browser/${sessionId}`;
-}
+// Cloudflare documents DELETE /devtools/browser/{session_id} for releasing a
+// session explicitly. It is not reachable from here: `chromium.connectOverCDP`
+// opens the websocket directly and never surfaces the session id Cloudflare
+// assigned, so there is nothing to put in that path. Closing the Playwright
+// browser handle drops the websocket, and the idle timer does the rest. See
+// DESIGN.md section 10.1.

@@ -9,7 +9,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  cdpSessionUrl,
   cdpWebSocketUrl,
   crawlUrl,
   quickActionUrl,
@@ -40,8 +39,6 @@ test("the CDP endpoint is a websocket URL carrying keep_alive", () => {
   const url = cdpWebSocketUrl(FIXTURE_ACCOUNT_ID, 600_000);
   assert.equal(url, `${BASE.replace("https:", "wss:")}/devtools/browser?keep_alive=600000`);
   assert.match(cdpWebSocketUrl(FIXTURE_ACCOUNT_ID, 1234.9), /keep_alive=1234$/);
-  assert.equal(cdpSessionUrl(FIXTURE_ACCOUNT_ID, "abc"), `${BASE}/devtools/browser/abc`);
-  assert.throws(() => cdpSessionUrl(FIXTURE_ACCOUNT_ID, "a/b"), /not well formed/);
 });
 
 test("a malformed account id is rejected before any request is built", () => {

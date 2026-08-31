@@ -11,12 +11,17 @@
  * on the profile's origins in the first place.
  */
 
-import { readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 
-import { type ProfileDefinition, type StatePaths } from "./config.ts";
+import {
+  isMissingFile,
+  writeFileAtomic,
+  type ProfileDefinition,
+  type StatePaths,
+} from "./config.ts";
 import { BrowserRunError } from "./errors.ts";
 import { type KeyBackendId, type ProfileVault } from "./vault.ts";
 
@@ -198,10 +203,7 @@ export class ProfileStore {
 
     const path = this.metadataPath(name);
     await withFileMutationQueue(path, async () => {
-      await writeFile(path, `${JSON.stringify(metadata, null, 2)}\n`, {
-        encoding: "utf8",
-        mode: 0o600,
-      });
+      await writeFileAtomic(path, `${JSON.stringify(metadata, null, 2)}\n`);
     });
     return { metadata, filter };
   }
@@ -215,8 +217,16 @@ export class ProfileStore {
     let metadata: ProfileMetadata;
     try {
       metadata = await this.readMetadata(name);
-    } catch {
-      return { name, state: "absent" };
+    } catch (error) {
+      // Only a genuinely absent file means "no such profile". A permission error
+      // or corrupt metadata must not read as absent, because that would send the
+      // operator to create a profile that already exists.
+      if (isMissingFile(error)) return { name, state: "absent" };
+      return {
+        name,
+        state: "unreadable",
+        reason: "the metadata file could not be read or parsed",
+      };
     }
     if (metadata.formatVersion !== PROFILE_FORMAT_VERSION) {
       return {
@@ -240,7 +250,10 @@ export class ProfileStore {
    * anonymous context: a model that believes it is signed in and is not will
    * misread every page that follows.
    */
-  async load(name: string): Promise<{ state: StorageState; metadata: ProfileMetadata }> {
+  async load(
+    name: string,
+    definition: ProfileDefinition,
+  ): Promise<{ state: StorageState; metadata: ProfileMetadata; refiltered: FilterResult }> {
     const status = await this.status(name);
     if (status.state === "absent") {
       throw new BrowserRunError(
@@ -261,7 +274,20 @@ export class ProfileStore {
       );
     }
     const plaintext = await this.#vault.load(name);
-    return { state: JSON.parse(plaintext) as StorageState, metadata: status.metadata! };
+    const stored = JSON.parse(plaintext) as StorageState;
+
+    // Filter again on the way out. An operator who narrows a profile's origins
+    // expects the removed origin's cookies to stop being restored, and the
+    // sealed blob was written under the old list.
+    const refiltered = filterStorageState(stored, definition.origins, this.#now());
+    if (refiltered.keptCookies === 0 && refiltered.keptOrigins === 0) {
+      throw new BrowserRunError(
+        "profile_expired",
+        `nothing in profile ${name} matches its current origins (${definition.origins.join(", ")}). ` +
+          `Ask the operator to run /browser-login ${name}.`,
+      );
+    }
+    return { state: refiltered.state, metadata: status.metadata!, refiltered };
   }
 
   async list(): Promise<ProfileStatus[]> {

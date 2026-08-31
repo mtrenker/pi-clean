@@ -26,7 +26,7 @@ import {
   type ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
 import { createHash, randomUUID } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 
 import { Type } from "typebox";
 
@@ -36,6 +36,8 @@ import {
   assertExactOrigin,
   DEFAULT_CONFIG,
   ensureStateDir,
+  isMissingFile,
+  writeFileAtomic,
   loadConfig,
   statePaths,
   type BrowserRunConfig,
@@ -76,7 +78,7 @@ import {
 } from "./liveview.ts";
 import { ProfileStore, type ProfileStatus } from "./profiles.ts";
 import { fetchMarkdown, probeCredentials, WAIT_UNTIL_VALUES, type WaitUntil } from "./quick-actions.ts";
-import { SecretRegistry } from "./redact.ts";
+import { PROFILE_VALUE_MIN_LENGTH, redact, redactValue, SecretRegistry } from "./redact.ts";
 import { CrawlRegistry, isLocalStatus, TERMINAL_STATUSES, type CrawlRecord } from "./registry.ts";
 import { BrowserSession, type BrowserLike } from "./session.ts";
 import { formatOrientation, type PageOrientation } from "./snapshot.ts";
@@ -286,6 +288,8 @@ function safePageRef(url: string, title?: string): BrowserDetails["page"] {
 export interface FactoryOverrides {
   connect?: () => Promise<BrowserLike>;
   lookup?: LookupFn;
+  /** Injected so tests never spawn a real browser window. */
+  open?: (url: string) => boolean;
 }
 
 
@@ -418,6 +422,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
   let lastPage: PageRef | null = null;
   let profileStore: ProfileStore | undefined;
   let profileError: string | undefined;
+  let resumedInteractive = false;
   let registryStore: CrawlRegistry | undefined;
   let sessionRef = randomUUID();
   let sessionCwd = process.cwd();
@@ -438,6 +443,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
         maxActionsPerSession: config.browser.maxActionsPerSession,
         viewport: config.browser.viewport,
       },
+      scrub,
       connect:
         overrides?.connect ??
         (async () => {
@@ -449,6 +455,77 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
         }),
     });
     return session;
+  }
+
+  /**
+   * DESIGN.md section 18: everything leaving the extension is scrubbed. That
+   * means tool content, tool details, streamed updates, thrown errors, and TUI
+   * notifications, not only logs. Playwright and CDP errors routinely embed the
+   * endpoint they were talking to, which carries the account id.
+   */
+  function scrub(text: string): string {
+    return redact(text, registry);
+  }
+
+  function scrubResult<T extends { content?: unknown; details?: unknown }>(result: T): T {
+    return redactValue(result, registry);
+  }
+
+  function scrubError(error: unknown): unknown {
+    if (isBrowserRunError(error)) {
+      const scrubbed = new BrowserRunError(error.errorClass, scrub(error.detail), {
+        retryable: error.retryable,
+        cause: error.cause,
+      });
+      return scrubbed;
+    }
+    if (error instanceof Error) {
+      const scrubbed = new Error(scrub(error.message));
+      scrubbed.name = error.name;
+      return scrubbed;
+    }
+    return error;
+  }
+
+  function notify(ctx: ExtensionContext, text: string, level: "info" | "warning" | "error"): void {
+    ctx.ui.notify(scrub(text), level);
+  }
+
+  /**
+   * One registration path for every tool, so the scrubbing boundary cannot be
+   * forgotten on a new tool.
+   */
+  function registerTool(definition: Parameters<typeof pi.registerTool>[0]): void {
+    pi.registerTool({
+      ...definition,
+      async execute(toolCallId, params, signal, onUpdate, ctx) {
+        const guardedUpdate = onUpdate
+          ? (partial: Parameters<NonNullable<typeof onUpdate>>[0]): void =>
+              onUpdate(scrubResult(partial))
+          : undefined;
+        try {
+          return scrubResult(
+            await definition.execute(toolCallId, params, signal, guardedUpdate, ctx),
+          );
+        } catch (error) {
+          throw scrubError(error);
+        }
+      },
+    });
+  }
+
+  /**
+   * Serializes crawl admission with the request and the registration, so two
+   * parallel starts cannot both pass the per-day cap. This is process local: the
+   * cap is a cost guard, not a security control, and two Pi processes starting
+   * crawls at the same instant can still exceed it.
+   */
+  let crawlAdmission: Promise<unknown> = Promise.resolve();
+  async function withCrawlAdmission<T>(fn: () => Promise<T>): Promise<T> {
+    const previous = crawlAdmission;
+    const run = previous.catch(() => undefined).then(fn);
+    crawlAdmission = run.catch(() => undefined);
+    return run;
   }
 
   function crawlRegistry(): CrawlRegistry {
@@ -630,12 +707,25 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     });
   }
 
-  /** Interaction tools stay registered after close, so they need a clear guard. */
+  /**
+   * Interaction tools stay registered after close, so they need a clear guard.
+   *
+   * A resumed branch is a distinct case from a never-opened one: the model has
+   * browser tool calls in its history, and the session that served them belonged
+   * to the previous Pi process. DESIGN.md section 8.6 promises session_expired
+   * there, with the profile that would be restored.
+   */
   function requireOpenSession(): BrowserSession {
-    if (!session) {
-      throw new BrowserRunError("no_session", "no browser session is open. Call browser_open first.");
+    if (session) return session;
+    if (resumedInteractive) {
+      throw new BrowserRunError(
+        "session_expired",
+        "the browser session ended with the previous Pi process. Call browser_open to start a new one" +
+          (lastProfile ? `; profile ${lastProfile} will be restored` : "") +
+          ".",
+      );
     }
-    return session;
+    throw new BrowserRunError("no_session", "no browser session is open. Call browser_open first.");
   }
 
   async function requireCredentials(signal?: AbortSignal): Promise<Credentials> {
@@ -659,7 +749,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     } catch (error) {
       config = DEFAULT_CONFIG;
       configError = errorMessage(error);
-      if (ctx.hasUI) ctx.ui.notify(`Cloudflare Browser Run: ${configError}`, "error");
+      if (ctx.hasUI) notify(ctx, `Cloudflare Browser Run: ${configError}`, "error");
     }
     logger = createActivityLogger({
       file: paths.logFile,
@@ -678,7 +768,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     // A resumed branch that used the interaction tools keeps their schemas active,
     // so the model's next call fails with session_expired and a reopen instruction
     // rather than an unknown-tool error.
-    const resumedInteractive = reconstructFromBranch(ctx);
+    resumedInteractive = reconstructFromBranch(ctx);
     const activeTools = pi.getActiveTools();
     // Start from the entry points only. The follow-up tools are added back below
     // when this branch used them or when the durable registry holds a job.
@@ -698,7 +788,8 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
       .catch(() => [] as CrawlRecord[]);
     if (knownJobs.length > 0) activateCrawlTools();
     if (expired.length > 0 && ctx.hasUI) {
-      ctx.ui.notify(
+      notify(
+        ctx,
         `Cloudflare Browser Run: ${expired.length} crawl result set(s) aged out and were dropped.`,
         "info",
       );
@@ -722,7 +813,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     ctx.ui.setStatus(STATUS_KEY, undefined);
   });
 
-  pi.registerTool({
+  registerTool({
     name: "browser_read",
     label: "Read Page",
     description:
@@ -794,7 +885,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "browser_open",
     label: "Open Browser",
     description:
@@ -821,7 +912,25 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
           content: [{ type: "text", text: `Restoring profile ${input.profile}` }],
           details: sessionDetails({ state: "connecting", profile: input.profile }),
         });
-        const loaded = await (await requireProfileStore()).load(input.profile);
+        const loaded = await (await requireProfileStore()).load(input.profile, definition);
+        // Restored cookie and local-storage values become redaction targets, so a
+        // page that echoes one back cannot carry it into a tool result or the
+        // session file.
+        for (const cookie of loaded.state.cookies) {
+          registry.remember(cookie.value, PROFILE_VALUE_MIN_LENGTH);
+        }
+        for (const origin of loaded.state.origins) {
+          for (const entry of origin.localStorage ?? []) {
+            registry.remember(entry.value, PROFILE_VALUE_MIN_LENGTH);
+          }
+        }
+        if (loaded.refiltered.droppedCookies > 0 || loaded.refiltered.droppedOrigins > 0) {
+          await logger?.log({
+            event: "profile_refiltered",
+            profile: input.profile,
+            detail: `dropped ${loaded.refiltered.droppedCookies} cookies and ${loaded.refiltered.droppedOrigins} origins no longer covered by the allowlist`,
+          });
+        }
         restored = {
           state: loaded.state,
           origins: definition.origins,
@@ -844,6 +953,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
         ...(restored ? { storageState: restored.state } : {}),
         ...(restored?.confine ? { allowedOrigins: restored.origins } : {}),
       });
+      resumedInteractive = false;
       const added = activateInteractionTools();
       await logAction("browser_open", startedAt, orientation);
 
@@ -862,7 +972,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "browser_navigate",
     label: "Navigate",
     description:
@@ -885,7 +995,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "browser_snapshot",
     label: "Page Snapshot",
     description:
@@ -897,20 +1007,18 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
       const input = params as { max_bytes?: number };
       const startedAt = Date.now();
       const active = requireOpenSession();
+      // The snapshot carries its own source, taken in the same queued window, so
+      // a sibling tab switch cannot attribute this text to another page.
       const snapshot = await active.snapshot(signal);
-      const bound = boundText(snapshot, {
+      const bound = boundText(snapshot.text, {
         maxBytes: input.max_bytes ?? SNAPSHOT_MAX_BYTES,
         maxLines: SNAPSHOT_MAX_LINES,
       });
-      const orientation = { url: "", title: "" };
-      const page = await active.listTabs();
-      const current = page.find((tab) => tab.active);
-      const source = current?.url ?? "about:blank";
+      const source = snapshot.url || "about:blank";
       const body = wrapUntrusted(bound.content, { source, tool: "browser_snapshot" });
       const notice = truncationNotice(bound, {
         narrowerHint: "Snapshot a smaller region by navigating to the relevant page section.",
       });
-      void orientation;
       await logger?.log({
         event: "browser_action",
         tool: "browser_snapshot",
@@ -923,7 +1031,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
       return {
         content: [{ type: "text", text: notice ? `${body}\n\n${notice}` : body }],
         details: sessionDetails({
-          page: safePageRef(source, current?.title),
+          page: safePageRef(source, snapshot.title),
           truncated: bound.truncated,
           bytes: bound.outputBytes,
         }),
@@ -931,7 +1039,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "browser_click",
     label: "Click",
     description:
@@ -941,13 +1049,28 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
       const input = params as { ref: string; button?: "left" | "right" | "middle" };
       const startedAt = Date.now();
       const active = requireOpenSession();
-      if (config.browser.confirmClicks === "always" && ctx?.hasUI) {
-        const ok = await ctx.ui.confirm("Allow click?", `Click ${input.ref}?`);
-        if (!ok) throw new BrowserRunError("invalid_request", "the operator declined this click");
+      // Confirmation runs inside the queued click window. If it is required and
+      // there is no operator to ask, the click is refused rather than allowed:
+      // a control that silently lapses in print and JSON modes would be a false
+      // promise.
+      if (config.browser.confirmClicks === "always" && !ctx?.hasUI) {
+        throw new BrowserRunError(
+          "invalid_request",
+          "confirmClicks is set to always, and this run mode cannot ask the operator. " +
+            "Run interactively, or set browser.confirmClicks to never.",
+        );
       }
       const orientation = await active.click(
         input.ref,
-        input.button ? { button: input.button } : {},
+        {
+          ...(input.button ? { button: input.button } : {}),
+          ...(config.browser.confirmClicks === "always" && ctx?.hasUI
+            ? {
+                confirm: ({ url, ref }: { url: string; ref: string }) =>
+                  ctx.ui.confirm("Allow click?", `Click ${ref} on ${url}?`),
+              }
+            : {}),
+        },
         signal,
       );
       await logAction("browser_click", startedAt, orientation);
@@ -955,7 +1078,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "browser_fill",
     label: "Fill",
     description:
@@ -976,7 +1099,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "browser_select",
     label: "Select Option",
     description: "Select one or more option values in the select element with the given snapshot ref.",
@@ -990,7 +1113,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "browser_press",
     label: "Press Key",
     description:
@@ -1005,7 +1128,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "browser_screenshot",
     label: "Screenshot",
     description:
@@ -1067,7 +1190,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "browser_tabs",
     label: "Tabs",
     description: "List tabs, open a new tab, select a tab by index, or close a tab by index.",
@@ -1078,7 +1201,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
       const active = requireOpenSession();
 
       if (input.action === "list") {
-        const tabs = await active.listTabs();
+        const tabs = await active.listTabs(signal);
         const lines = tabs.map(
           (tab) => `${tab.index}${tab.active ? " *" : "  "} ${tab.title || "(untitled)"} ${tab.url}`,
         );
@@ -1102,7 +1225,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
         if (input.index === undefined) {
           throw new BrowserRunError("invalid_request", "close needs an index");
         }
-        await active.closeTab(input.index);
+        await active.closeTab(input.index, signal);
         await logAction("browser_tabs", startedAt);
         return {
           content: [{ type: "text", text: `Closed tab ${input.index}. ${active.tabCount} tabs remain.` }],
@@ -1114,20 +1237,19 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
         if (input.index === undefined) {
           throw new BrowserRunError("invalid_request", "select needs an index");
         }
-        const orientation = await active.selectTab(input.index);
+        const orientation = await active.selectTab(input.index, signal);
         await logAction("browser_tabs", startedAt, orientation);
         return orientationResult("browser_tabs", orientation);
       }
 
       if (input.url) await validate(input.url, active.allowedOrigins);
-      const orientation = await active.openTab(input.url);
+      const orientation = await active.openTab(input.url, signal);
       await logAction("browser_tabs", startedAt, orientation);
-      void signal;
       return orientationResult("browser_tabs", orientation);
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "browser_close",
     label: "Close Browser",
     description:
@@ -1145,7 +1267,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "browser_crawl_start",
     label: "Start Crawl",
     description:
@@ -1164,57 +1286,60 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
       const input = params as CrawlStartToolInput;
       const startedAt = Date.now();
       const target = await validate(input.url);
-
-      // The cost cap is checked before any request, so exceeding it costs nothing.
       const registry = crawlRegistry();
-      const startedToday = await registry.countStartedSince(Date.now() - 86_400_000);
-      if (startedToday >= config.crawl.maxJobsPerDay) {
-        throw new BrowserRunError(
-          "quota_exhausted",
-          `${startedToday} crawls have been started in the last 24 hours, which is the configured ` +
-            `maximum of ${config.crawl.maxJobsPerDay}.`,
+
+      // Admission, request, and registration run as one serialized step, so two
+      // parallel starts cannot both pass the per-day cap.
+      const { jobId, record, applied, added } = await withCrawlAdmission(async () => {
+        const startedToday = await registry.countStartedSince(Date.now() - 86_400_000);
+        if (startedToday >= config.crawl.maxJobsPerDay) {
+          throw new BrowserRunError(
+            "quota_exhausted",
+            `${startedToday} crawls have been started in the last 24 hours, which is the configured ` +
+              `maximum of ${config.crawl.maxJobsPerDay}.`,
+          );
+        }
+
+        const applied = buildCrawlBody(
+          {
+            url: target.toString(),
+            ...(input.limit === undefined ? {} : { limit: input.limit }),
+            ...(input.depth === undefined ? {} : { depth: input.depth }),
+            ...(input.include_patterns ? { includePatterns: input.include_patterns } : {}),
+            ...(input.exclude_patterns ? { excludePatterns: input.exclude_patterns } : {}),
+            ...(input.render === undefined ? {} : { render: input.render }),
+          },
+          config.crawl,
         );
-      }
 
-      const applied = buildCrawlBody(
-        {
-          url: target.toString(),
-          ...(input.limit === undefined ? {} : { limit: input.limit }),
-          ...(input.depth === undefined ? {} : { depth: input.depth }),
-          ...(input.include_patterns ? { includePatterns: input.include_patterns } : {}),
-          ...(input.exclude_patterns ? { excludePatterns: input.exclude_patterns } : {}),
-          ...(input.render === undefined ? {} : { render: input.render }),
-        },
-        config.crawl,
-      );
+        const credentials = await requireCredentials(signal);
+        const jobId = await startCrawl(getClient(), credentials, applied.body, signal).catch(noteFailure);
 
-      const credentials = await requireCredentials(signal);
-      const jobId = await startCrawl(getClient(), credentials, applied.body, signal).catch(noteFailure);
-
-      const now = new Date().toISOString();
-      const record: CrawlRecord = {
-        jobId,
-        startUrl: target.toString(),
-        host: target.hostname,
-        formats: ["markdown"],
-        limit: applied.body["limit"] as number,
-        depth: applied.body["depth"] as number,
-        render: applied.body["render"] as boolean,
-        crawlPurposes: [...config.crawl.crawlPurposes],
-        status: "queued",
-        local: true,
-        createdAt: now,
-        updatedAt: now,
-        completedAt: null,
-        resultsExpireAt: null,
-        pagesSeen: 0,
-        browserSecondsUsed: null,
-        lastCursor: null,
-        cwd: sessionCwd,
-        sessionRef,
-      };
-      await registry.add(record);
-      const added = activateCrawlTools();
+        const now = new Date().toISOString();
+        const record: CrawlRecord = {
+          jobId,
+          startUrl: target.toString(),
+          host: target.hostname,
+          formats: ["markdown"],
+          limit: applied.body["limit"] as number,
+          depth: applied.body["depth"] as number,
+          render: applied.body["render"] as boolean,
+          crawlPurposes: [...config.crawl.crawlPurposes],
+          status: "queued",
+          local: true,
+          createdAt: now,
+          updatedAt: now,
+          completedAt: null,
+          resultsExpireAt: null,
+          pagesSeen: 0,
+          browserSecondsUsed: null,
+          lastCursor: null,
+          cwd: sessionCwd,
+          sessionRef,
+        };
+        await registry.add(record);
+        return { jobId, record, applied, added: activateCrawlTools() };
+      });
 
       await logger?.log({
         event: "crawl_start",
@@ -1242,7 +1367,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "browser_crawl_status",
     label: "Crawl Status",
     description:
@@ -1278,7 +1403,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "browser_crawl_results",
     label: "Crawl Results",
     description:
@@ -1372,7 +1497,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     },
   });
 
-  pi.registerTool({
+  registerTool({
     name: "browser_crawl_cancel",
     label: "Cancel Crawl",
     description:
@@ -1424,11 +1549,11 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
       const command = args.trim() || "status";
       if (command === "close") {
         if (!session || session.state === "idle") {
-          ctx.ui.notify("No active browser session.", "info");
+          notify(ctx, "No active browser session.", "info");
           return;
         }
         await session.close();
-        ctx.ui.notify("Browser session closed.", "info");
+        notify(ctx, "Browser session closed.", "info");
         return;
       }
       if (command === "check") {
@@ -1456,14 +1581,14 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
         if (verb === "list") {
           const jobs = await registry.list({ cwd: sessionCwd });
           const all = await registry.list();
-          ctx.ui.notify(formatCrawlList(jobs, all.length - jobs.length), "info");
+          notify(ctx, formatCrawlList(jobs, all.length - jobs.length), "info");
           return;
         }
         if (verb === "refresh") {
           const jobs = await registry.list({ cwd: sessionCwd });
           const open = jobs.filter((job) => !TERMINAL_STATUSES.includes(job.status));
           if (open.length === 0) {
-            ctx.ui.notify("No running crawls to refresh.", "info");
+            notify(ctx, "No running crawls to refresh.", "info");
             return;
           }
           const credentials = await requireCredentials();
@@ -1474,21 +1599,21 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
             );
             refreshed.push(await applyCrawlRead(job, read));
           }
-          ctx.ui.notify(refreshed.map(formatCrawlRecord).join("\n\n"), "info");
+          notify(ctx, refreshed.map(formatCrawlRecord).join("\n\n"), "info");
           return;
         }
         if (!jobId) {
-          ctx.ui.notify(`Usage: /browser-crawls ${verb} <job-id>`, "warning");
+          notify(ctx, `Usage: /browser-crawls ${verb} <job-id>`, "warning");
           return;
         }
         if (verb === "show") {
-          ctx.ui.notify(formatCrawlRecord(await registry.require(jobId)), "info");
+          notify(ctx, formatCrawlRecord(await registry.require(jobId)), "info");
           return;
         }
         if (verb === "cancel") {
           const record = await registry.require(jobId);
           if (TERMINAL_STATUSES.includes(record.status)) {
-            ctx.ui.notify(`Crawl ${jobId} already finished as ${record.status}.`, "info");
+            notify(ctx, `Crawl ${jobId} already finished as ${record.status}.`, "info");
             return;
           }
           const credentials = await requireCredentials();
@@ -1498,7 +1623,8 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
             local: false,
             completedAt: new Date().toISOString(),
           });
-          ctx.ui.notify(
+          notify(
+            ctx,
             `Crawl ${jobId} cancelled. Browser time already billed is not refunded.`,
             "info",
           );
@@ -1506,13 +1632,13 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
         }
         if (verb === "forget") {
           await registry.forget(jobId);
-          ctx.ui.notify(`Crawl ${jobId} removed from the local registry with its cached results.`, "info");
+          notify(ctx, `Crawl ${jobId} removed from the local registry with its cached results.`, "info");
           return;
         }
-        ctx.ui.notify(`Unknown subcommand ${verb}. Use list, refresh, show, cancel, or forget.`, "warning");
+        notify(ctx, `Unknown subcommand ${verb}. Use list, refresh, show, cancel, or forget.`, "warning");
       } catch (error) {
         const detail = isBrowserRunError(error) ? error.message : errorMessage(error);
-        ctx.ui.notify(`/browser-crawls failed. ${detail}`, "error");
+        notify(ctx, `/browser-crawls failed. ${detail}`, "error");
       }
     },
   });
@@ -1528,11 +1654,12 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     async handler(args, ctx) {
       const name = args.trim();
       if (!name) {
-        ctx.ui.notify("Usage: /browser-login <profile>", "warning");
+        notify(ctx, "Usage: /browser-login <profile>", "warning");
         return;
       }
       if (!ctx.hasUI) {
-        ctx.ui.notify(
+        notify(
+          ctx,
           "Profile login needs an interactive host: it hands the browser to you for sign-in.",
           "error",
         );
@@ -1545,7 +1672,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
         await runProfileLogin(name, definition, ctx);
       } catch (error) {
         const detail = isBrowserRunError(error) ? error.message : errorMessage(error);
-        ctx.ui.notify(`/browser-login ${name} failed. ${detail}`, "error");
+        notify(ctx, `/browser-login ${name} failed. ${detail}`, "error");
       }
     },
   });
@@ -1569,21 +1696,21 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
         const store = await requireProfileStore();
         if (verb === "list") {
           const statuses = await store.list();
-          ctx.ui.notify(formatProfileList(statuses), "info");
+          notify(ctx, formatProfileList(statuses), "info");
           return;
         }
         if (!name) {
-          ctx.ui.notify(`Usage: /browser-profiles ${verb} <profile>`, "warning");
+          notify(ctx, `Usage: /browser-profiles ${verb} <profile>`, "warning");
           return;
         }
         if (verb === "status") {
-          ctx.ui.notify(formatProfileStatus(await store.status(name)), "info");
+          notify(ctx, formatProfileStatus(await store.status(name)), "info");
           return;
         }
         if (verb === "delete") {
           const status = await store.status(name);
           if (status.state === "absent") {
-            ctx.ui.notify(`Profile ${name} has no saved state.`, "info");
+            notify(ctx, `Profile ${name} has no saved state.`, "info");
             return;
           }
           const ok = await ctx.ui.confirm(
@@ -1592,17 +1719,18 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
           );
           if (!ok) return;
           await store.remove(name);
-          ctx.ui.notify(
+          notify(
+            ctx,
             `Profile ${name} deleted. The wrapping key was destroyed, which is what makes the ` +
               "sealed bytes unreadable; file overwriting is not a guarantee on this filesystem.",
             "info",
           );
           return;
         }
-        ctx.ui.notify(`Unknown subcommand ${verb}. Use list, status, or delete.`, "warning");
+        notify(ctx, `Unknown subcommand ${verb}. Use list, status, or delete.`, "warning");
       } catch (error) {
         const detail = isBrowserRunError(error) ? error.message : errorMessage(error);
-        ctx.ui.notify(`/browser-profiles failed. ${detail}`, "error");
+        notify(ctx, `/browser-profiles failed. ${detail}`, "error");
       }
     },
   });
@@ -1616,7 +1744,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     if (existing) return existing;
 
     if (!/^[a-z0-9][a-z0-9-]{0,63}$/i.test(name)) {
-      ctx.ui.notify("Profile names are 1-64 characters of letters, digits, or hyphens.", "error");
+      notify(ctx, "Profile names are 1-64 characters of letters, digits, or hyphens.", "error");
       return undefined;
     }
 
@@ -1634,11 +1762,11 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
         .filter(Boolean)
         .map((value, index) => assertExactOrigin(value, `origins[${index}]`));
     } catch (error) {
-      ctx.ui.notify(errorMessage(error), "error");
+      notify(ctx, errorMessage(error), "error");
       return undefined;
     }
     if (origins.length === 0) {
-      ctx.ui.notify("A profile needs at least one origin.", "error");
+      notify(ctx, "A profile needs at least one origin.", "error");
       return undefined;
     }
 
@@ -1668,15 +1796,21 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
       let document: Record<string, unknown> = {};
       try {
         document = JSON.parse(await readFile(active.configFile, "utf8")) as Record<string, unknown>;
-      } catch {
-        document = {};
+      } catch (error) {
+        // Only an absent file starts empty. Replacing a configuration we could
+        // not read would silently discard every other setting in it.
+        if (!isMissingFile(error)) {
+          throw new BrowserRunError(
+            "invalid_request",
+            `${active.configFile} could not be read or parsed, so it was left untouched. ` +
+              "Fix or remove it, then run the command again.",
+            { cause: error },
+          );
+        }
       }
       const profiles = (document["profiles"] as Record<string, unknown> | undefined) ?? {};
       document["profiles"] = { ...profiles, [name]: definition };
-      await writeFile(active.configFile, `${JSON.stringify(document, null, 2)}\n`, {
-        encoding: "utf8",
-        mode: 0o600,
-      });
+      await writeFileAtomic(active.configFile, `${JSON.stringify(document, null, 2)}\n`);
     });
   }
 
@@ -1699,6 +1833,11 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
 
     ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("accent", `browser run: login ${name}`));
     const firstOrigin = definition.origins[0] as string;
+
+    // Sign-in gets its own context. Reusing an open one would mix an existing
+    // session's cookies into the profile, and would leave the signed-in context
+    // reachable afterwards as an ordinary anonymous session.
+    await active.close();
     await active.open({ url: firstOrigin });
 
     active.enterHandoff();
@@ -1708,9 +1847,10 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
         const cdp = await active.cdpSession();
         const liveViewUrl = await getLiveViewUrl(cdp, { mode: "tab", expiresInMs: 15 * 60 * 1000 });
         redirector = await startRedirector(liveViewUrl);
-        const opened = openInBrowser(redirector.url);
+        const opened = (overrides?.open ?? openInBrowser)(redirector.url);
 
-        ctx.ui.notify(
+        notify(
+          ctx,
           [
             `Sign in to ${firstOrigin} for profile ${name}.`,
             opened
@@ -1737,7 +1877,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
       });
 
       if (!result.saved) {
-        ctx.ui.notify(`Nothing was saved for ${name}: ${result.reason}`, "warning");
+        notify(ctx, `Nothing was saved for ${name}: ${result.reason}`, "warning");
         await logger?.log({
           event: "profile_login",
           command: "browser-login",
@@ -1750,9 +1890,10 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
 
       const metadata = result.metadata!;
       const filter = result.filter!;
-      ctx.ui.notify(
+      notify(
+        ctx,
         [
-          `Profile ${name} saved.`,
+          `Profile ${name} saved. The sign-in browser is closed; open it with browser_open using profile ${name}.`,
           `  cookies kept   : ${filter.keptCookies} (dropped ${filter.droppedCookies} outside the allowlist)`,
           `  origins kept   : ${filter.keptOrigins}`,
           `  earliest expiry: ${
@@ -1779,7 +1920,13 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     } finally {
       await redirector?.close();
       active.leaveHandoff();
-      ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", "browser run: active"));
+      // Always tear the login context down. Whether the operator finished or
+      // abandoned, its cookies are live and it is not profile-backed, so leaving
+      // it open would give the model an authenticated session with no
+      // confinement and no screenshot gate. browser_open with the profile is the
+      // supported way back in.
+      await active.close().catch(() => undefined);
+      ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", "browser run: idle"));
     }
   }
 
@@ -1807,6 +1954,14 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
       `crawl purposes: ${config.crawl.crawlPurposes.join(", ")}`,
       `activity log  : ${paths?.logFile ?? "(no session)"} (${config.logging.enabled ? "enabled" : "disabled"})`,
     ];
+    if (config.credentials.source === "env" && description.configured) {
+      lines.push(
+        "",
+        "Note: credentials come from this process's environment, so every bash command",
+        "the model runs inherits them. The extension cannot undo that. A credential",
+        "locator keeps them out of the environment; see the README.",
+      );
+    }
     if (configError) lines.push("", `config error  : ${configError}`);
     if (!description.configured) {
       lines.push(
@@ -1817,7 +1972,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
       );
     }
     lines.push("", "Run /browser check to verify the credentials against Cloudflare.");
-    ctx.ui.notify(lines.join("\n"), "info");
+    notify(ctx, lines.join("\n"), "info");
   }
 
   async function runHealthCheck(ctx: ExtensionContext): Promise<void> {
@@ -1831,7 +1986,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
         durationMs: Date.now() - startedAt,
         ...(probe.browserMs === undefined ? {} : { browserMs: probe.browserMs }),
       });
-      ctx.ui.notify("Cloudflare Browser Run credentials are valid.", "info");
+      notify(ctx, "Cloudflare Browser Run credentials are valid.", "info");
     } catch (error) {
       const detail = isBrowserRunError(error) ? error.message : errorMessage(error);
       await logger?.log({
@@ -1840,7 +1995,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
         durationMs: Date.now() - startedAt,
         errorClass: isBrowserRunError(error) ? error.errorClass : "upstream_error",
       });
-      ctx.ui.notify(`Cloudflare Browser Run check failed. ${detail}`, "error");
+      notify(ctx, `Cloudflare Browser Run check failed. ${detail}`, "error");
     }
   }
 };

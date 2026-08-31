@@ -37,6 +37,12 @@ export interface LocatorLike {
   press(key: string, options?: { timeout?: number }): Promise<void>;
   getAttribute(name: string, options?: { timeout?: number }): Promise<string | null>;
   screenshot(options?: Record<string, unknown>): Promise<Buffer>;
+  boundingBox(options?: { timeout?: number }): Promise<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>;
   count(): Promise<number>;
 }
 
@@ -115,6 +121,20 @@ export class ActionQueue {
 
   get pending(): number {
     return this.#pending;
+  }
+
+  /** Wait for everything already queued to settle, bounded so a hang cannot block teardown. */
+  async drain(timeoutMs: number): Promise<boolean> {
+    const tail = this.#tail;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const bound = new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), timeoutMs);
+    });
+    try {
+      return await Promise.race([tail.then(() => true), bound]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   async run<T>(label: string, fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
@@ -215,6 +235,12 @@ export interface SessionDeps {
   connect: () => Promise<BrowserLike>;
   config: SessionConfig;
   now?: () => number;
+  /**
+   * Removes known secret values and secret-carrying patterns from driver error
+   * text. Playwright and CDP errors routinely embed the endpoint they were
+   * talking to, which carries the account id.
+   */
+  scrub?: (text: string) => string;
 }
 
 export interface ScreenshotBounds {
@@ -336,6 +362,10 @@ export class BrowserSession {
       if (this.#state === "active") return this.#reuse(options);
     }
 
+    // Reopening after expiry or failure must release the old handles first;
+    // overwriting them would leak a Playwright connection and its context.
+    await this.#teardown().catch(() => undefined);
+
     this.#state = "connecting";
     try {
       const browser = await this.#deps.connect();
@@ -369,29 +399,40 @@ export class BrowserSession {
     return this.orient(this.#activePage(), Boolean(options.newTab));
   }
 
-  /** Every model-facing action goes through here: state guard, budget, queue. */
-  async act<T>(label: string, fn: (page: PageLike) => Promise<T>, signal?: AbortSignal): Promise<T> {
+  /**
+   * Every model-facing operation goes through here: state guard, budget, queue.
+   *
+   * The budget is spent inside the queued callback rather than before it, so two
+   * concurrent calls cannot both pass an admission check that only one of them
+   * should have.
+   */
+  async #queued<T>(label: string, fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     this.#assertActionable();
-    if (this.#actions >= this.#deps.config.maxActionsPerSession) {
-      throw new BrowserRunError(
-        "quota_exhausted",
-        `this browser session has used its budget of ${this.#deps.config.maxActionsPerSession} actions. ` +
-          "Close and reopen the browser to continue.",
-      );
-    }
     return this.#queue.run(
       label,
       async () => {
         this.#assertActionable();
+        if (this.#actions >= this.#deps.config.maxActionsPerSession) {
+          throw new BrowserRunError(
+            "quota_exhausted",
+            `this browser session has used its budget of ${this.#deps.config.maxActionsPerSession} actions. ` +
+              "Close and reopen the browser to continue.",
+          );
+        }
         this.#actions += 1;
         try {
-          return await fn(this.#activePage());
+          return await fn();
         } catch (error) {
           throw this.#translate(error, `${label} failed`);
         }
       },
       signal,
     );
+  }
+
+  /** Queued operation against the active page. */
+  async act<T>(label: string, fn: (page: PageLike) => Promise<T>, signal?: AbortSignal): Promise<T> {
+    return this.#queued(label, () => fn(this.#activePage()), signal);
   }
 
   /** Used by the handoff flow, which holds the queue without spending action budget. */
@@ -416,29 +457,54 @@ export class BrowserSession {
         else if (options.action === "reload") await page.reload();
         else throw new BrowserRunError("invalid_request", "navigate needs either url or action");
 
-        await this.#assertSettledOrigin(page);
+        await this.#assertSettledTarget(page);
         return this.orient(page, page.url() !== before);
       },
       signal,
     );
   }
 
-  async snapshot(signal?: AbortSignal): Promise<string> {
-    return this.act("browser_snapshot", (page) => page.ariaSnapshot({ mode: "ai" }), signal);
+  /**
+   * Returns the snapshot together with the page it came from, in one queued
+   * window. Reading the URL afterwards would let a sibling action switch tabs
+   * between the two, attributing page text to the wrong source.
+   */
+  async snapshot(signal?: AbortSignal): Promise<{ text: string; url: string; title: string }> {
+    return this.act(
+      "browser_snapshot",
+      async (page) => ({
+        text: await page.ariaSnapshot({ mode: "ai" }),
+        url: page.url(),
+        title: await page.title().catch(() => ""),
+      }),
+      signal,
+    );
   }
 
+  /**
+   * `confirm` runs inside the queued window, so the page the operator approved is
+   * the page that gets clicked. Approving outside the queue would let a sibling
+   * action navigate in between.
+   */
   async click(
     ref: string,
-    options: { button?: "left" | "right" | "middle" } = {},
+    options: {
+      button?: "left" | "right" | "middle";
+      confirm?: (context: { url: string; ref: string }) => Promise<boolean>;
+    } = {},
     signal?: AbortSignal,
   ): Promise<PageOrientation> {
     return this.act(
       "browser_click",
       async (page) => {
         const before = page.url();
+        if (options.confirm && !(await options.confirm({ url: before, ref }))) {
+          throw new BrowserRunError("invalid_request", "the operator declined this click");
+        }
         await page.locator(refSelector(ref)).click({
           ...(options.button ? { button: options.button } : {}),
         });
+        await this.#assertSettledTarget(page);
         return this.orient(page, page.url() !== before, ref);
       },
       signal,
@@ -463,6 +529,7 @@ export class BrowserSession {
         const before = page.url();
         await locator.fill(text);
         if (options.submit) await locator.press("Enter");
+        await this.#assertSettledTarget(page);
         return this.orient(page, page.url() !== before, ref);
       },
       signal,
@@ -475,6 +542,7 @@ export class BrowserSession {
       async (page) => {
         const before = page.url();
         await page.locator(refSelector(ref)).selectOption(values);
+        await this.#assertSettledTarget(page);
         return this.orient(page, page.url() !== before, ref);
       },
       signal,
@@ -488,6 +556,7 @@ export class BrowserSession {
         const before = page.url();
         if (ref) await page.locator(refSelector(ref)).press(key);
         else await page.keyboard.press(key);
+        await this.#assertSettledTarget(page);
         return this.orient(page, page.url() !== before, ref);
       },
       signal,
@@ -495,12 +564,18 @@ export class BrowserSession {
   }
 
   /**
-   * Explicit screenshots only, always one image, always bounded.
+   * Explicit screenshots only, always one image, always bounded in both bytes and
+   * pixels.
    *
    * Playwright's `scale` option selects css or device pixels rather than a
-   * numeric factor, so shrinking an oversized capture means lowering JPEG
-   * quality and narrowing the clip. The applied factor is reported so the model
-   * knows the image is not full fidelity.
+   * numeric factor, so shrinking an oversized capture means lowering JPEG quality
+   * and narrowing the clip. The applied factor is reported so the model knows the
+   * image is not full fidelity.
+   *
+   * An element capture is measured first. A very large but highly compressible
+   * element would otherwise stay under the byte cap while exceeding the pixel
+   * cap, so an oversized element is captured through a clipped page screenshot
+   * and the clip is reported.
    */
   async screenshot(
     options: ScreenshotBounds & { ref?: string } = {},
@@ -514,26 +589,55 @@ export class BrowserSession {
         const maxHeight = options.maxFullPageHeight ?? SCREENSHOT_MAX_FULL_PAGE_HEIGHT;
         const maxDimension = options.maxDimension ?? SCREENSHOT_MAX_DIMENSION;
 
-        const width = Math.min(this.#deps.config.viewport.width, maxDimension);
-        const height = options.fullPage
+        const viewportWidth = Math.min(this.#deps.config.viewport.width, maxDimension);
+        const viewportHeight = options.fullPage
           ? maxHeight
           : Math.min(this.#deps.config.viewport.height, maxDimension);
+
+        // Measure an element before capturing it, so the pixel cap is real.
+        let elementClip: { x: number; y: number; width: number; height: number } | undefined;
+        let elementOversize = false;
+        if (options.ref) {
+          const box = await page
+            .locator(refSelector(options.ref))
+            .boundingBox()
+            .catch(() => null);
+          if (box && (box.width > maxDimension || box.height > maxDimension)) {
+            elementOversize = true;
+            elementClip = {
+              x: box.x,
+              y: box.y,
+              width: Math.min(box.width, maxDimension),
+              height: Math.min(box.height, maxDimension),
+            };
+          }
+        }
 
         const capture = async (factor: number): Promise<Buffer> => {
           const shot: Record<string, unknown> = { type: format };
           if (format === "jpeg") shot["quality"] = Math.max(35, Math.round(70 * factor));
+
+          if (elementClip) {
+            shot["clip"] = {
+              x: elementClip.x,
+              y: elementClip.y,
+              width: Math.max(64, Math.round(elementClip.width * factor)),
+              height: Math.max(64, Math.round(elementClip.height * factor)),
+            };
+            return page.screenshot(shot);
+          }
+          if (options.ref) return page.locator(refSelector(options.ref)).screenshot(shot);
+
           if (options.fullPage) {
             shot["fullPage"] = true;
             shot["clip"] = {
               x: 0,
               y: 0,
-              width: Math.max(320, Math.round(width * factor)),
-              height: Math.max(240, Math.round(height * factor)),
+              width: Math.max(320, Math.round(viewportWidth * factor)),
+              height: Math.max(240, Math.round(viewportHeight * factor)),
             };
           }
-          return options.ref
-            ? page.locator(refSelector(options.ref)).screenshot(shot)
-            : page.screenshot(shot);
+          return page.screenshot(shot);
         };
 
         let scale = 1;
@@ -555,73 +659,109 @@ export class BrowserSession {
           mimeType: format === "png" ? "image/png" : "image/jpeg",
           bytes: buffer.byteLength,
           scale,
-          clipped: Boolean(options.fullPage),
+          clipped: Boolean(options.fullPage) || elementOversize,
         };
       },
       signal,
     );
   }
 
-  async listTabs(): Promise<Array<{ index: number; url: string; title: string; active: boolean }>> {
-    this.#assertActionable();
-    const tabs = [];
-    for (const [index, page] of this.#pages.entries()) {
-      tabs.push({
-        index,
-        url: page.url(),
-        title: await page.title().catch(() => ""),
-        active: index === this.#activeIndex,
-      });
-    }
-    return tabs;
+  async listTabs(
+    signal?: AbortSignal,
+  ): Promise<Array<{ index: number; url: string; title: string; active: boolean }>> {
+    return this.#queued(
+      "browser_tabs",
+      async () => {
+        const tabs = [];
+        for (const [index, page] of this.#pages.entries()) {
+          tabs.push({
+            index,
+            url: page.url(),
+            title: await page.title().catch(() => ""),
+            active: index === this.#activeIndex,
+          });
+        }
+        return tabs;
+      },
+      signal,
+    );
   }
 
-  async openTab(url?: string): Promise<PageOrientation> {
-    this.#assertActionable();
-    const context = this.#context;
-    if (!context) throw new BrowserRunError("no_session", "there is no browser context");
-    const page = await context.newPage();
-    this.#pages.push(page);
-    this.#activeIndex = this.#pages.length - 1;
-    if (url) return this.navigate({ url });
-    return this.orient(page, true);
+  async openTab(url?: string, signal?: AbortSignal): Promise<PageOrientation> {
+    return this.#queued(
+      "browser_tabs",
+      async () => {
+        const context = this.#context;
+        if (!context) throw new BrowserRunError("no_session", "there is no browser context");
+        const page = await context.newPage();
+        this.#pages.push(page);
+        this.#activeIndex = this.#pages.length - 1;
+        if (url) {
+          const target = normalizeTarget(url);
+          assertOriginAllowed(target, this.#allowedOrigins);
+          await page.goto(target.toString(), { waitUntil: "domcontentloaded" });
+        }
+        await this.#assertSettledTarget(page);
+        return this.orient(page, true);
+      },
+      signal,
+    );
   }
 
-  async selectTab(index: number): Promise<PageOrientation> {
-    this.#assertActionable();
-    if (index < 0 || index >= this.#pages.length) {
-      throw new BrowserRunError(
-        "invalid_request",
-        `tab ${index} does not exist; there are ${this.#pages.length} tabs`,
-      );
-    }
-    this.#activeIndex = index;
-    return this.orient(this.#activePage(), false);
+  async selectTab(index: number, signal?: AbortSignal): Promise<PageOrientation> {
+    return this.#queued(
+      "browser_tabs",
+      async () => {
+        if (index < 0 || index >= this.#pages.length) {
+          throw new BrowserRunError(
+            "invalid_request",
+            `tab ${index} does not exist; there are ${this.#pages.length} tabs`,
+          );
+        }
+        this.#activeIndex = index;
+        const page = this.#activePage();
+        await this.#assertSettledTarget(page);
+        return this.orient(page, false);
+      },
+      signal,
+    );
   }
 
-  async closeTab(index: number): Promise<void> {
-    this.#assertActionable();
-    const page = this.#pages[index];
-    if (!page) {
-      throw new BrowserRunError("invalid_request", `tab ${index} does not exist`);
-    }
-    await page.close().catch(() => undefined);
-    this.#pages.splice(index, 1);
-    if (this.#pages.length === 0) {
-      await this.close();
-      return;
-    }
-    this.#activeIndex = Math.min(this.#activeIndex, this.#pages.length - 1);
+  async closeTab(index: number, signal?: AbortSignal): Promise<void> {
+    const lastTabClosed = await this.#queued(
+      "browser_tabs",
+      async () => {
+        const page = this.#pages[index];
+        if (!page) {
+          throw new BrowserRunError("invalid_request", `tab ${index} does not exist`);
+        }
+        await page.close().catch(() => undefined);
+        this.#pages.splice(index, 1);
+        if (this.#pages.length === 0) return true;
+        this.#activeIndex = Math.min(this.#activeIndex, this.#pages.length - 1);
+        return false;
+      },
+      signal,
+    );
+    // close() drains the queue, so it runs after the queued work above.
+    if (lastTabClosed) await this.close();
   }
 
-  /** Idempotent teardown. Safe to call from close, shutdown, and replacement. */
+  /**
+   * Idempotent teardown. Safe to call from close, shutdown, and replacement.
+   *
+   * The state moves to closing first, which makes the guard reject new actions,
+   * and then the queue is drained so teardown does not cut across an action that
+   * is already running. The drain is bounded: a hung action must not be able to
+   * block shutdown, so after `actionTimeoutMs` teardown proceeds anyway.
+   */
   async close(): Promise<void> {
-    if (this.#state === "idle" || this.#state === "closing") {
+    if (this.#state === "idle") {
       await this.#teardown().catch(() => undefined);
-      this.#state = "idle";
       return;
     }
     this.#state = "closing";
+    await this.#queue.drain(this.#deps.config.actionTimeoutMs).catch(() => false);
     await this.#teardown().catch(() => undefined);
     this.#state = "idle";
   }
@@ -690,17 +830,43 @@ export class BrowserSession {
     }
   }
 
-  /** A settled URL outside the confinement list is reported, not silently accepted. */
-  async #assertSettledOrigin(page: PageLike): Promise<void> {
-    if (this.#allowedOrigins.length === 0) return;
+  /**
+   * Check where the page actually ended up, after every action that can navigate.
+   *
+   * This is detection, not prevention: the request has already left Cloudflare's
+   * network by the time we see the settled URL, and a mid-flight redirect cannot
+   * be blocked. What it does enforce is that the page's content is not relayed to
+   * the model, and that the operator is told. It runs for anonymous contexts too,
+   * because a hostile link can aim the remote browser at a prohibited target
+   * whether or not a profile is loaded.
+   *
+   * DNS is not re-resolved here. The browser has already resolved the host, so a
+   * second local lookup would answer a different question.
+   */
+  async #assertSettledTarget(page: PageLike): Promise<void> {
     const settled = page.url();
-    if (settled === "about:blank") return;
+    if (settled === "" || settled === "about:blank") return;
+
+    let url: URL;
     try {
-      assertOriginAllowed(new URL(settled), this.#allowedOrigins);
+      url = normalizeTarget(settled);
     } catch (error) {
       throw new BrowserRunError(
         "target_rejected",
-        `navigation settled on ${new URL(settled).origin}, which is outside this session's allowed origins. ` +
+        `the page navigated to a prohibited target and its content was not returned: ${
+          error instanceof BrowserRunError ? error.detail : "unsupported URL"
+        }. The request had already been made by the remote browser; navigate somewhere known before continuing.`,
+        { cause: error },
+      );
+    }
+
+    if (this.#allowedOrigins.length === 0) return;
+    try {
+      assertOriginAllowed(url, this.#allowedOrigins);
+    } catch (error) {
+      throw new BrowserRunError(
+        "target_rejected",
+        `navigation settled on ${url.origin}, which is outside this session's allowed origins. ` +
           "The page was loaded before this was detected; a mid-flight redirect cannot be blocked.",
         { cause: error },
       );
@@ -720,9 +886,10 @@ export class BrowserSession {
         { cause: error },
       );
     }
-    return new BrowserRunError("navigation_failed", `${context}: ${errorMessage(error)}`, {
-      cause: error,
-    });
+    const message = this.#deps.scrub
+      ? this.#deps.scrub(errorMessage(error))
+      : errorMessage(error);
+    return new BrowserRunError("navigation_failed", `${context}: ${message}`, { cause: error });
   }
 }
 

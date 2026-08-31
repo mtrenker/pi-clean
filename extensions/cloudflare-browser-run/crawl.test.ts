@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { parseConfig } from "./config.ts";
+import { CRAWL_DEPTH_CEILING, parseConfig } from "./config.ts";
 import {
   buildCrawlBody,
   parseCrawlRead,
@@ -47,6 +47,7 @@ test("AC-R7 the default body is bounded, same site, and honestly scoped", () => 
     limit: 25,
     depth: 2,
     render: false,
+    maxAge: 86_400,
     crawlPurposes: ["ai-input"],
     options: { includeExternalLinks: false, includeSubdomains: false },
   });
@@ -55,12 +56,24 @@ test("AC-R7 the default body is bounded, same site, and honestly scoped", () => 
 
 test("AC-R8 an over-large request is clamped and the clamp is reported", () => {
   const { body, clamps } = buildCrawlBody(
-    { url: "https://docs.example.com/", limit: 5_000, depth: 5 },
+    { url: "https://docs.example.com/", limit: 5_000, depth: 9 },
     SETTINGS,
   );
   assert.equal(body["limit"], 500);
-  assert.equal(body["depth"], 2);
-  assert.deepEqual(clamps, ["limit 5000 clamped to 500", "depth 5 clamped to 2"]);
+  assert.equal(body["depth"], CRAWL_DEPTH_CEILING);
+  assert.deepEqual(clamps, ["limit 5000 clamped to 500", "depth 9 clamped to 5"]);
+});
+
+test("defaultDepth is the default, not the cap", () => {
+  // A caller may go deeper than the configured default, up to the extension's
+  // own ceiling. Clamping to the default would make the setting a maximum, which
+  // is not what DESIGN.md section 16.2 specifies.
+  const deeper = buildCrawlBody({ url: "https://docs.example.com/", depth: 4 }, SETTINGS);
+  assert.equal(deeper.body["depth"], 4);
+  assert.deepEqual(deeper.clamps, []);
+
+  const negative = buildCrawlBody({ url: "https://docs.example.com/", depth: -3 }, SETTINGS);
+  assert.equal(negative.body["depth"], 0);
 });
 
 test("rendering is refused unless the operator enabled it, and reported when refused", () => {
