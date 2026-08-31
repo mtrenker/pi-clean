@@ -353,9 +353,18 @@ rather than all of them. The residual is small and stated: two processes refresh
 status can still overwrite one another, and the loser is one status refresh that the next poll
 re-reads from Cloudflare.
 
-Reads never treat a failure as absence. Only `ENOENT` means "nothing here"; any other read or parse
-error is reported with the path, so a permission problem or a corrupt file cannot masquerade as an
-empty registry, a missing profile, or an empty configuration.
+Reads never treat a failure as absence, and "reported" means reported to someone. Only `ENOENT`
+means "nothing here"; any other read or parse error surfaces with its path. Three consequences
+follow, because recording a problem in a field nobody reads is the same as swallowing it:
+
+- a record that cannot be read is named in `/browser-crawls list` and in a session-start warning, so
+  a job that still exists on Cloudflare does not quietly vanish from every listing;
+- the per-day crawl count refuses rather than under-counting, because an unreadable record might be
+  a job started inside the window, and counting only the readable ones would make a corrupt file a
+  way past the cost cap;
+- the one-shot migration from the original shared index renames it only after every job in it has a
+  record on disk. Renaming after a failed migration would move the only copy of those jobs out of
+  the path this code reads, which is the fault the per-job layout exists to remove.
 
 ## 7. Credential resolution
 
@@ -603,6 +612,10 @@ context, close the Playwright browser handle, stop the Live View redirector, zer
 clear the ref maps. Failures during teardown are logged and swallowed, never surfaced as a
 session-blocking error.
 
+Opening sets `connecting` before its first `await`, so two simultaneous opens cannot both pass the
+state check and connect. The loser gets `busy_queue`, and no connection is left orphaned by the
+winner overwriting it.
+
 Closing first moves the state to `closing`, which makes the guard reject new actions, then drains
 the action queue so teardown does not cut across an action that is already running. The drain is
 bounded by `actionTimeoutMs`: a hung action must not be able to block shutdown. An action that was
@@ -648,6 +661,11 @@ per context.
   cannot pile up.
 - Each action has an `actionTimeoutMs` (default 30 s) so a hung navigation cannot deadlock the
   queue, and the mutex is released in a `finally`.
+- A timeout or an abort permanently gates the action, it does not merely stop waiting for it. The
+  queued operation receives an abandonment signal that fires in both cases, and any step that waits
+  on something slow checks it before touching the page. Operator confirmation is the case that made
+  this necessary: a yes arriving after the caller had been told the action failed would otherwise
+  still click.
 - `signal` is honored: an aborted turn rejects the waiter and releases the mutex.
 - While state is `handoff`, the mutex is held by the handoff, so every model action is rejected
   with `busy_handoff` instead of interleaving with a human typing a password.
@@ -1104,10 +1122,14 @@ lifecycle than the profile vault. In that case the truncation footer suggests a 
 ### 17.2 Screenshots
 
 - Explicit only. No tool takes a screenshot as part of orientation.
-- Viewport default 1280x800. Element and viewport captures are capped at 1600x1600. An element is
-  measured before it is captured: a very large but highly compressible element would otherwise stay
-  under the byte cap while blowing past the pixel cap, so an oversized element is captured through a
-  page screenshot clipped to the cap, and the clip is reported.
+- Viewport default 1280x800. Element and viewport captures are capped at 1600x1600. Every element
+  capture goes through a page screenshot clipped to a rectangle this code fixes when it measures the
+  element, never through `locator.screenshot()`. Measuring and then letting the driver re-measure at
+  capture time leaves a window in which the page can grow the element, and a large compressible
+  element would then pass the byte cap while blowing past the pixel cap. Fixing the clip closes that
+  window; the cost is that an element which moves between measurement and capture yields a stale
+  rectangle, which is a worse picture rather than an unbounded one. An element with no layout box is
+  refused rather than captured unbounded.
 - `full_page` is capped at 4000 px of height, and the whole encoded image is capped at 1.5 MB.
 - JPEG at quality 70 by default, PNG only on request. A screenshot is a photograph, not a diagram,
   and PNG typically costs several times the bytes for no readability gain.
@@ -1128,8 +1150,9 @@ lifecycle than the profile vault. In that case the truncation footer suggests a 
 agent-guard's precedent of an operator-inspectable JSONL log outside the repository.
 
 Logged: timestamp, event, tool or command name, error class, duration, HTTP status,
-`browserMsUsed` from `X-Browser-Ms-Used`, bytes returned, truncation flag, profile name, a random
-per-session `sessionRef`, and a SHA-256 prefix of the Cloudflare session id rather than the id.
+`browserMsUsed` from `X-Browser-Ms-Used`, bytes returned, truncation flag, profile name, and a
+random per-session `sessionRef`. The Cloudflare session id is not logged in any form, hashed or
+otherwise, because `connectOverCDP` never exposes it (section 10.1).
 
 For a URL, the log records origin and path with query and fragment removed, and for a
 profile-backed context, origin only. Query strings carry session tokens, reset links, and search
@@ -1145,9 +1168,23 @@ registered through one wrapper that scrubs content, details, streamed updates, a
 and every notification goes through one helper. The session passes driver errors through the same
 scrubber before they become tool failures, because Playwright and CDP errors routinely embed the
 endpoint they were talking to, which carries the account id. Cookie and local-storage values from a
-restored profile are registered as redaction targets when the profile is loaded, with a higher
-length floor than credentials, so a page that echoes a session token back cannot carry it into model
-context while a short cookie value like a locale is left alone. It removes the resolved account id and token by value, anything matching `jwt=…`, any
+restored profile are registered as redaction targets when the profile is loaded, under the same
+eight character floor as credentials.
+
+That floor was briefly sixteen characters for profile values, on the reasoning that a short cookie
+value is more likely to be a locale than a token. Review showed the cost of that reasoning: an eight
+to fifteen character session token echoed by a page went straight into model context and the session
+file. The ruling is that leaking bearer-equivalent material is worse than replacing a short string
+in page text with a visible placeholder, so there is now one floor for everything.
+
+The floor that remains is the honest limit. A value shorter than eight characters is not registered,
+because redacting a string that short would replace it everywhere it appears in every page. A site
+whose session token is shorter than eight characters is outside what value redaction can protect,
+and no length policy fixes that.
+
+Page-derived text reaching the operator is sanitized as well as scrubbed. The click confirmation
+prompt names the page it is about, and that URL is third-party input, so it passes through the same
+control-character stripping as any other page string before it reaches the terminal. It removes the resolved account id and token by value, anything matching `jwt=…`, any
 `Authorization: Bearer …` echo, and any `wss://api.cloudflare.com/…` endpoint. It is the last line
 of defense for an error string from `playwright-core` or `fetch` that embeds the request URL, which
 they routinely do.
@@ -1292,8 +1329,7 @@ Session lifecycle and serialization.
   action proceeds.
 - AC-S4: aborting `signal` mid-queue rejects the waiter and releases the mutex.
 - AC-S5: `session_shutdown` for each of `quit`, `reload`, `new`, `resume`, and `fork` calls context
-  close, browser close, the session DELETE, and redirector stop exactly once, and a second
-  invocation is a no-op.
+  close, browser close, and redirector stop exactly once, and a second invocation is a no-op.
 - AC-S6: a stubbed transport-closed error moves state to `expired`; the next interaction tool
   throws `session_expired` naming `browser_open`, and no reconnect is attempted.
 - AC-S7: after `session_start` with reason `resume` over a branch containing browser tool results,
@@ -1460,7 +1496,16 @@ that can navigate, including in unconfined sessions, and states plainly that it 
 than prevention, since the request has already left Cloudflare's network. Content from a prohibited
 target is withheld, which is the part that is actually enforceable.
 
-### Implementation fixes carrying no design change
+### Revision 4: one redaction floor, not two
+
+Verification found that the sixteen character floor for restored profile values, introduced with the
+scrubbing boundary, left an eight to fifteen character session token echoed by a page free to reach
+model context. Ruling: one floor for everything, at eight characters. Section 18 carries the
+reasoning and the residual. The tradeoff it replaces was real but wrongly weighted: a short cookie
+value being replaced by a visible placeholder is a legible annoyance, and a leaked token in durable
+session history is not.
+
+### Design questions answered in place
 
 Findings 1, 3, 6, 7, 9, 10, 11, 12, 13, and 14 were gaps between this document and the code rather
 than faults in the design. The scrubbing boundary, the login context teardown, the queue covering
@@ -1469,3 +1514,24 @@ re-filter on profile restore, atomic writes everywhere, the crawl `maxAge` and d
 element screenshot bounds, the resumed-session error class, and socket-free redirector tests all
 moved the implementation to what sections 8 through 18 already specified. Sections 10.1, 10.3, 11.4,
 12.3, 16.2, 17.2, and 18 gained the detail that made each contract unambiguous.
+
+### Verification round
+
+A second pass by the same reviewer confirmed nine of the fourteen fixes and raised five items, three
+of them faults introduced by the first round's own changes. All five were confirmed against the code
+and fixed:
+
+- restored values under the profile-only floor were never registered, and the click confirmation
+  interpolated an unsanitized page URL into the terminal (revision 4, and section 18);
+- unreadable crawl records were recorded but never surfaced, the daily cost count under-counted
+  rather than refusing, and a failed legacy migration still renamed the index aside (section 6);
+- a timed-out or aborted action kept running, so a late operator approval still clicked
+  (section 10.3);
+- `open` awaited teardown before claiming the `connecting` state, so two simultaneous opens could
+  both connect and leak a handle (section 10.1);
+- element screenshots re-measured at capture time, leaving a window for the page to grow the element
+  past the pixel cap (section 17.2).
+
+Two stale claims left by revision 3 were also removed: AC-S5 no longer requires a session DELETE
+that does not exist, and section 18 no longer claims to log a hash of a session id this code cannot
+obtain.

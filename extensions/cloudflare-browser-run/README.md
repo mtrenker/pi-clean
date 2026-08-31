@@ -151,7 +151,9 @@ that believes it is signed in and is not will misread every page that follows.
 Everything is mode 0600 inside a 0700 directory, outside any repository, and every write goes
 through a temporary file and a rename so a crash cannot truncate one. A file that cannot be read is
 reported with its path rather than treated as absent, so a permission problem never looks like an
-empty registry or a missing profile.
+empty registry or a missing profile. A crawl record that cannot be read is named in
+`/browser-crawls list` and at session start, and it blocks new crawls until you fix or remove it,
+because a count that skipped it would let a corrupt file past the daily cap.
 
 ### Key backends
 
@@ -197,9 +199,11 @@ These are enforced in code:
   link-local, unique-local, multicast, and reserved ranges rejected, including obfuscated and
   IPv4-mapped forms; every DNS answer checked, not only the first.
 - **Action budget.** A session stops after `maxActionsPerSession` actions, default 200.
-- **Optional click confirmation.** `confirmClicks: "always"` asks before every click. There is no
-  "confirm the risky ones" setting, because a heuristic that guesses which clicks mutate cannot be
-  made honest.
+- **Optional click confirmation.** `confirmClicks: "always"` asks before every click, inside the
+  action queue, and the prompt's page URL is sanitized like any other page text. If the action times
+  out or the turn is aborted while you are deciding, a later yes does not click: you were already
+  told it failed. There is no "confirm the risky ones" setting, because a heuristic that guesses
+  which clicks mutate cannot be made honest.
 
 These are not:
 
@@ -208,7 +212,10 @@ These are not:
   the model. What bounds the damage is the capability list above, not the wrapper.
 - **Redaction is exact-match, not clairvoyant.** Resolved credentials and restored cookie values are
   removed from anything the extension emits, and so are JWT and bearer patterns. A secret this
-  extension never resolved, or one a page paraphrases rather than repeats, is not detectable.
+  extension never resolved, or one a page paraphrases rather than repeats, is not detectable. Values
+  shorter than eight characters are not registered at all, because redacting a string that short
+  would replace it everywhere it occurs in every page; a site whose session token is that short is
+  outside what this mechanism can protect.
 - **"It will not apply for a job" is workflow guidance.** A generic browser cannot tell a mutating
   click from a harmless one: a link can POST, and a single-page application routes both through the
   same event. This extension does not claim a gate it cannot enforce.
