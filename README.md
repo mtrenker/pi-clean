@@ -14,6 +14,10 @@ pi install git:git@github.com:mtrenker/pi-clean.git
 
 Adds focused guardrails for catastrophic shell commands, sensitive file paths, and secret-like tool output while preserving normal agent autonomy.
 
+### 🌐 [Cloudflare Browser Run](extensions/cloudflare-browser-run/README.md)
+
+Browses the web through Cloudflare Browser Run: bounded Markdown reads of public pages, attended sessions on signed-in sites where you complete login and MFA through Live View while Pi does the repetitive navigation, and asynchronous crawls that outlive the Pi session. Saved authentication state is encrypted outside the repository, and the JWT-bearing Live View URL never reaches model context or session history. Start with `/browser`.
+
 ### ◩ [Visual Design Relay](extensions/visual-design/README.md)
 
 Prototypes repo-native, Plate-compatible visual artifacts: select a stable design node in the browser, discuss it with Pi, and watch validated agent mutations or external file edits appear live. Start the included artifact with `/design designs/example.design.json`.
@@ -77,6 +81,7 @@ Set `FLIGHTDECK_TELEMETRY_FILE` to emit compatible worktree and agent-start even
 ```text
 pi-clean/
 ├── extensions/agent-guard/ # Shell, path, and output safety guardrails
+├── extensions/cloudflare-browser-run/ # Attended browsing and async crawls via Cloudflare
 ├── extensions/visual-design/ # PlateJS visual artifact relay
 ├── designs/                # Example repo-native visual artifacts
 ├── skills/                 # GitHub workflow and code-quality skills

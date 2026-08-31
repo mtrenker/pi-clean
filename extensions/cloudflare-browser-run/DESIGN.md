@@ -1,6 +1,7 @@
 # Cloudflare Browser Run extension design
 
-Status: design record for issue #36, coordinator reviewed. Owner: Claude Opus 5.
+Status: design record for issue #36, coordinator reviewed, implemented in five phases.
+Owner: Claude Opus 5.
 This document is the durable design record required by issue #36 before implementation starts.
 
 ## 1. Purpose and scope
@@ -1142,6 +1143,11 @@ Phase 5, documentation and validation. README covering setup, the distinction be
 crawling and authenticated Playwright, the manual authentication flow, security and privacy limits,
 bot-policy constraints, cost and retention behavior, and recovery commands. Opt-in integration test
 procedure. Full validation run. Delivers criteria 12, 13, 14, and 15.
+
+Phase 5 also adds `layering.test.ts`, which enforces AC-L1 and AC-X6 mechanically: no job-board
+hostname anywhere in the extension, URL literals restricted to reserved documentation names and
+Cloudflare's own endpoints, no hand-written CSS selector, and no fixture shaped like a real
+Cloudflare account id or token.
 
 If implementation finds a material gap in this design, it returns to Opus rather than improvising,
 per issue #36.
