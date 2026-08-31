@@ -12,6 +12,7 @@ import {
 const packageRoot = resolve(import.meta.dirname, "..");
 const extensionPaths = [
   "extensions/agent-guard/index.ts",
+  "extensions/cloudflare-browser-run/index.ts",
   "extensions/visual-design/index.ts",
 ].map((path) => resolve(packageRoot, path));
 

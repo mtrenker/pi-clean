@@ -14,6 +14,7 @@
     "test:extensions": "node --test scripts/extension-loader.test.mjs",
     "test:supply-chain": "node --test .github/scripts/*.test.js",
     "test:visual-design": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test extensions/visual-design/*.test.ts",
+    "test:cloudflare-browser-run": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test extensions/cloudflare-browser-run/*.test.ts",
     "test:github-planning": "node --test scripts/github-planning.test.mjs",
     "test:github-work": "node --test scripts/github-work.test.mjs"
   },

@@ -140,9 +140,13 @@ extensions/cloudflare-browser-run/
   index.ts         factory: registration and event wiring only, no protocol logic
   config.ts        non-secret configuration load, merge, and validation
   credentials.ts   lazy credential resolution and the Secret wrapper
+  errors.ts        the error class taxonomy shared by every module
+  state.ts         state machine vocabulary and the durable tool-result shape
   endpoints.ts     the single place that builds Cloudflare URLs
   http.ts          authenticated fetch, error taxonomy, rate limiting, retry
+  quick-actions.ts stateless Quick Action calls and the health probe
   url-guard.ts     scheme, userinfo, host, and DNS validation
+  content.ts       untrusted envelope, sanitizing, truncation, spill files
   session.ts       CDP browser session, action queue, tab registry, expiry
   snapshot.ts      accessibility snapshot, ref minting, orientation payloads
   profiles.ts      profile definitions, storage-state filtering, restore
@@ -152,6 +156,7 @@ extensions/cloudflare-browser-run/
   registry.ts      durable crawl job metadata, paging cache, retention sweep
   redact.ts        outbound scrubbing for results, errors, and logs
   activity-log.ts  rotating JSONL activity log
+  test-support.ts  test doubles for Pi's extension surface (not a test file)
   *.test.ts        focused unit tests beside each module
 ```
 
