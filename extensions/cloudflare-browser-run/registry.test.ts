@@ -3,7 +3,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import { BrowserRunError } from "./errors.ts";
 import {
   CrawlRegistry,
   isLocalStatus,
+  validateLegacyRecord,
   RESULT_RETENTION_DAYS,
   TERMINAL_STATUSES,
   type CrawlRecord,
@@ -279,7 +280,7 @@ test("a legacy index that cannot be migrated is left in place and reported", asy
   await writeFile(legacy, "{ not json", "utf8");
 
   assert.deepEqual(await registry.list(), []);
-  assert.match(registry.legacyMigrationError() ?? "", /could not be migrated, so it was left in place/);
+  assert.match(registry.legacyMigrationError() ?? "", /left in place/);
 
   // Renaming a failed migration would take the only copy of those jobs out of
   // the path this class reads.
@@ -299,4 +300,93 @@ test("a successful migration clears the reported error", async (t) => {
   assert.deepEqual((await registry.list()).map((job) => job.jobId), ["job-old"]);
   assert.equal(registry.legacyMigrationError(), undefined);
   await assert.rejects(() => readFile(legacy, "utf8"), /ENOENT/);
+});
+
+test("a legacy index that cannot be inspected is reported, not read as absent", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "cfbr-registry-denied-"));
+  t.after(async () => rm(dir, { recursive: true, force: true }));
+  const paths = statePaths(dir);
+
+  // A regular file where the crawls directory belongs makes stat() on the index
+  // fail with ENOTDIR: a real non-ENOENT metadata failure, no patching needed.
+  await mkdir(paths.root, { recursive: true });
+  await writeFile(paths.crawlsDir, "not a directory", "utf8");
+
+  const registry = new CrawlRegistry(paths, () => NOW);
+  await assert.rejects(() => registry.list());
+  assert.match(registry.legacyMigrationError() ?? "", /could not be inspected/);
+  assert.match(registry.legacyMigrationError() ?? "", /unaccounted for/);
+
+  // And that state blocks a new crawl rather than silently counting zero.
+  await assert.rejects(
+    () => registry.countStartedSince(NOW - 86_400_000),
+    (error: unknown) => error instanceof BrowserRunError,
+  );
+});
+
+test("a structurally malformed legacy job blocks the whole migration", async (t) => {
+  const { registry, dir } = await makeRegistry(t);
+  const legacy = join(statePaths(dir).crawlsDir, "index.json");
+  await writeFile(
+    legacy,
+    JSON.stringify({
+      version: 1,
+      jobs: {
+        "job-good": record({ jobId: "job-good" }),
+        // Syntactically valid JSON, semantically unusable: no id to key a record on.
+        "job-bad": { startUrl: "https://docs.example.com/", status: "running" },
+      },
+    }),
+    "utf8",
+  );
+
+  assert.deepEqual(await registry.list(), [], "nothing is migrated when one entry is unusable");
+  assert.match(registry.legacyMigrationError() ?? "", /1 unusable job\(s\)/);
+  assert.match(registry.legacyMigrationError() ?? "", /no well-formed jobId/);
+
+  // The only copy stays where this class can still read it.
+  assert.match(await readFile(legacy, "utf8"), /job-good/);
+  await assert.rejects(() => readFile(`${legacy}.migrated`, "utf8"), /ENOENT/);
+});
+
+test("each field the registry depends on is validated before migration", () => {
+  const base = record({ jobId: "job-1" });
+  assert.deepEqual(validateLegacyRecord(base, "job-1"), base);
+
+  const cases: Array<[unknown, RegExp]> = [
+    [null, /is not an object/],
+    ["a string", /is not an object/],
+    [[base], /is not an object/],
+    [{ ...base, jobId: undefined }, /no well-formed jobId/],
+    [{ ...base, jobId: "../escape" }, /no well-formed jobId/],
+    [{ ...base, createdAt: "not a date" }, /no parseable createdAt/],
+    [{ ...base, status: "invented" }, /unknown status/],
+    [{ ...base, cwd: 7 }, /no cwd/],
+    [{ ...base, pagesSeen: "many" }, /no numeric pagesSeen/],
+  ];
+  for (const [value, expected] of cases) {
+    const result = validateLegacyRecord(value, "job-1");
+    assert.equal(typeof result, "string", JSON.stringify(value));
+    assert.match(result as string, expected);
+  }
+});
+
+test("the daily count refuses while a legacy index is unmigrated", async (t) => {
+  const { registry, dir } = await makeRegistry(t);
+  await registry.add(record({ jobId: "visible" }));
+  const legacy = join(statePaths(dir).crawlsDir, "index.json");
+  await writeFile(legacy, "{ not json", "utf8");
+
+  // Jobs hidden inside an unmigrated index carry real spend, so counting only
+  // the visible ones would let them past the cap.
+  await assert.rejects(
+    () => registry.countStartedSince(NOW - 86_400_000),
+    (error: unknown) =>
+      error instanceof BrowserRunError &&
+      /cannot be trusted/.test(error.detail) &&
+      /left in place/.test(error.detail),
+  );
+
+  await rm(legacy, { force: true });
+  assert.equal(await registry.countStartedSince(NOW - 86_400_000), 1);
 });

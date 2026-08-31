@@ -218,7 +218,14 @@ export class ActionQueue {
   }
 }
 
-/** Throw when the caller has already been told this action failed. */
+/**
+ * Throw when the caller has already been told this action failed.
+ *
+ * Called immediately before every driver call that changes page or tab state, so
+ * the invariant holds structurally rather than by remembering to add a check
+ * whenever a new await appears earlier in an action. Read-only operations do not
+ * check: an abandoned snapshot or screenshot wastes work but changes nothing.
+ */
 export function assertNotAbandoned(abandoned: AbortSignal | undefined, label: string): void {
   if (abandoned?.aborted) {
     throw new BrowserRunError(
@@ -489,8 +496,9 @@ export class BrowserSession {
   ): Promise<PageOrientation> {
     return this.act(
       "browser_navigate",
-      async (page) => {
+      async (page, abandoned) => {
         const before = page.url();
+        assertNotAbandoned(abandoned, "browser_navigate");
         if (options.url) {
           const target = normalizeTarget(options.url);
           assertOriginAllowed(target, this.#allowedOrigins);
@@ -572,9 +580,12 @@ export class BrowserSession {
   ): Promise<PageOrientation> {
     return this.act(
       "browser_fill",
-      async (page) => {
+      async (page, abandoned) => {
         const locator = page.locator(refSelector(ref));
+        // Two driver round-trips before the mutation, so the caller may have
+        // given up in between.
         await assertNotPasswordField(locator, ref);
+        assertNotAbandoned(abandoned, "browser_fill");
         const before = page.url();
         await locator.fill(text);
         if (options.submit) await locator.press("Enter");
@@ -588,8 +599,9 @@ export class BrowserSession {
   async select(ref: string, values: string[], signal?: AbortSignal): Promise<PageOrientation> {
     return this.act(
       "browser_select",
-      async (page) => {
+      async (page, abandoned) => {
         const before = page.url();
+        assertNotAbandoned(abandoned, "browser_select");
         await page.locator(refSelector(ref)).selectOption(values);
         await this.#assertSettledTarget(page);
         return this.orient(page, page.url() !== before, ref);
@@ -601,8 +613,9 @@ export class BrowserSession {
   async press(key: string, ref: string | undefined, signal?: AbortSignal): Promise<PageOrientation> {
     return this.act(
       "browser_press",
-      async (page) => {
+      async (page, abandoned) => {
         const before = page.url();
+        assertNotAbandoned(abandoned, "browser_press");
         if (ref) await page.locator(refSelector(ref)).press(key);
         else await page.keyboard.press(key);
         await this.#assertSettledTarget(page);
@@ -745,15 +758,17 @@ export class BrowserSession {
   async openTab(url?: string, signal?: AbortSignal): Promise<PageOrientation> {
     return this.#queued(
       "browser_tabs",
-      async () => {
+      async (abandoned) => {
         const context = this.#context;
         if (!context) throw new BrowserRunError("no_session", "there is no browser context");
+        assertNotAbandoned(abandoned, "browser_tabs");
         const page = await context.newPage();
         this.#pages.push(page);
         this.#activeIndex = this.#pages.length - 1;
         if (url) {
           const target = normalizeTarget(url);
           assertOriginAllowed(target, this.#allowedOrigins);
+          assertNotAbandoned(abandoned, "browser_tabs");
           await page.goto(target.toString(), { waitUntil: "domcontentloaded" });
         }
         await this.#assertSettledTarget(page);
@@ -785,11 +800,12 @@ export class BrowserSession {
   async closeTab(index: number, signal?: AbortSignal): Promise<void> {
     const lastTabClosed = await this.#queued(
       "browser_tabs",
-      async () => {
+      async (abandoned) => {
         const page = this.#pages[index];
         if (!page) {
           throw new BrowserRunError("invalid_request", `tab ${index} does not exist`);
         }
+        assertNotAbandoned(abandoned, "browser_tabs");
         await page.close().catch(() => undefined);
         this.#pages.splice(index, 1);
         if (this.#pages.length === 0) return true;

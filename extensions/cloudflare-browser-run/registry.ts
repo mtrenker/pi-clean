@@ -94,6 +94,47 @@ export interface CrawlRecord {
 /** Cloudflare keeps completed crawl results for 14 days. */
 export const RESULT_RETENTION_DAYS = 14;
 
+/**
+ * Check a job out of the original shared index before it is trusted.
+ *
+ * The fields validated are the ones the registry's own logic reads: the id
+ * reaches a path, `createdAt` drives the daily cost cap, `status` drives the
+ * retention sweep, `cwd` scopes listings, and `pagesSeen` is rendered. Anything
+ * else is copied through, because a missing `host` degrades a listing without
+ * corrupting accounting.
+ *
+ * Returns the record, or a sentence naming what is wrong with it.
+ */
+export function validateLegacyRecord(value: unknown, key: string): CrawlRecord | string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return `entry "${key}" is not an object`;
+  }
+  const record = value as Partial<CrawlRecord>;
+
+  if (typeof record.jobId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(record.jobId)) {
+    return `entry "${key}" has no well-formed jobId`;
+  }
+  if (typeof record.createdAt !== "string" || Number.isNaN(Date.parse(record.createdAt))) {
+    return `job ${record.jobId} has no parseable createdAt, so it cannot be counted against the daily cap`;
+  }
+  if (
+    typeof record.status !== "string" ||
+    !(
+      (CLOUDFLARE_CRAWL_STATUSES as readonly string[]).includes(record.status) ||
+      (LOCAL_CRAWL_STATUSES as readonly string[]).includes(record.status)
+    )
+  ) {
+    return `job ${record.jobId} has an unknown status ${JSON.stringify(record.status)}`;
+  }
+  if (typeof record.cwd !== "string") {
+    return `job ${record.jobId} has no cwd, so it cannot be scoped to a directory`;
+  }
+  if (typeof record.pagesSeen !== "number" || !Number.isFinite(record.pagesSeen)) {
+    return `job ${record.jobId} has no numeric pagesSeen`;
+  }
+  return record as CrawlRecord;
+}
+
 export class CrawlRegistry {
   readonly #paths: StatePaths;
   readonly #now: () => number;
@@ -234,13 +275,27 @@ export class CrawlRegistry {
     return jobs.filter((job) => Date.parse(job.createdAt) >= since).length;
   }
 
-  /** Throw when the last `list()` could not read every record it found. */
+  /**
+   * Throw when the last `list()` could not account for every job it should have.
+   *
+   * That covers both a per-job record that would not parse and a legacy index
+   * that could not be migrated: jobs hidden inside an unmigrated index are just
+   * as invisible to a count as an unreadable record, and just as capable of
+   * carrying real spend.
+   */
   assertFullyReadable(purpose: string): void {
-    if (this.#unreadable.length === 0) return;
+    if (this.#unreadable.length === 0 && !this.#legacyMigrationError) return;
+    const reasons: string[] = [];
+    if (this.#unreadable.length > 0) {
+      reasons.push(
+        `${this.#unreadable.length} crawl record(s) could not be read (${this.#unreadable.join(", ")})`,
+      );
+    }
+    if (this.#legacyMigrationError) reasons.push(this.#legacyMigrationError);
     throw new BrowserRunError(
       "invalid_request",
-      `${purpose} cannot be trusted: ${this.#unreadable.length} crawl record(s) could not be read ` +
-        `(${this.#unreadable.join(", ")}). Inspect or remove them under ${this.#paths.crawlsDir}.`,
+      `${purpose} cannot be trusted: ${reasons.join("; ")}. ` +
+        `Inspect or remove the affected files under ${this.#paths.crawlsDir}.`,
     );
   }
 
@@ -280,18 +335,55 @@ export class CrawlRegistry {
    */
   async #migrateLegacyIndex(): Promise<void> {
     const legacy = join(this.#paths.crawlsDir, "index.json");
+
     try {
       await stat(legacy);
-    } catch {
+    } catch (error) {
+      // Only an absent index means there is nothing to migrate. A permission or
+      // I/O failure hides jobs just as effectively, so it is reported rather
+      // than read as "no legacy index here".
+      if (isMissingFile(error)) {
+        this.#legacyMigrationError = undefined;
+        return;
+      }
+      this.#legacyMigrationError =
+        `the legacy crawl index at ${legacy} could not be inspected, so any jobs in it are ` +
+        `unaccounted for: ${error instanceof Error ? error.message : String(error)}`;
+      return;
+    }
+
+    let entries: Array<[string, unknown]>;
+    try {
+      const document = JSON.parse(await readFile(legacy, "utf8")) as {
+        jobs?: Record<string, unknown>;
+      };
+      entries = Object.entries(document?.jobs ?? {});
+    } catch (error) {
+      this.#legacyMigrationError =
+        `the legacy crawl index at ${legacy} could not be read, so it was left in place: ` +
+        `${error instanceof Error ? error.message : String(error)}`;
+      return;
+    }
+
+    // Validate everything before writing anything. A structurally malformed entry
+    // that was merely skipped would be renamed away with the index, which is
+    // exactly the "the only copy moved aside" loss this migration guards against.
+    const validated: CrawlRecord[] = [];
+    const problems: string[] = [];
+    for (const [key, value] of entries) {
+      const result = validateLegacyRecord(value, key);
+      if (typeof result === "string") problems.push(result);
+      else validated.push(result);
+    }
+    if (problems.length > 0) {
+      this.#legacyMigrationError =
+        `the legacy crawl index at ${legacy} holds ${problems.length} unusable job(s), so it was ` +
+        `left in place: ${problems.join("; ")}`;
       return;
     }
 
     try {
-      const document = JSON.parse(await readFile(legacy, "utf8")) as {
-        jobs?: Record<string, CrawlRecord>;
-      };
-      for (const record of Object.values(document.jobs ?? {})) {
-        if (!record?.jobId) continue;
+      for (const record of validated) {
         if (await this.#readRecord(record.jobId)) continue;
         await this.#writeRecord(record);
       }

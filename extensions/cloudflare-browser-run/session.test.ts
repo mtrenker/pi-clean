@@ -793,3 +793,40 @@ test("two simultaneous opens cannot both connect", async () => {
   assert.match(String(rejected.reason), /already being opened/);
   assert.equal(session.state, "active");
 });
+
+test("an abandoned fill does not type after the password inspection", async () => {
+  // The password-field inspection is two driver round-trips, so the caller can
+  // give up between the check and the mutation. Item 7's fix covered operator
+  // confirmation; this covers the same window on a driver wait.
+  const log: string[] = [];
+  const page = createFakePage({
+    log,
+    locators: {
+      e1: {
+        attributes: { type: "text" },
+      },
+    },
+  });
+  const slowLocator = page.locator("aria-ref=e1");
+  page.locator = (() => ({
+    ...slowLocator,
+    async getAttribute(name: string) {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      return name === "type" ? "text" : null;
+    },
+    async fill(value: string) {
+      log.push(`fill:e1:${value}`);
+    },
+  })) as unknown as typeof page.locator;
+
+  const harness = makeSession({ actionTimeoutMs: 25 }, createFakeBrowser({ page }));
+  await harness.session.open({});
+
+  await assert.rejects(
+    () => harness.session.fill("e1", "typed"),
+    (error: unknown) =>
+      error instanceof BrowserRunError && error.errorClass === "session_expired",
+  );
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.ok(!log.some((entry) => entry.startsWith("fill:")), "an abandoned fill still typed");
+});
