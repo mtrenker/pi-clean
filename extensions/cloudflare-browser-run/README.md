@@ -206,9 +206,11 @@ These are enforced in code:
   out or the turn is aborted while you are deciding, a later yes does not click: you were already
   told it failed. There is no "confirm the risky ones" setting, because a heuristic that guesses
   which clicks mutate cannot be made honest.
-- **An abandoned action does not act.** When an action times out or its turn is aborted, the page is
-  not touched afterwards. That holds between the two halves of a compound action too: a `browser_fill`
-  with `submit` that is abandoned while typing does not go on to submit the form.
+- **An abandoned action starts nothing further.** When an action times out or its turn is aborted, no
+  additional state-changing call is made. A call already in flight is not cancelled, so it may
+  already have changed the page, which is why a timeout says the page state is unknown and tells you
+  to reopen the browser. The guarantee is about what happens next: a `browser_fill` with `submit`
+  that is abandoned while typing may have typed, but it does not go on to submit the form.
 
 These are not:
 

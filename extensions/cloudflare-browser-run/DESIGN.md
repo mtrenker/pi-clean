@@ -680,6 +680,12 @@ per context.
   with, and a future edit that introduces an await earlier in an action cannot reopen the window.
   Three waits made this necessary: an operator confirmation, the password-field inspection before a
   fill, and the fill itself before its optional submit.
+
+  What the gate is, precisely: a synchronous check that no further state-changing call starts. It is
+  not cancellation. A driver call already in flight when abandonment fires runs to completion and may
+  well have changed the page, which is exactly what the timeout error means when it says the page
+  state is unknown and to reopen the browser. An abandoned fill with submit may have typed; the
+  guarantee is that it does not then submit.
 - `signal` is honored: an aborted turn rejects the waiter and releases the mutex.
 - While state is `handoff`, the mutex is held by the handoff, so every model action is rejected
   with `busy_handoff` instead of interleaving with a human typing a password.
