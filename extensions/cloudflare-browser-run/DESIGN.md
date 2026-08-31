@@ -125,7 +125,7 @@ security boundaries.
 |---|---|---|
 | `/markdown` with `html` and no `url` performs no outbound fetch, making it a side-effect-free health probe | one call during phase 1 | probe with `url` against a Cloudflare-owned documentation page and document the outbound request |
 | Protocol traffic such as `Browser.getVersion` counts as session activity for the idle timer | one 11-minute idle test during phase 3 | require handoffs to finish inside `keep_alive` and say so in the handoff prompt |
-| `locator.ariaSnapshot()` is public in `playwright-core@1.62.1` and its output is stable enough to mint refs from | read the pinned type definitions during phase 2 | build the snapshot from `page.accessibility.snapshot()` or from a bounded DOM walk, keeping the same ref contract |
+| ~~`locator.ariaSnapshot()` is public in `playwright-core@1.62.1` and its output is stable enough to mint refs from~~ Resolved in phase 2: `page.ariaSnapshot({ mode: "ai" })` is public and already emits `[ref=eN]`, and Playwright ships an `aria-ref=` selector engine, so refs come from Playwright rather than from us | read the pinned type definitions during phase 2 | no fallback needed |
 | `Cloudflare.getLiveView` and `Cloudflare.handoff` are reachable through `browser.newBrowserCDPSession()` under `connectOverCDP` | phase 3 | open a second raw websocket to the same session for Cloudflare-domain commands |
 | The CDP session id is not on its own a bearer capability, since REST and websocket calls still require the token | phase 2 | treat the session id as secret and hash it everywhere, which the logging design already does |
 
@@ -146,6 +146,7 @@ extensions/cloudflare-browser-run/
   http.ts          authenticated fetch, error taxonomy, rate limiting, retry
   quick-actions.ts stateless Quick Action calls and the health probe
   url-guard.ts     scheme, userinfo, host, and DNS validation
+  cdp.ts           the only module that imports playwright-core, loaded lazily
   content.ts       untrusted envelope, sanitizing, truncation, spill files
   session.ts       CDP browser session, action queue, tab registry, expiry
   snapshot.ts      accessibility snapshot, ref minting, orientation payloads
@@ -408,6 +409,10 @@ disk. The model still sees the full URL it navigated to in `content`, because it
 Errors are signaled by throwing from `execute`, per the Pi contract, so `isError` is set. The
 thrown message always starts with the error class from section 5.5.
 
+The extension factory takes an optional second argument carrying a connector, which Pi never
+passes. It exists so the whole tool surface can be driven against structural doubles without a
+browser or an account, which is what keeps the phase 2 tests hermetic.
+
 ### 8.2 Stateless reading
 
 `browser_read` renders one public page to Markdown through the `/markdown` Quick Action.
@@ -438,13 +443,14 @@ Authenticated reading goes through a profile-backed CDP session instead.
 | `browser_tabs` | `action` (`list`, `new`, `select`, `close`), `index?`, `url?` | Tab management. |
 | `browser_close` | none | Idempotent teardown. |
 
-Refs. Each `browser_snapshot` walks the accessibility snapshot and, for every interactive node,
-mints an id `e<N>` bound to a resolution recipe `{ role, name, nth }`. The map lives on the tab and
-is cleared on navigation. The model passes `ref`; the tool resolves it with
-`getByRole(role, { name, exact: true }).nth(nth)`, which is the locator style the probe verified.
-A ref from a previous page state fails with a message naming the state change and asking for a new
-snapshot, rather than acting on whatever now sits at that position. `role` plus `name` is accepted
-directly as an escape hatch for cases where the snapshot is stale but the target is unambiguous.
+Refs. `browser_snapshot` returns `page.ariaSnapshot({ mode: "ai" })`, which marks every
+interactive node with `[ref=eN]`. The model passes that `ref` back, and the tool resolves it through
+Playwright's own `aria-ref=` selector engine. This is a phase 2 refinement of the plan to mint refs
+by hand (section 2.4): the contract is unchanged, and Playwright owns the mapping instead of us.
+Refs are validated against `^e\d+$` before they are interpolated into a selector, so a
+model-supplied value cannot inject selector syntax. A ref from a previous page state fails with the
+driver's own "no element matching" message rather than acting on whatever now sits in that
+position.
 
 Orientation. Every acting tool ends with a bounded orientation block, not a full snapshot: the
 settled URL, the title, whether navigation occurred, the focused element, and up to 12 interactive
@@ -1008,8 +1014,10 @@ lifecycle than the profile vault. In that case the truncation footer suggests a 
 - `full_page` is capped at 4000 px of height, and the whole encoded image is capped at 1.5 MB.
 - JPEG at quality 70 by default, PNG only on request. A screenshot is a photograph, not a diagram,
   and PNG typically costs several times the bytes for no readability gain.
-- Over the byte cap, the capture is retried with `clip.scale` reduced, and the applied scale is
-  reported. It is never silently cropped.
+- Over the byte cap, the capture is retried at a lower factor and the applied factor is reported.
+  Playwright's `scale` option selects css or device pixels rather than a numeric factor, so the
+  levers are JPEG quality and the clip dimensions. A capture that cannot be brought inside the
+  bound fails with an instruction to screenshot one element instead. It is never silently cropped.
 - One image per call, always.
 - Rejected during a handoff (section 12.3).
 - With a profile active, `screenshotsWithProfile` defaults to `ask`: `ctx.ui.confirm` when

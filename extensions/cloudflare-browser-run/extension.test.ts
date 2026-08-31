@@ -6,7 +6,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -17,10 +17,13 @@ import { statePaths } from "./config.ts";
 import { BrowserRunError } from "./errors.ts";
 import {
   collectStrings,
+  createFakeBrowser,
   createFakeContext,
+  createFakePage,
   createFakePi,
   FIXTURE_ACCOUNT_ID,
   FIXTURE_TOKEN,
+  toolResultEntry,
   type FakePi,
 } from "./test-support.ts";
 
@@ -90,12 +93,72 @@ test("AC-C2 the factory registers its surface and does nothing else", async (t) 
   const box = await sandbox(t);
   cloudflareBrowserRun(box.pi.api);
 
-  assert.deepEqual([...box.pi.tools.keys()], ["browser_read"]);
+  assert.deepEqual(
+    [...box.pi.tools.keys()],
+    [
+      "browser_read",
+      "browser_open",
+      "browser_navigate",
+      "browser_snapshot",
+      "browser_click",
+      "browser_fill",
+      "browser_select",
+      "browser_press",
+      "browser_screenshot",
+      "browser_tabs",
+      "browser_close",
+    ],
+  );
   assert.deepEqual([...box.pi.commands.keys()], ["browser"]);
   assert.ok(box.pi.handlers.has("session_start"));
   assert.ok(box.pi.handlers.has("session_shutdown"));
   assert.equal(box.pi.execCalls.length, 0, "no process is spawned at factory time");
   assert.equal(box.fetchCalls.length, 0, "no network call is made at factory time");
+});
+
+test("session_start leaves the interaction tools inactive on a fresh branch", async (t) => {
+  const box = await sandbox(t);
+  box.pi.activeTools = ["read", "bash", "browser_click"];
+  cloudflareBrowserRun(box.pi.api);
+  const { ctx } = createFakeContext();
+
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+  assert.deepEqual(box.pi.activeTools, ["read", "bash"]);
+});
+
+test("a resumed branch that used the interaction tools keeps their schemas active", async (t) => {
+  const box = await sandbox(t);
+  cloudflareBrowserRun(box.pi.api);
+  const { ctx, ui } = createFakeContext({
+    branch: [
+      toolResultEntry("browser_open", { state: "active", profile: null, page: null }),
+      toolResultEntry("browser_click", {
+        state: "active",
+        profile: "example-site",
+        page: { origin: "https://www.example.com", path: "/jobs" },
+      }),
+    ],
+  });
+
+  await box.pi.emit("session_start", { reason: "resume" }, ctx);
+
+  for (const name of ["browser_click", "browser_snapshot", "browser_close"]) {
+    assert.ok(box.pi.activeTools.includes(name), `${name} should stay active after resume`);
+  }
+
+  // The browser itself is gone, so a stale call fails with an actionable class.
+  const tool = box.pi.tools.get("browser_click");
+  assert.ok(tool);
+  await assert.rejects(
+    () => tool.execute("call-r", { ref: "e1" }, undefined, undefined, ctx),
+    (error: unknown) => error instanceof BrowserRunError && error.errorClass === "no_session",
+  );
+
+  const command = box.pi.commands.get("browser");
+  await command?.handler("status", ctx);
+  const text = ui.notifications.at(-1)?.text ?? "";
+  assert.match(text, /last profile {2}: example-site/);
+  assert.match(text, /last page {5}: https:\/\/www\.example\.com\/jobs/);
 });
 
 test("AC-C2 session_start reads no secret store and opens no socket", async (t) => {
@@ -340,4 +403,197 @@ test("/browser close reports that there is no session yet", async (t) => {
   const command = box.pi.commands.get("browser");
   await command?.handler("close", ctx);
   assert.match(ui.notifications.at(-1)?.text ?? "", /No active browser session/);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2: the stateful tool surface, driven against the browser doubles.
+// ---------------------------------------------------------------------------
+
+test("browser_open activates the interaction tools additively and reports them", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  const fake = createFakeBrowser();
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser });
+  const { ctx } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+
+  const before = [...box.pi.activeTools];
+  const open = box.pi.tools.get("browser_open");
+  assert.ok(open);
+  const result = await open.execute(
+    "call-open",
+    { url: "https://example.com/jobs" },
+    undefined,
+    undefined,
+    ctx,
+  );
+
+  const text = result.content[0]?.text ?? "";
+  assert.match(text, /^Browser session open\. Tools now available: browser_navigate/);
+  assert.match(text, /<untrusted-page-content source="https:\/\/example\.com\/jobs" tool="browser_open">/);
+  assert.match(text, /url: https:\/\/example\.com\/jobs/);
+
+  // Additive: nothing that was active before was removed.
+  for (const name of before) assert.ok(box.pi.activeTools.includes(name), name);
+  for (const name of ["browser_click", "browser_snapshot", "browser_close"]) {
+    assert.ok(box.pi.activeTools.includes(name), name);
+  }
+
+  const details = result.details as { state: string; tab: { index: number; count: number } };
+  assert.equal(details.state, "active");
+  assert.deepEqual(details.tab, { index: 0, count: 1 });
+});
+
+test("the interaction tools drive one page and end with bounded orientation", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  const log: string[] = [];
+  const page = createFakePage({
+    log,
+    locators: { e1: { attributes: { type: "text" } }, e2: {} },
+    snapshot: '- searchbox "Query" [ref=e1]\n- button "Search" [ref=e2]',
+  });
+  const fake = createFakeBrowser({ page, log });
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser });
+  const { ctx } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+  await box.pi.tools.get("browser_open")?.execute("o", {}, undefined, undefined, ctx);
+
+  const snapshot = await box.pi.tools.get("browser_snapshot")?.execute("s", {}, undefined, undefined, ctx);
+  assert.match(snapshot?.content[0]?.text ?? "", /tool="browser_snapshot"/);
+  assert.match(snapshot?.content[0]?.text ?? "", /\[ref=e1\]/);
+
+  await box.pi.tools.get("browser_fill")?.execute("f", { ref: "e1", text: "typescript" }, undefined, undefined, ctx);
+  await box.pi.tools.get("browser_click")?.execute("c", { ref: "e2" }, undefined, undefined, ctx);
+  await box.pi.tools.get("browser_press")?.execute("p", { key: "Escape" }, undefined, undefined, ctx);
+
+  assert.ok(log.includes("fill:e1:typescript"));
+  assert.ok(log.includes("click:e2"));
+  assert.ok(log.includes("key:Escape"));
+
+  const tabs = await box.pi.tools.get("browser_tabs")?.execute("t", { action: "list" }, undefined, undefined, ctx);
+  assert.match(tabs?.content[0]?.text ?? "", /tool="browser_tabs"/);
+
+  const closed = await box.pi.tools.get("browser_close")?.execute("x", {}, undefined, undefined, ctx);
+  assert.match(closed?.content[0]?.text ?? "", /Browser session closed/);
+  assert.equal((closed?.details as { state: string }).state, "idle");
+  assert.ok(log.includes("context.close"));
+  assert.ok(log.includes("browser.close"));
+});
+
+test("interaction tools stay listed after close and report no_session", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  const fake = createFakeBrowser();
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser });
+  const { ctx } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+  await box.pi.tools.get("browser_open")?.execute("o", {}, undefined, undefined, ctx);
+  await box.pi.tools.get("browser_close")?.execute("x", {}, undefined, undefined, ctx);
+
+  assert.ok(box.pi.activeTools.includes("browser_click"), "the schema stays active");
+  await assert.rejects(
+    () => box.pi.tools.get("browser_click")!.execute("c", { ref: "e1" }, undefined, undefined, ctx),
+    (error: unknown) =>
+      error instanceof BrowserRunError &&
+      error.errorClass === "no_session" &&
+      /Call browser_open first/.test(error.detail),
+  );
+});
+
+test("browser_open validates the URL before connecting", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  let connects = 0;
+  cloudflareBrowserRun(box.pi.api, {
+    connect: async () => {
+      connects += 1;
+      return createFakeBrowser().browser;
+    },
+  });
+  const { ctx } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+
+  await assert.rejects(
+    () => box.pi.tools.get("browser_open")!.execute("o", { url: "http://10.0.0.1/" }, undefined, undefined, ctx),
+    (error: unknown) => error instanceof BrowserRunError && error.errorClass === "target_rejected",
+  );
+  assert.equal(connects, 0, "no connection is opened for a rejected target");
+});
+
+test("session_shutdown closes an open browser exactly once", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  const fake = createFakeBrowser();
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser });
+  const { ctx } = createFakeContext();
+
+  for (const reason of ["quit", "reload", "new", "resume", "fork"]) {
+    await box.pi.emit("session_start", { reason: "startup" }, ctx);
+    await box.pi.tools.get("browser_open")?.execute("o", {}, undefined, undefined, ctx);
+    const before = fake.log.filter((entry) => entry === "browser.close").length;
+    await box.pi.emit("session_shutdown", { reason }, ctx);
+    await box.pi.emit("session_shutdown", { reason }, ctx);
+    const after = fake.log.filter((entry) => entry === "browser.close").length;
+    assert.equal(after - before, 1, `reason ${reason} closes once`);
+  }
+});
+
+test("/browser close closes an open session and status reports the budget", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  const fake = createFakeBrowser();
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser });
+  const { ctx, ui } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+  await box.pi.tools.get("browser_open")?.execute("o", {}, undefined, undefined, ctx);
+
+  const command = box.pi.commands.get("browser");
+  await command?.handler("status", ctx);
+  assert.match(ui.notifications.at(-1)?.text ?? "", /browser {7}: active \(\d+\/200 actions, 1 tabs\)/);
+
+  await command?.handler("close", ctx);
+  assert.match(ui.notifications.at(-1)?.text ?? "", /Browser session closed/);
+  await command?.handler("close", ctx);
+  assert.match(ui.notifications.at(-1)?.text ?? "", /No active browser session/);
+});
+
+test("a screenshot on an unauthenticated page returns one bounded image", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  const page = createFakePage({ screenshotBytes: 2_048 });
+  const fake = createFakeBrowser({ page });
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser });
+  const { ctx } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+  await box.pi.tools.get("browser_open")?.execute("o", {}, undefined, undefined, ctx);
+
+  const shot = await box.pi.tools.get("browser_screenshot")?.execute("sc", {}, undefined, undefined, ctx);
+  assert.equal(shot?.content.length, 2);
+  assert.equal(shot?.content[0]?.type, "text");
+  assert.equal(shot?.content[1]?.type, "image");
+  assert.match(shot?.content[0]?.text ?? "", /Screenshot captured \(2048 bytes, image\/jpeg\)/);
+});
+
+test("confirmClicks always asks the operator and honours a refusal", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  await mkdir(statePaths(box.agentDir).root, { recursive: true });
+  await writeFile(
+    statePaths(box.agentDir).configFile,
+    JSON.stringify({ browser: { confirmClicks: "always" } }),
+    "utf8",
+  );
+
+  const page = createFakePage({ locators: { e1: {} } });
+  const fake = createFakeBrowser({ page });
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser });
+  const { ctx } = createFakeContext({ confirm: false });
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+  await box.pi.tools.get("browser_open")?.execute("o", {}, undefined, undefined, ctx);
+
+  await assert.rejects(
+    () => box.pi.tools.get("browser_click")!.execute("c", { ref: "e1" }, undefined, undefined, ctx),
+    (error: unknown) => error instanceof BrowserRunError && /declined this click/.test(error.detail),
+  );
 });
