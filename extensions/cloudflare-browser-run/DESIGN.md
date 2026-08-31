@@ -129,7 +129,7 @@ security boundaries.
 | ~~`locator.ariaSnapshot()` is public in `playwright-core@1.62.1` and its output is stable enough to mint refs from~~ Resolved in phase 2: `page.ariaSnapshot({ mode: "ai" })` is public and already emits `[ref=eN]`, and Playwright ships an `aria-ref=` selector engine, so refs come from Playwright rather than from us | read the pinned type definitions during phase 2 | no fallback needed |
 | `Cloudflare.getLiveView` and `Cloudflare.handoff` are reachable through `browser.newBrowserCDPSession()` under `connectOverCDP` | phase 3 | open a second raw websocket to the same session for Cloudflare-domain commands |
 | The `/crawl` read envelope names its record array `results` and its continuation token `cursor` | first live crawl | the parser already accepts `records`, `urls`, `pages`, and `data`, and `nextCursor`; widen it if the live shape differs |
-| The CDP session id is not on its own a bearer capability, since REST and websocket calls still require the token | phase 2 | treat the session id as secret and hash it everywhere, which the logging design already does |
+| ~~The CDP session id is not on its own a bearer capability, since REST and websocket calls still require the token~~ Moot: `connectOverCDP` never exposes the session id, so this code never holds one to protect, log, or hash. Section 18 records that it is not logged in any form | phase 2 | none needed |
 
 ## 3. Directory and module layout
 
@@ -362,9 +362,14 @@ follow, because recording a problem in a field nobody reads is the same as swall
 - the per-day crawl count refuses rather than under-counting, because an unreadable record might be
   a job started inside the window, and counting only the readable ones would make a corrupt file a
   way past the cost cap;
-- the one-shot migration from the original shared index renames it only after every job in it has a
-  record on disk. Renaming after a failed migration would move the only copy of those jobs out of
-  the path this code reads, which is the fault the per-job layout exists to remove.
+- the one-shot migration from the original shared index is all or nothing. Every entry is validated
+  before anything is written, and the index is renamed only once every job in it has a record on
+  disk. An entry that is syntactically valid JSON but unusable, no well-formed id, no parseable
+  `createdAt`, an unknown status, blocks the whole migration rather than being skipped, because a
+  skipped entry would be renamed away with the index and that is the "the only copy moved aside"
+  loss the per-job layout exists to prevent. Only `ENOENT` from the index's own metadata means
+  "nothing to migrate"; any other failure is reported, and an unmigrated index blocks the daily cost
+  count, because jobs hidden inside it carry real spend.
 
 ## 7. Credential resolution
 
@@ -662,10 +667,14 @@ per context.
 - Each action has an `actionTimeoutMs` (default 30 s) so a hung navigation cannot deadlock the
   queue, and the mutex is released in a `finally`.
 - A timeout or an abort permanently gates the action, it does not merely stop waiting for it. The
-  queued operation receives an abandonment signal that fires in both cases, and any step that waits
-  on something slow checks it before touching the page. Operator confirmation is the case that made
-  this necessary: a yes arriving after the caller had been told the action failed would otherwise
-  still click.
+  queued operation receives an abandonment signal that fires in both cases, and every driver call
+  that changes page or tab state checks that signal immediately before it runs: navigate, click,
+  fill, select, press, and tab open and close. Read-only steps deliberately do not check, because an
+  abandoned snapshot or screenshot wastes work and changes nothing. Placing the check at the
+  mutation rather than after each wait makes the invariant structural: a future edit that adds an
+  await earlier in an action cannot reopen the window. Two waits made this necessary, an operator
+  confirmation and the password-field inspection that precedes a fill, either of which can outlast
+  the caller.
 - `signal` is honored: an aborted turn rejects the waiter and releases the mutex.
 - While state is `handoff`, the mutex is held by the handoff, so every model action is rejected
   with `busy_handoff` instead of interleaving with a human typing a password.
@@ -1535,3 +1544,25 @@ and fixed:
 Two stale claims left by revision 3 were also removed: AC-S5 no longer requires a session DELETE
 that does not exist, and section 18 no longer claims to log a hash of a session id this code cannot
 obtain.
+
+### Final pass
+
+A third review pass confirmed items 1, 7, and 12 and left two residuals, both fixed here.
+
+Item 5 had three remaining gaps in the legacy migration, all confirmed: every `stat` failure was
+read as absence including `EACCES`, contrary to the only-`ENOENT` contract; a syntactically valid
+but unusable job was skipped and the index renamed anyway, moving the only copy aside; and a
+recorded migration error did not make the daily cost count fail closed. Section 6 now states the
+whole-or-nothing contract, and `validateLegacyRecord` checks the fields the registry's own logic
+reads before anything is written.
+
+The item 8 residual was documentation. The assumption row in section 2.4 still described hashing the
+Cloudflare session id as its fallback, which contradicts section 18's ruling that the id is never
+obtained. The row is marked moot: there is no session id here to protect.
+
+Section 10.3 claimed that any slow step checks abandonment before touching the page, while only the
+click confirmation did. Rather than narrow the claim, the checks were extended: every driver call
+that changes page or tab state now checks the abandonment signal immediately before it runs. That
+was the better trade, because the password-field inspection before a fill is exactly the same window
+the confirmation fix closed, and placing the check at the mutation makes the invariant survive
+future edits instead of depending on where the waits happen to be today.

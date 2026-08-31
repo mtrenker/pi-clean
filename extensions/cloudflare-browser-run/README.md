@@ -153,7 +153,9 @@ through a temporary file and a rename so a crash cannot truncate one. A file tha
 reported with its path rather than treated as absent, so a permission problem never looks like an
 empty registry or a missing profile. A crawl record that cannot be read is named in
 `/browser-crawls list` and at session start, and it blocks new crawls until you fix or remove it,
-because a count that skipped it would let a corrupt file past the daily cap.
+because a count that skipped it would let a corrupt file past the daily cap. The same applies to a
+legacy crawl index that cannot be migrated: it is left exactly where it is, reported, and it blocks
+new crawls, rather than being moved aside with its jobs still inside it.
 
 ### Key backends
 
