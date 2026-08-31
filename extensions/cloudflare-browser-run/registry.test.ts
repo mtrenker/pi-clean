@@ -252,3 +252,51 @@ test("local and Cloudflare statuses stay distinguishable", () => {
   assert.ok(TERMINAL_STATUSES.includes("cancelled_by_user"));
   assert.ok(!TERMINAL_STATUSES.includes("running"));
 });
+
+test("the daily cost count fails closed when a record cannot be read", async (t) => {
+  const { registry } = await makeRegistry(t);
+  await registry.add(record({ jobId: "good" }));
+  await registry.add(record({ jobId: "broken" }));
+  await writeFile(registry.recordPath("broken"), "{ not json", "utf8");
+
+  // Counting only the readable jobs would make an unreadable file a way past the
+  // per-day cap.
+  await assert.rejects(
+    () => registry.countStartedSince(NOW - 86_400_000),
+    (error: unknown) =>
+      error instanceof BrowserRunError &&
+      /cannot be trusted/.test(error.detail) &&
+      /broken/.test(error.detail),
+  );
+
+  await rm(registry.recordPath("broken"), { force: true });
+  assert.equal(await registry.countStartedSince(NOW - 86_400_000), 1);
+});
+
+test("a legacy index that cannot be migrated is left in place and reported", async (t) => {
+  const { registry, dir } = await makeRegistry(t);
+  const legacy = join(statePaths(dir).crawlsDir, "index.json");
+  await writeFile(legacy, "{ not json", "utf8");
+
+  assert.deepEqual(await registry.list(), []);
+  assert.match(registry.legacyMigrationError() ?? "", /could not be migrated, so it was left in place/);
+
+  // Renaming a failed migration would take the only copy of those jobs out of
+  // the path this class reads.
+  assert.equal(await readFile(legacy, "utf8"), "{ not json");
+  await assert.rejects(() => readFile(`${legacy}.migrated`, "utf8"), /ENOENT/);
+});
+
+test("a successful migration clears the reported error", async (t) => {
+  const { registry, dir } = await makeRegistry(t);
+  const legacy = join(statePaths(dir).crawlsDir, "index.json");
+  await writeFile(
+    legacy,
+    JSON.stringify({ version: 1, jobs: { "job-old": record({ jobId: "job-old" }) } }),
+    "utf8",
+  );
+
+  assert.deepEqual((await registry.list()).map((job) => job.jobId), ["job-old"]);
+  assert.equal(registry.legacyMigrationError(), undefined);
+  await assert.rejects(() => readFile(legacy, "utf8"), /ENOENT/);
+});

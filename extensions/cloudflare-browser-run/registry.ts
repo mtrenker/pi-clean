@@ -98,6 +98,7 @@ export class CrawlRegistry {
   readonly #paths: StatePaths;
   readonly #now: () => number;
   #unreadable: string[] = [];
+  #legacyMigrationError: string | undefined;
 
   constructor(paths: StatePaths, now: () => number = () => Date.now()) {
     this.#paths = paths;
@@ -183,8 +184,9 @@ export class CrawlRegistry {
   }
 
   /**
-   * One unreadable record is reported through `unreadableJobIds()` rather than
-   * dropped silently or allowed to hide every other job.
+   * One unreadable record costs that one job rather than hiding every other one.
+   * The ids are kept so callers can surface them: `/browser-crawls list` prints
+   * them, and `countStartedSince` refuses rather than under-counting.
    */
   async list(options: { cwd?: string } = {}): Promise<CrawlRecord[]> {
     await this.#migrateLegacyIndex();
@@ -219,10 +221,27 @@ export class CrawlRegistry {
     return filtered.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
-  /** Jobs started since a timestamp, for the per-day cost cap. */
+  /**
+   * Jobs started since a timestamp, for the per-day cost cap.
+   *
+   * Fails closed. An unreadable record is a job that might have been started
+   * inside the window, so counting the readable ones and proceeding would let an
+   * unreadable file become a way past the cap.
+   */
   async countStartedSince(since: number): Promise<number> {
     const jobs = await this.list();
+    this.assertFullyReadable("the daily crawl count");
     return jobs.filter((job) => Date.parse(job.createdAt) >= since).length;
+  }
+
+  /** Throw when the last `list()` could not read every record it found. */
+  assertFullyReadable(purpose: string): void {
+    if (this.#unreadable.length === 0) return;
+    throw new BrowserRunError(
+      "invalid_request",
+      `${purpose} cannot be trusted: ${this.#unreadable.length} crawl record(s) could not be read ` +
+        `(${this.#unreadable.join(", ")}). Inspect or remove them under ${this.#paths.crawlsDir}.`,
+    );
   }
 
   async forget(jobId: string): Promise<void> {
@@ -253,6 +272,11 @@ export class CrawlRegistry {
   /**
    * One-shot move from the original shared index to per-job records. Harmless
    * when there is nothing to migrate, which is the normal case.
+   *
+   * The rename happens only after every job in the index has a record on disk.
+   * Renaming on failure would take the only copy of those jobs out of the path
+   * this class reads, which is the same "a read failure erases the registry"
+   * fault the per-job layout was introduced to remove.
    */
   async #migrateLegacyIndex(): Promise<void> {
     const legacy = join(this.#paths.crawlsDir, "index.json");
@@ -261,19 +285,30 @@ export class CrawlRegistry {
     } catch {
       return;
     }
+
     try {
       const document = JSON.parse(await readFile(legacy, "utf8")) as {
         jobs?: Record<string, CrawlRecord>;
       };
       for (const record of Object.values(document.jobs ?? {})) {
         if (!record?.jobId) continue;
-        if (await this.#readRecord(record.jobId).catch(() => undefined)) continue;
+        if (await this.#readRecord(record.jobId)) continue;
         await this.#writeRecord(record);
       }
-    } catch {
-      // A corrupt legacy index is moved aside rather than blocking every job.
+    } catch (error) {
+      this.#legacyMigrationError =
+        `the legacy crawl index at ${legacy} could not be migrated, so it was left in place: ` +
+        `${error instanceof Error ? error.message : String(error)}`;
+      return;
     }
+
+    this.#legacyMigrationError = undefined;
     await rename(legacy, `${legacy}.migrated`).catch(() => undefined);
+  }
+
+  /** Set when a legacy index exists but could not be migrated. */
+  legacyMigrationError(): string | undefined {
+    return this.#legacyMigrationError;
   }
 
   // -------------------------------------------------------------------------

@@ -50,6 +50,7 @@ import {
   CRAWL_PAGE_MAX_LINES,
   ORIENTATION_MAX_BYTES,
   ORIENTATION_MAX_LINES,
+  sanitizeText,
   READ_MAX_BYTES,
   READ_MAX_LINES,
   SNAPSHOT_MAX_BYTES,
@@ -78,7 +79,7 @@ import {
 } from "./liveview.ts";
 import { ProfileStore, type ProfileStatus } from "./profiles.ts";
 import { fetchMarkdown, probeCredentials, WAIT_UNTIL_VALUES, type WaitUntil } from "./quick-actions.ts";
-import { PROFILE_VALUE_MIN_LENGTH, redact, redactValue, SecretRegistry } from "./redact.ts";
+import { redact, redactValue, SecretRegistry } from "./redact.ts";
 import { CrawlRegistry, isLocalStatus, TERMINAL_STATUSES, type CrawlRecord } from "./registry.ts";
 import { BrowserSession, type BrowserLike } from "./session.ts";
 import { formatOrientation, type PageOrientation } from "./snapshot.ts";
@@ -333,12 +334,28 @@ export function renderCrawlRecords(records: CrawlPageRecord[], includeContent: b
   return blocks.join("\n");
 }
 
-export function formatCrawlList(jobs: CrawlRecord[], elsewhere: number): string {
-  if (jobs.length === 0) {
-    return elsewhere > 0
-      ? `No crawls started from this directory. ${elsewhere} crawl(s) exist for other directories.`
-      : "No crawls in the registry. Start one with browser_crawl_start.";
+export function formatCrawlList(
+  jobs: CrawlRecord[],
+  elsewhere: number,
+  problems: { unreadable?: string[]; migrationError?: string | undefined } = {},
+): string {
+  const trailer: string[] = [];
+  if (elsewhere > 0) trailer.push(`${elsewhere} further crawl(s) exist for other directories.`);
+  if (problems.unreadable && problems.unreadable.length > 0) {
+    trailer.push(
+      `${problems.unreadable.length} record(s) could not be read: ${problems.unreadable.join(", ")}.`,
+    );
   }
+  if (problems.migrationError) trailer.push(problems.migrationError);
+
+  if (jobs.length === 0) {
+    const head =
+      elsewhere > 0
+        ? "No crawls started from this directory."
+        : "No crawls in the registry. Start one with browser_crawl_start.";
+    return [head, ...(trailer.length > 0 ? ["", ...trailer] : [])].join("\n");
+  }
+
   const lines = ["Crawls started from this directory", ""];
   for (const job of jobs) {
     lines.push(
@@ -347,7 +364,7 @@ export function formatCrawlList(jobs: CrawlRecord[], elsewhere: number): string 
         .padStart(5)} pages  ${job.host}`,
     );
   }
-  if (elsewhere > 0) lines.push("", `${elsewhere} further crawl(s) exist for other directories.`);
+  if (trailer.length > 0) lines.push("", ...trailer);
   return lines.join("\n");
 }
 
@@ -795,6 +812,26 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
       );
     }
 
+    // A record that cannot be read is a job that still exists on Cloudflare, so
+    // it is surfaced rather than left to disappear from every listing.
+    const unreadable = crawlRegistry().unreadableJobIds();
+    const migrationError = crawlRegistry().legacyMigrationError();
+    if (ctx.hasUI && (unreadable.length > 0 || migrationError)) {
+      notify(
+        ctx,
+        [
+          unreadable.length > 0
+            ? `Cloudflare Browser Run: ${unreadable.length} crawl record(s) could not be read (${unreadable.join(", ")}).`
+            : "",
+          migrationError ?? "",
+          `Inspect or remove them under ${(paths ?? statePaths()).crawlsDir}.`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        "warning",
+      );
+    }
+
     const { configured } = credentials.describe(config);
     ctx.ui.setStatus(
       STATUS_KEY,
@@ -917,11 +954,11 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
         // page that echoes one back cannot carry it into a tool result or the
         // session file.
         for (const cookie of loaded.state.cookies) {
-          registry.remember(cookie.value, PROFILE_VALUE_MIN_LENGTH);
+          registry.remember(cookie.value);
         }
         for (const origin of loaded.state.origins) {
           for (const entry of origin.localStorage ?? []) {
-            registry.remember(entry.value, PROFILE_VALUE_MIN_LENGTH);
+            registry.remember(entry.value);
           }
         }
         if (loaded.refiltered.droppedCookies > 0 || loaded.refiltered.droppedOrigins > 0) {
@@ -1066,8 +1103,13 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
           ...(input.button ? { button: input.button } : {}),
           ...(config.browser.confirmClicks === "always" && ctx?.hasUI
             ? {
+                // The URL comes from the page, so it is sanitized and scrubbed
+                // like any other page-derived string before it reaches the TUI.
                 confirm: ({ url, ref }: { url: string; ref: string }) =>
-                  ctx.ui.confirm("Allow click?", `Click ${ref} on ${url}?`),
+                  ctx.ui.confirm(
+                    "Allow click?",
+                    scrub(sanitizeText(`Click ${ref} on ${url}?`)),
+                  ),
               }
             : {}),
         },
@@ -1581,7 +1623,14 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
         if (verb === "list") {
           const jobs = await registry.list({ cwd: sessionCwd });
           const all = await registry.list();
-          notify(ctx, formatCrawlList(jobs, all.length - jobs.length), "info");
+          notify(
+            ctx,
+            formatCrawlList(jobs, all.length - jobs.length, {
+              unreadable: registry.unreadableJobIds(),
+              migrationError: registry.legacyMigrationError(),
+            }),
+            "info",
+          );
           return;
         }
         if (verb === "refresh") {

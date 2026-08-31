@@ -583,32 +583,98 @@ test("reopening after expiry releases the previous connection first", async () =
   assert.equal(closesAfter - closesBefore, 1, "the expired handles were torn down before reconnecting");
 });
 
-test("an oversized element is captured through a clipped page screenshot", async () => {
+test("every element capture goes through a clip this code fixed at measurement time", async () => {
   const log: string[] = [];
   const page = createFakePage({
     log,
     screenshotBytes: 1_000,
     locators: {
-      e1: { box: { x: 0, y: 0, width: 400, height: 300 }, screenshotBytes: 800 },
-      e2: { box: { x: 10, y: 20, width: 5_000, height: 400 }, screenshotBytes: 800 },
+      e1: { box: { x: 0, y: 0, width: 400, height: 300 } },
+      e2: { box: { x: 10, y: 20, width: 5_000, height: 400 } },
     },
   });
   const harness = makeSession({}, createFakeBrowser({ page }));
   await harness.session.open({});
 
   const small = await harness.session.screenshot({ ref: "e1" });
-  assert.equal(small.clipped, false);
-  assert.ok(log.includes("locator.screenshot:e1"), "a bounded element uses the element capture");
+  assert.equal(small.clipped, false, "a bounded element is not reported as clipped");
+  assert.ok(
+    !log.some((entry) => entry.startsWith("locator.screenshot:")),
+    "locator.screenshot would re-measure at capture time, so it is never used",
+  );
+  assert.deepEqual(JSON.parse(log.at(-1)!.slice("page.screenshot:".length)), {
+    x: 0,
+    y: 0,
+    width: 400,
+    height: 300,
+  });
 
   log.length = 0;
   const wide = await harness.session.screenshot({ ref: "e2" });
   assert.equal(wide.clipped, true, "an oversized element is reported as clipped");
-  assert.ok(!log.some((entry) => entry.startsWith("locator.screenshot:")));
-  const clipEntry = log.find((entry) => entry.startsWith("page.screenshot:"));
-  assert.ok(clipEntry);
-  const clip = JSON.parse(clipEntry.slice("page.screenshot:".length)) as { width: number; height: number };
+  const clip = JSON.parse(log.at(-1)!.slice("page.screenshot:".length)) as {
+    width: number;
+    height: number;
+  };
   assert.equal(clip.width, 1_600, "clipped to the documented pixel cap");
   assert.equal(clip.height, 400);
+});
+
+test("an element that grows after measurement still yields a capped capture", async () => {
+  // The page resizes the element between boundingBox() and the capture. Because
+  // the clip is fixed at measurement time, the image cannot exceed the cap.
+  const log: string[] = [];
+  let measured = false;
+  const page = createFakePage({ log, screenshotBytes: 1_000 });
+  page.locator = ((selector: string) => ({
+    async boundingBox() {
+      const box = measured
+        ? { x: 0, y: 0, width: 40_000, height: 40_000 }
+        : { x: 0, y: 0, width: 800, height: 600 };
+      measured = true;
+      return box;
+    },
+    async screenshot() {
+      log.push(`locator.screenshot:${selector}`);
+      return Buffer.alloc(50, 1);
+    },
+    async click() {},
+    async fill() {},
+    async selectOption() {
+      return [];
+    },
+    async press() {},
+    async getAttribute() {
+      return null;
+    },
+    async count() {
+      return 1;
+    },
+  })) as unknown as typeof page.locator;
+
+  const harness = makeSession({}, createFakeBrowser({ page }));
+  await harness.session.open({});
+  await harness.session.screenshot({ ref: "e1" });
+
+  assert.ok(!log.some((entry) => entry.startsWith("locator.screenshot:")));
+  const clip = JSON.parse(log.at(-1)!.slice("page.screenshot:".length)) as {
+    width: number;
+    height: number;
+  };
+  assert.equal(clip.width, 800);
+  assert.equal(clip.height, 600);
+});
+
+test("an element with no layout box is refused rather than captured unbounded", async () => {
+  const page = createFakePage({ locators: { e1: { box: null } } });
+  const harness = makeSession({}, createFakeBrowser({ page }));
+  await harness.session.open({});
+
+  await assert.rejects(
+    () => harness.session.screenshot({ ref: "e1" }),
+    (error: unknown) =>
+      error instanceof BrowserRunError && /has no layout box to capture/.test(error.detail),
+  );
 });
 
 test("a click confirmation runs inside the queued window", async () => {
@@ -651,4 +717,79 @@ test("driver errors are scrubbed before they leave the session", async () => {
       return true;
     },
   );
+});
+
+test("a timed-out confirmation permanently gates the click", async () => {
+  // The operator takes longer to answer than the action timeout. The caller is
+  // told the action failed, so the click must not happen when the late yes
+  // arrives.
+  const log: string[] = [];
+  const page = createFakePage({
+    log,
+    locators: { e1: { onClick: () => { log.push("clicked"); } } },
+  });
+  const harness = makeSession({ actionTimeoutMs: 30 }, createFakeBrowser({ page }));
+  await harness.session.open({});
+
+  let resolveConfirm: ((value: boolean) => void) | undefined;
+  const confirmed = new Promise<boolean>((resolve) => {
+    resolveConfirm = resolve;
+  });
+
+  await assert.rejects(
+    () => harness.session.click("e1", { confirm: () => confirmed }),
+    (error: unknown) =>
+      error instanceof BrowserRunError && error.errorClass === "session_expired",
+  );
+
+  // The operator says yes after the caller already gave up.
+  resolveConfirm?.(true);
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.ok(!log.includes("clicked"), "a late approval clicked anyway");
+  assert.ok(!log.some((entry) => entry.startsWith("click:")), "nothing reached the page");
+});
+
+test("an aborted turn permanently gates a pending confirmation", async () => {
+  const log: string[] = [];
+  const page = createFakePage({ log, locators: { e1: {} } });
+  const harness = makeSession({ actionTimeoutMs: 5_000 }, createFakeBrowser({ page }));
+  await harness.session.open({});
+
+  const controller = new AbortController();
+  let resolveConfirm: ((value: boolean) => void) | undefined;
+  const confirmed = new Promise<boolean>((resolve) => {
+    resolveConfirm = resolve;
+  });
+
+  const click = harness.session.click("e1", { confirm: () => confirmed }, controller.signal);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  controller.abort();
+  await assert.rejects(
+    () => click,
+    (error: unknown) => error instanceof BrowserRunError && error.errorClass === "busy_queue",
+  );
+
+  resolveConfirm?.(true);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(!log.some((entry) => entry.startsWith("click:")), "an aborted click still acted");
+});
+
+test("two simultaneous opens cannot both connect", async () => {
+  let connects = 0;
+  const fake = createFakeBrowser();
+  const session = new BrowserSession({
+    config: CONFIG,
+    connect: async () => {
+      connects += 1;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return fake.browser;
+    },
+  });
+
+  const results = await Promise.allSettled([session.open({}), session.open({})]);
+  assert.equal(connects, 1, "the second open must not reach connect");
+  assert.equal(results.filter((entry) => entry.status === "fulfilled").length, 1);
+  const rejected = results.find((entry) => entry.status === "rejected") as PromiseRejectedResult;
+  assert.match(String(rejected.reason), /already being opened/);
+  assert.equal(session.state, "active");
 });

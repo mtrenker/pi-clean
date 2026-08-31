@@ -137,7 +137,18 @@ export class ActionQueue {
     }
   }
 
-  async run<T>(label: string, fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  /**
+   * `fn` receives an abandonment signal that fires when the caller has given up,
+   * whether through the action timeout or an aborted turn. An operation that
+   * waits on anything slow must check it before it mutates the page: otherwise a
+   * caller can be told the action failed and have it happen anyway, which is what
+   * a slow operator confirmation used to do.
+   */
+  async run<T>(
+    label: string,
+    fn: (abandoned: AbortSignal) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
     if (this.#pending >= this.#options.depth) {
       throw new BrowserRunError(
         "busy_queue",
@@ -146,11 +157,12 @@ export class ActionQueue {
     }
     this.#pending += 1;
 
+    const abandonment = new AbortController();
     const previous = this.#tail;
     const started = (async () => {
       await previous;
       if (signal?.aborted) throw new BrowserRunError("busy_queue", "the turn was aborted");
-      return fn();
+      return fn(abandonment.signal);
     })();
 
     // The chain waits for the real operation to settle even when the caller has
@@ -164,16 +176,22 @@ export class ActionQueue {
       },
     );
 
-    return this.#race(label, started, signal);
+    return this.#race(label, started, abandonment, signal);
   }
 
-  async #race<T>(label: string, operation: Promise<T>, signal?: AbortSignal): Promise<T> {
+  async #race<T>(
+    label: string,
+    operation: Promise<T>,
+    abandonment: AbortController,
+    signal?: AbortSignal,
+  ): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     let onAbort: (() => void) | undefined;
 
     const guard = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
         this.#options.onTimeout?.(label);
+        abandonment.abort();
         reject(
           new BrowserRunError(
             "session_expired",
@@ -183,7 +201,10 @@ export class ActionQueue {
         );
       }, this.#options.timeoutMs);
       if (signal) {
-        onAbort = (): void => reject(new BrowserRunError("busy_queue", "the turn was aborted"));
+        onAbort = (): void => {
+          abandonment.abort();
+          reject(new BrowserRunError("busy_queue", "the turn was aborted"));
+        };
         signal.addEventListener("abort", onAbort, { once: true });
       }
     });
@@ -194,6 +215,16 @@ export class ActionQueue {
       if (timer) clearTimeout(timer);
       if (onAbort && signal) signal.removeEventListener("abort", onAbort);
     }
+  }
+}
+
+/** Throw when the caller has already been told this action failed. */
+export function assertNotAbandoned(abandoned: AbortSignal | undefined, label: string): void {
+  if (abandoned?.aborted) {
+    throw new BrowserRunError(
+      "session_expired",
+      `${label} was abandoned before it acted, so nothing was done. The caller has already been told it failed.`,
+    );
   }
 }
 
@@ -362,11 +393,15 @@ export class BrowserSession {
       if (this.#state === "active") return this.#reuse(options);
     }
 
+    // Set the guarded state before the first await. Two simultaneous opens would
+    // otherwise both pass the checks above, both connect, and the second would
+    // overwrite the first's handles.
+    this.#state = "connecting";
+
     // Reopening after expiry or failure must release the old handles first;
     // overwriting them would leak a Playwright connection and its context.
     await this.#teardown().catch(() => undefined);
 
-    this.#state = "connecting";
     try {
       const browser = await this.#deps.connect();
       const context = await browser.newContext({
@@ -406,11 +441,15 @@ export class BrowserSession {
    * concurrent calls cannot both pass an admission check that only one of them
    * should have.
    */
-  async #queued<T>(label: string, fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  async #queued<T>(
+    label: string,
+    fn: (abandoned: AbortSignal) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
     this.#assertActionable();
     return this.#queue.run(
       label,
-      async () => {
+      async (abandoned) => {
         this.#assertActionable();
         if (this.#actions >= this.#deps.config.maxActionsPerSession) {
           throw new BrowserRunError(
@@ -421,7 +460,7 @@ export class BrowserSession {
         }
         this.#actions += 1;
         try {
-          return await fn();
+          return await fn(abandoned);
         } catch (error) {
           throw this.#translate(error, `${label} failed`);
         }
@@ -431,8 +470,12 @@ export class BrowserSession {
   }
 
   /** Queued operation against the active page. */
-  async act<T>(label: string, fn: (page: PageLike) => Promise<T>, signal?: AbortSignal): Promise<T> {
-    return this.#queued(label, () => fn(this.#activePage()), signal);
+  async act<T>(
+    label: string,
+    fn: (page: PageLike, abandoned: AbortSignal) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    return this.#queued(label, (abandoned) => fn(this.#activePage(), abandoned), signal);
   }
 
   /** Used by the handoff flow, which holds the queue without spending action budget. */
@@ -496,10 +539,16 @@ export class BrowserSession {
   ): Promise<PageOrientation> {
     return this.act(
       "browser_click",
-      async (page) => {
+      async (page, abandoned) => {
         const before = page.url();
-        if (options.confirm && !(await options.confirm({ url: before, ref }))) {
-          throw new BrowserRunError("invalid_request", "the operator declined this click");
+        if (options.confirm) {
+          const approved = await options.confirm({ url: before, ref });
+          // The caller may have timed out or aborted while the operator was
+          // deciding. A late yes must not click something nobody is waiting for.
+          assertNotAbandoned(abandoned, "browser_click");
+          if (!approved) {
+            throw new BrowserRunError("invalid_request", "the operator declined this click");
+          }
         }
         await page.locator(refSelector(ref)).click({
           ...(options.button ? { button: options.button } : {}),
@@ -594,7 +643,10 @@ export class BrowserSession {
           ? maxHeight
           : Math.min(this.#deps.config.viewport.height, maxDimension);
 
-        // Measure an element before capturing it, so the pixel cap is real.
+        // Element captures always go through a page clip that this code fixes at
+        // measurement time. Calling `locator.screenshot()` would re-measure at
+        // capture time, so a page that grows the element in between would produce
+        // an image past the pixel cap no matter what the earlier measurement said.
         let elementClip: { x: number; y: number; width: number; height: number } | undefined;
         let elementOversize = false;
         if (options.ref) {
@@ -602,15 +654,19 @@ export class BrowserSession {
             .locator(refSelector(options.ref))
             .boundingBox()
             .catch(() => null);
-          if (box && (box.width > maxDimension || box.height > maxDimension)) {
-            elementOversize = true;
-            elementClip = {
-              x: box.x,
-              y: box.y,
-              width: Math.min(box.width, maxDimension),
-              height: Math.min(box.height, maxDimension),
-            };
+          if (!box || box.width <= 0 || box.height <= 0) {
+            throw new BrowserRunError(
+              "invalid_request",
+              `${options.ref} has no layout box to capture. Scroll it into view, or take a viewport screenshot instead.`,
+            );
           }
+          elementOversize = box.width > maxDimension || box.height > maxDimension;
+          elementClip = {
+            x: box.x,
+            y: box.y,
+            width: Math.min(box.width, maxDimension),
+            height: Math.min(box.height, maxDimension),
+          };
         }
 
         const capture = async (factor: number): Promise<Buffer> => {
@@ -621,12 +677,11 @@ export class BrowserSession {
             shot["clip"] = {
               x: elementClip.x,
               y: elementClip.y,
-              width: Math.max(64, Math.round(elementClip.width * factor)),
-              height: Math.max(64, Math.round(elementClip.height * factor)),
+              width: Math.max(1, Math.round(elementClip.width * factor)),
+              height: Math.max(1, Math.round(elementClip.height * factor)),
             };
             return page.screenshot(shot);
           }
-          if (options.ref) return page.locator(refSelector(options.ref)).screenshot(shot);
 
           if (options.fullPage) {
             shot["fullPage"] = true;

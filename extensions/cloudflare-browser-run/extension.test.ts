@@ -1374,3 +1374,129 @@ test("an abandoned login saves nothing and still closes the context", { skip: LO
   assert.match(ui.notifications.at(-1)?.text ?? "", /Nothing was saved for example-site/);
   assert.ok(fake.log.includes("browser.close"), "an abandoned login still closes the context");
 });
+
+// ---------------------------------------------------------------------------
+// Verification follow-ups.
+// ---------------------------------------------------------------------------
+
+test("a short restored cookie value is redacted like any other secret", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  process.env[PROFILE_KEY_ENV] = PROFILE_MASTER_KEY;
+  t.after(() => {
+    delete process.env[PROFILE_KEY_ENV];
+  });
+  await writeConfig(box.agentDir, {
+    profileVault: { backend: "env" },
+    profiles: { "example-site": { origins: ["https://www.example.com"] } },
+  });
+
+  // Eight characters: above the general floor, below the old profile-only one.
+  const shortToken = "s3ss10n8";
+  const paths = statePaths(box.agentDir);
+  await ensureStateDir(paths);
+  const store = new ProfileStore(
+    paths,
+    new ProfileVault(paths, {
+      backend: createEnvBackend({ [PROFILE_KEY_ENV]: PROFILE_MASTER_KEY }),
+      canMintKeys: false,
+    }),
+  );
+  await store.save(
+    "example-site",
+    { origins: ["https://www.example.com"], allowNavigationOutsideProfile: false },
+    {
+      cookies: [
+        {
+          name: "sid",
+          value: shortToken,
+          domain: "www.example.com",
+          path: "/",
+          expires: Math.floor(Date.now() / 1000) + 86_400,
+        },
+      ],
+      origins: [],
+    },
+  );
+
+  const page = createFakePage({
+    url: "https://www.example.com/account",
+    snapshot: `- text: "debug: session=${shortToken}" [ref=e1]`,
+  });
+  const fake = createFakeBrowser({ page });
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser, lookup: publicLookup });
+  const { ctx } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+  await box.pi.tools
+    .get("browser_open")!
+    .execute("o", { profile: "example-site" }, undefined, undefined, ctx);
+
+  const snapshot = await box.pi.tools
+    .get("browser_snapshot")!
+    .execute("s", {}, undefined, undefined, ctx);
+  const text = snapshot.content[0]?.text ?? "";
+  assert.ok(!text.includes(shortToken), "a short restored cookie value reached the model");
+  assert.match(text, /\[redacted\]/);
+});
+
+test("the click confirmation prompt carries no raw page text", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  await writeConfig(box.agentDir, { browser: { confirmClicks: "always" } });
+
+  // The page URL is third-party input: it can carry control characters and
+  // secret-shaped parameters.
+  const page = createFakePage({
+    url: "https://www.example.com/go?jwt=eyJhbGciOi.payload.sig\x1B[31m",
+    locators: { e1: {} },
+  });
+  const fake = createFakeBrowser({ page });
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser, lookup: publicLookup });
+
+  const prompts: string[] = [];
+  const { ctx } = createFakeContext();
+  (ctx.ui as unknown as { confirm: (title: string, body: string) => Promise<boolean> }).confirm =
+    async (_title, body) => {
+      prompts.push(body);
+      return true;
+    };
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+  await box.pi.tools.get("browser_open")!.execute("o", {}, undefined, undefined, ctx);
+  await box.pi.tools.get("browser_click")!.execute("c", { ref: "e1" }, undefined, undefined, ctx);
+
+  assert.equal(prompts.length, 1);
+  assert.ok(!prompts[0]!.includes("eyJhbGciOi.payload.sig"), "a JWT reached the prompt");
+  assert.match(prompts[0]!, /jwt=\[redacted\]/);
+  assert.ok(!prompts[0]!.includes("\x1B"), "an escape sequence reached the prompt");
+});
+
+test("an unreadable crawl record blocks new crawls and is reported", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
+  const { ctx, ui } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+
+  box.setResponse({ body: { success: true, result: { jobId: "job-ok" } } });
+  await box.pi.tools
+    .get("browser_crawl_start")!
+    .execute("c", { url: "https://docs.example.com/" }, undefined, undefined, ctx);
+
+  const paths = statePaths(box.agentDir);
+  await mkdir(join(paths.crawlsDir, "job-broken"), { recursive: true });
+  await writeFile(join(paths.crawlsDir, "job-broken", "record.json"), "{ not json", "utf8");
+
+  const before = box.fetchCalls.length;
+  await assert.rejects(
+    () =>
+      box.pi.tools
+        .get("browser_crawl_start")!
+        .execute("c2", { url: "https://docs.example.com/" }, undefined, undefined, ctx),
+    (error: unknown) =>
+      error instanceof BrowserRunError && /cannot be trusted/.test(error.message),
+  );
+  assert.equal(box.fetchCalls.length, before, "no crawl was started on an untrusted count");
+
+  await box.pi.commands.get("browser-crawls")?.handler("list", ctx);
+  assert.match(ui.notifications.at(-1)?.text ?? "", /could not be read: job-broken/);
+});
