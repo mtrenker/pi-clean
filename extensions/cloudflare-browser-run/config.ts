@@ -67,6 +67,16 @@ export interface CrawlSettings {
   resultCacheDays: number;
 }
 
+export const KEY_BACKENDS = ["auto", "keyring", "secret-manager", "env"] as const;
+export type KeyBackendPreference = (typeof KEY_BACKENDS)[number];
+
+export interface ProfileVaultSettings {
+  backend: KeyBackendPreference;
+  /** Command whose stdout is a base64 master key, for the secret-manager backend. */
+  command?: string;
+  args?: string[];
+}
+
 export interface LoggingSettings {
   enabled: boolean;
   maxBytes: number;
@@ -77,6 +87,7 @@ export interface BrowserRunConfig {
   credentials: CredentialConfig;
   browser: BrowserSettings;
   profiles: Record<string, ProfileDefinition>;
+  profileVault: ProfileVaultSettings;
   crawl: CrawlSettings;
   logging: LoggingSettings;
 }
@@ -101,6 +112,7 @@ export const DEFAULT_CONFIG: BrowserRunConfig = {
     viewport: { width: 1280, height: 800 },
   },
   profiles: {},
+  profileVault: { backend: "auto" },
   crawl: {
     crawlPurposes: ["ai-input"],
     defaultLimit: 25,
@@ -225,7 +237,15 @@ export function assertExactOrigin(value: string, path: string): string {
 // Parsing
 // ---------------------------------------------------------------------------
 
-const ROOT_KEYS = ["credentials", "browser", "profiles", "crawl", "logging"] as const;
+const ROOT_KEYS = [
+  "credentials",
+  "browser",
+  "profiles",
+  "profileVault",
+  "crawl",
+  "logging",
+] as const;
+const PROFILE_VAULT_KEYS = ["backend", "command", "args"] as const;
 const CREDENTIAL_KEYS = ["source", "vault", "item", "accountIdField", "tokenField", "argv"] as const;
 const BROWSER_KEYS = [
   "keepAliveMs",
@@ -351,6 +371,18 @@ function parseProfiles(raw: unknown): Record<string, ProfileDefinition> {
   return profiles;
 }
 
+function parseProfileVault(raw: unknown): ProfileVaultSettings {
+  const record = asObject(raw, "profileVault", PROFILE_VAULT_KEYS);
+  const backend = asEnum(record["backend"], "profileVault.backend", KEY_BACKENDS, "auto");
+  const settings: ProfileVaultSettings = { backend };
+  if (record["command"] !== undefined) settings.command = asString(record["command"], "profileVault.command");
+  if (record["args"] !== undefined) settings.args = asStringArray(record["args"], "profileVault.args");
+  if (backend === "secret-manager" && !settings.command) {
+    invalid("profileVault.command", "is required for the secret-manager backend");
+  }
+  return settings;
+}
+
 function parseCrawl(raw: unknown): CrawlSettings {
   const record = asObject(raw, "crawl", CRAWL_KEYS);
   const defaults = DEFAULT_CONFIG.crawl;
@@ -430,6 +462,7 @@ export function parseConfig(raw: unknown): BrowserRunConfig {
     credentials: parseCredentials(record["credentials"]),
     browser: parseBrowser(record["browser"]),
     profiles: parseProfiles(record["profiles"]),
+    profileVault: parseProfileVault(record["profileVault"]),
     crawl: parseCrawl(record["crawl"]),
     logging: parseLogging(record["logging"]),
   };

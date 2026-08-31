@@ -19,19 +19,26 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import {
   DEFAULT_MAX_BYTES,
+  withFileMutationQueue,
   type ExtensionAPI,
+  type ExtensionCommandContext,
   type ExtensionContext,
   type ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
+import { readFile, writeFile } from "node:fs/promises";
+
 import { Type } from "typebox";
 
 import { createActivityLogger, logSafeTarget, type ActivityLogger } from "./activity-log.ts";
 import { connectOverCdp } from "./cdp.ts";
 import {
+  assertExactOrigin,
   DEFAULT_CONFIG,
+  ensureStateDir,
   loadConfig,
   statePaths,
   type BrowserRunConfig,
+  type ProfileDefinition,
   type StatePaths,
 } from "./config.ts";
 import {
@@ -50,12 +57,21 @@ import { CredentialStore, type Credentials } from "./credentials.ts";
 import { BrowserRunError, errorMessage, isBrowserRunError } from "./errors.ts";
 import { cdpWebSocketUrl } from "./endpoints.ts";
 import { CloudflareClient, defaultSleep } from "./http.ts";
+import {
+  getLiveViewUrl,
+  openInBrowser,
+  runHandoff,
+  startRedirector,
+  HANDOFF_MAX_MS,
+} from "./liveview.ts";
+import { ProfileStore, type ProfileStatus } from "./profiles.ts";
 import { fetchMarkdown, probeCredentials, WAIT_UNTIL_VALUES, type WaitUntil } from "./quick-actions.ts";
 import { SecretRegistry } from "./redact.ts";
 import { BrowserSession, type BrowserLike } from "./session.ts";
 import { formatOrientation, type PageOrientation } from "./snapshot.ts";
 import { buildDetails, pageRef, type BrowserDetails, type PageRef } from "./state.ts";
-import { validateTarget } from "./url-guard.ts";
+import { validateTarget, type LookupFn } from "./url-guard.ts";
+import { createCommandRunner, ProfileVault, resolveKeyBackend } from "./vault.ts";
 
 const STATUS_KEY = "cloudflare-browser-run";
 
@@ -107,6 +123,12 @@ const refSchema = Type.String({
 
 const openParameters = Type.Object({
   url: Type.Optional(Type.String({ description: "Absolute http or https URL to open." })),
+  profile: Type.Optional(
+    Type.String({
+      description:
+        "Named authenticated profile to restore. The operator creates one with /browser-login.",
+    }),
+  ),
   new_tab: Type.Optional(
     Type.Boolean({ description: "Open a new tab in an already-open session instead of reusing one." }),
   ),
@@ -202,6 +224,42 @@ function safePageRef(url: string, title?: string): BrowserDetails["page"] {
  */
 export interface FactoryOverrides {
   connect?: () => Promise<BrowserLike>;
+  lookup?: LookupFn;
+}
+
+
+function formatProfileList(statuses: ProfileStatus[]): string {
+  if (statuses.length === 0) return "No saved profiles. Create one with /browser-login <name>.";
+  const lines = ["Saved profiles", ""];
+  for (const status of statuses) {
+    lines.push(
+      `${status.name.padEnd(20)} ${status.state.padEnd(11)} ${
+        status.metadata ? status.metadata.origins.join(", ") : ""
+      }`,
+    );
+  }
+  return lines.join("\n");
+}
+
+function formatProfileStatus(status: ProfileStatus): string {
+  if (!status.metadata) return `Profile ${status.name}: ${status.state}`;
+  const metadata = status.metadata;
+  return [
+    `Profile ${metadata.name}: ${status.state}${status.reason ? ` (${status.reason})` : ""}`,
+    `  origins        : ${metadata.origins.join(", ")}`,
+    `  cookies        : ${metadata.cookieCount} kept, ${metadata.droppedCookieCount} dropped when saved`,
+    `  local storage  : ${Object.entries(metadata.localStorageCounts)
+      .map(([origin, count]) => `${origin}=${count}`)
+      .join(", ") || "none"}`,
+    `  earliest expiry: ${
+      metadata.earliestCookieExpiry
+        ? new Date(metadata.earliestCookieExpiry * 1000).toISOString()
+        : "session cookies only"
+    }`,
+    `  domain cookies : ${metadata.carriesDomainCookies ? "yes, broader than the allowlist" : "no"}`,
+    `  key backend    : ${metadata.keyBackend}`,
+    `  refreshed      : ${metadata.lastRefreshedAt}`,
+  ].join("\n");
 }
 
 const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): void => {
@@ -221,6 +279,8 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
   let session: BrowserSession | undefined;
   let lastProfile: string | null = null;
   let lastPage: PageRef | null = null;
+  let profileStore: ProfileStore | undefined;
+  let profileError: string | undefined;
 
   function getClient(): CloudflareClient {
     client ??= new CloudflareClient(
@@ -249,6 +309,43 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
         }),
     });
     return session;
+  }
+
+  /**
+   * The key backend is resolved on first use rather than at session_start, so a
+   * session that never touches a profile never probes the keyring.
+   */
+  async function requireProfileStore(): Promise<ProfileStore> {
+    if (profileStore) return profileStore;
+    const run = createCommandRunner();
+    const resolution = await resolveKeyBackend({
+      preferred: config.profileVault.backend,
+      run,
+      env: process.env,
+      ...(config.profileVault.command
+        ? {
+            secretManager: {
+              command: config.profileVault.command,
+              args: config.profileVault.args ?? [],
+            },
+          }
+        : {}),
+    });
+    await ensureStateDir(paths ?? statePaths());
+    profileStore = new ProfileStore(paths ?? statePaths(), new ProfileVault(paths ?? statePaths(), resolution));
+    return profileStore;
+  }
+
+  function requireProfileDefinition(name: string): ProfileDefinition {
+    const definition = config.profiles[name];
+    if (!definition) {
+      throw new BrowserRunError(
+        "profile_missing",
+        `profile ${name} is not defined. Add it under "profiles" in the configuration, ` +
+          `or run /browser-login ${name} to create it.`,
+      );
+    }
+    return definition;
   }
 
   /** Additive activation only; see INTERACTION_TOOLS for why they are never removed. */
@@ -343,6 +440,17 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     return usedInteractionTools;
   }
 
+  /**
+   * Validate a navigation target. The origin allowlist is applied before DNS, so
+   * a URL outside a profile's origins is rejected without resolving it at all.
+   */
+  async function validate(url: string, allowedOrigins: string[] = []): Promise<URL> {
+    return validateTarget(url, {
+      ...(overrides?.lookup ? { lookup: overrides.lookup } : {}),
+      ...(allowedOrigins.length > 0 ? { allowedOrigins } : {}),
+    });
+  }
+
   /** Interaction tools stay registered after close, so they need a clear guard. */
   function requireOpenSession(): BrowserSession {
     if (!session) {
@@ -431,7 +539,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     async execute(_toolCallId, params, signal, onUpdate, _ctx) {
       const input = params as BrowserReadInput;
       const startedAt = Date.now();
-      const target = await validateTarget(input.url);
+      const target = await validate(input.url);
 
       onUpdate?.({
         content: [{ type: "text", text: `Rendering ${target.origin}${target.pathname}` }],
@@ -497,11 +605,30 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
       "Use browser_open when a task needs multiple steps or interaction on one page rather than a single read.",
     ],
     parameters: openParameters,
-    prepareArguments: (args) => normalizeUrlArgument<{ url?: string; new_tab?: boolean }>(args),
+    prepareArguments: (args) =>
+      normalizeUrlArgument<{ url?: string; profile?: string; new_tab?: boolean }>(args),
     async execute(_toolCallId, params, signal, onUpdate) {
-      const input = params as { url?: string; new_tab?: boolean };
+      const input = params as { url?: string; profile?: string; new_tab?: boolean };
       const startedAt = Date.now();
-      if (input.url) await validateTarget(input.url);
+
+      // Fail closed on profiles: an anonymous fallback would leave the model
+      // believing it is signed in when it is not.
+      let restored: { state: unknown; origins: string[]; confine: boolean } | undefined;
+      if (input.profile) {
+        const definition = requireProfileDefinition(input.profile);
+        onUpdate?.({
+          content: [{ type: "text", text: `Restoring profile ${input.profile}` }],
+          details: sessionDetails({ state: "connecting", profile: input.profile }),
+        });
+        const loaded = await (await requireProfileStore()).load(input.profile);
+        restored = {
+          state: loaded.state,
+          origins: definition.origins,
+          confine: !definition.allowNavigationOutsideProfile,
+        };
+      }
+
+      if (input.url) await validate(input.url, restored?.confine ? restored.origins : []);
 
       onUpdate?.({
         content: [{ type: "text", text: "Connecting to Cloudflare Browser Run" }],
@@ -512,12 +639,21 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
       const orientation = await active.open({
         ...(input.url ? { url: input.url } : {}),
         ...(input.new_tab ? { newTab: true } : {}),
+        ...(input.profile ? { profile: input.profile } : {}),
+        ...(restored ? { storageState: restored.state } : {}),
+        ...(restored?.confine ? { allowedOrigins: restored.origins } : {}),
       });
       const added = activateInteractionTools();
       await logAction("browser_open", startedAt, orientation);
 
       const result = orientationResult("browser_open", orientation);
-      const preface = added.length > 0 ? `Browser session open. Tools now available: ${added.join(", ")}.\n\n` : "";
+      const profileNote = input.profile ? ` Profile ${input.profile} restored.` : "";
+      const preface =
+        added.length > 0
+          ? `Browser session open.${profileNote} Tools now available: ${added.join(", ")}.\n\n`
+          : profileNote
+            ? `${profileNote.trim()}\n\n`
+            : "";
       return {
         content: [{ type: "text", text: preface + (result.content[0]?.text ?? "") }],
         details: result.details,
@@ -537,8 +673,9 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     async execute(_toolCallId, params, signal) {
       const input = params as { url?: string; action?: "back" | "forward" | "reload" };
       const startedAt = Date.now();
-      if (input.url) await validateTarget(input.url);
-      const orientation = await requireOpenSession().navigate(
+      const active = requireOpenSession();
+      if (input.url) await validate(input.url, active.allowedOrigins);
+      const orientation = await active.navigate(
         input.url ? { url: input.url } : { action: input.action ?? "reload" },
         signal,
       );
@@ -781,7 +918,7 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
         return orientationResult("browser_tabs", orientation);
       }
 
-      if (input.url) await validateTarget(input.url);
+      if (input.url) await validate(input.url, active.allowedOrigins);
       const orientation = await active.openTab(input.url);
       await logAction("browser_tabs", startedAt, orientation);
       void signal;
@@ -834,6 +971,272 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     },
   });
 
+  pi.registerCommand("browser-login", {
+    description: "Create or refresh a named authenticated profile through Live View",
+    getArgumentCompletions: (prefix) => {
+      const items = Object.keys(config.profiles)
+        .filter((name) => name.startsWith(prefix))
+        .map((name) => ({ value: name, label: name }));
+      return items.length > 0 ? items : null;
+    },
+    async handler(args, ctx) {
+      const name = args.trim();
+      if (!name) {
+        ctx.ui.notify("Usage: /browser-login <profile>", "warning");
+        return;
+      }
+      if (!ctx.hasUI) {
+        ctx.ui.notify(
+          "Profile login needs an interactive host: it hands the browser to you for sign-in.",
+          "error",
+        );
+        return;
+      }
+
+      try {
+        const definition = await resolveOrCreateProfile(name, ctx);
+        if (!definition) return;
+        await runProfileLogin(name, definition, ctx);
+      } catch (error) {
+        const detail = isBrowserRunError(error) ? error.message : errorMessage(error);
+        ctx.ui.notify(`/browser-login ${name} failed. ${detail}`, "error");
+      }
+    },
+  });
+
+  pi.registerCommand("browser-profiles", {
+    description: "Inspect and delete named authenticated profiles: list | status <name> | delete <name>",
+    getArgumentCompletions: (prefix) => {
+      const verbs = ["list", "status", "delete"];
+      const names = Object.keys(config.profiles);
+      const candidates = prefix.includes(" ")
+        ? names.map((name) => `${prefix.split(" ")[0]} ${name}`)
+        : verbs;
+      const items = candidates
+        .filter((value) => value.startsWith(prefix))
+        .map((value) => ({ value, label: value }));
+      return items.length > 0 ? items : null;
+    },
+    async handler(args, ctx) {
+      const [verb = "list", name] = args.trim().split(/\s+/).filter(Boolean);
+      try {
+        const store = await requireProfileStore();
+        if (verb === "list") {
+          const statuses = await store.list();
+          ctx.ui.notify(formatProfileList(statuses), "info");
+          return;
+        }
+        if (!name) {
+          ctx.ui.notify(`Usage: /browser-profiles ${verb} <profile>`, "warning");
+          return;
+        }
+        if (verb === "status") {
+          ctx.ui.notify(formatProfileStatus(await store.status(name)), "info");
+          return;
+        }
+        if (verb === "delete") {
+          const status = await store.status(name);
+          if (status.state === "absent") {
+            ctx.ui.notify(`Profile ${name} has no saved state.`, "info");
+            return;
+          }
+          const ok = await ctx.ui.confirm(
+            "Delete profile?",
+            `Destroy the key and sealed state for ${name}? Signing in again requires /browser-login ${name}.`,
+          );
+          if (!ok) return;
+          await store.remove(name);
+          ctx.ui.notify(
+            `Profile ${name} deleted. The wrapping key was destroyed, which is what makes the ` +
+              "sealed bytes unreadable; file overwriting is not a guarantee on this filesystem.",
+            "info",
+          );
+          return;
+        }
+        ctx.ui.notify(`Unknown subcommand ${verb}. Use list, status, or delete.`, "warning");
+      } catch (error) {
+        const detail = isBrowserRunError(error) ? error.message : errorMessage(error);
+        ctx.ui.notify(`/browser-profiles failed. ${detail}`, "error");
+      }
+    },
+  });
+
+  /** Look up a declared profile, or walk the operator through declaring one. */
+  async function resolveOrCreateProfile(
+    name: string,
+    ctx: ExtensionCommandContext,
+  ): Promise<ProfileDefinition | undefined> {
+    const existing = config.profiles[name];
+    if (existing) return existing;
+
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/i.test(name)) {
+      ctx.ui.notify("Profile names are 1-64 characters of letters, digits, or hyphens.", "error");
+      return undefined;
+    }
+
+    const answer = await ctx.ui.input(
+      `Allowed origins for ${name} (comma separated)`,
+      "https://www.example.com",
+    );
+    if (!answer) return undefined;
+
+    let origins: string[];
+    try {
+      origins = answer
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .map((value, index) => assertExactOrigin(value, `origins[${index}]`));
+    } catch (error) {
+      ctx.ui.notify(errorMessage(error), "error");
+      return undefined;
+    }
+    if (origins.length === 0) {
+      ctx.ui.notify("A profile needs at least one origin.", "error");
+      return undefined;
+    }
+
+    const ok = await ctx.ui.confirm(
+      "Create profile?",
+      `${name} will store cookies and local storage for exactly: ${origins.join(", ")}`,
+    );
+    if (!ok) return undefined;
+
+    const definition: ProfileDefinition = {
+      origins: [...new Set(origins)],
+      allowNavigationOutsideProfile: false,
+    };
+    await persistProfileDefinition(name, definition);
+    config = { ...config, profiles: { ...config.profiles, [name]: definition } };
+    return definition;
+  }
+
+  /** Merge one profile into config.json without disturbing anything else in it. */
+  async function persistProfileDefinition(
+    name: string,
+    definition: ProfileDefinition,
+  ): Promise<void> {
+    const active = paths ?? statePaths();
+    await ensureStateDir(active);
+    await withFileMutationQueue(active.configFile, async () => {
+      let document: Record<string, unknown> = {};
+      try {
+        document = JSON.parse(await readFile(active.configFile, "utf8")) as Record<string, unknown>;
+      } catch {
+        document = {};
+      }
+      const profiles = (document["profiles"] as Record<string, unknown> | undefined) ?? {};
+      document["profiles"] = { ...profiles, [name]: definition };
+      await writeFile(active.configFile, `${JSON.stringify(document, null, 2)}\n`, {
+        encoding: "utf8",
+        mode: 0o600,
+      });
+    });
+  }
+
+  /**
+   * The attended sign-in flow.
+   *
+   * The Live View URL never leaves this function: it goes straight into a
+   * one-shot loopback redirector, and only the loopback URL is shown or opened.
+   * The session is held in handoff for the whole window, so model-facing tools,
+   * including snapshots and screenshots, are rejected while a person is typing.
+   */
+  async function runProfileLogin(
+    name: string,
+    definition: ProfileDefinition,
+    ctx: ExtensionCommandContext,
+  ): Promise<void> {
+    const store = await requireProfileStore();
+    const active = ensureSession();
+    const startedAt = Date.now();
+
+    ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("accent", `browser run: login ${name}`));
+    const firstOrigin = definition.origins[0] as string;
+    await active.open({ url: firstOrigin });
+
+    active.enterHandoff();
+    let redirector: Awaited<ReturnType<typeof startRedirector>> | undefined;
+    try {
+      const result = await active.exclusive("browser-login", async () => {
+        const cdp = await active.cdpSession();
+        const liveViewUrl = await getLiveViewUrl(cdp, { mode: "tab", expiresInMs: 15 * 60 * 1000 });
+        redirector = await startRedirector(liveViewUrl);
+        const opened = openInBrowser(redirector.url);
+
+        ctx.ui.notify(
+          [
+            `Sign in to ${firstOrigin} for profile ${name}.`,
+            opened
+              ? "Your browser is opening the live session."
+              : `Open this local link within two minutes: ${redirector.url}`,
+            "",
+            "Complete the sign-in, any MFA, and any consent dialog, then choose Done in the",
+            "Cloudflare toolbar. Choose Failed to abandon without saving.",
+            "Pi cannot act on the page and cannot screenshot it while you are in control.",
+          ].join("\n"),
+          "info",
+        );
+
+        const handoff = await runHandoff(cdp, {
+          instructions: `Sign in to ${firstOrigin} for the Pi profile ${name}, then choose Done.`,
+          timeoutMs: Math.min(config.browser.keepAliveMs * 2, HANDOFF_MAX_MS),
+        });
+        if (!handoff.success) return { saved: false, reason: handoff.reason };
+
+        const context = active.context;
+        if (!context) throw new BrowserRunError("no_session", "the browser context is gone");
+        const saved = await store.save(name, definition, await context.storageState());
+        return { saved: true, metadata: saved.metadata, filter: saved.filter };
+      });
+
+      if (!result.saved) {
+        ctx.ui.notify(`Nothing was saved for ${name}: ${result.reason}`, "warning");
+        await logger?.log({
+          event: "profile_login",
+          command: "browser-login",
+          profile: name,
+          durationMs: Date.now() - startedAt,
+          errorClass: "handoff_incomplete",
+        });
+        return;
+      }
+
+      const metadata = result.metadata!;
+      const filter = result.filter!;
+      ctx.ui.notify(
+        [
+          `Profile ${name} saved.`,
+          `  cookies kept   : ${filter.keptCookies} (dropped ${filter.droppedCookies} outside the allowlist)`,
+          `  origins kept   : ${filter.keptOrigins}`,
+          `  earliest expiry: ${
+            metadata.earliestCookieExpiry
+              ? new Date(metadata.earliestCookieExpiry * 1000).toISOString()
+              : "session cookies only"
+          }`,
+          `  key backend    : ${metadata.keyBackend}`,
+          metadata.carriesDomainCookies
+            ? "  note           : this profile holds domain-wide cookies, so the browser would send " +
+              "them to sibling hosts. Navigation stays confined to the listed origins."
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        "info",
+      );
+      await logger?.log({
+        event: "profile_login",
+        command: "browser-login",
+        profile: name,
+        durationMs: Date.now() - startedAt,
+      });
+    } finally {
+      await redirector?.close();
+      active.leaveHandoff();
+      ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", "browser run: active"));
+    }
+  }
+
   function showStatus(ctx: ExtensionContext): void {
     const description = credentials.describe(config);
     const lines = [
@@ -849,6 +1252,12 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
       }`,
       `last profile  : ${lastProfile ?? "(none)"}`,
       `last page     : ${lastPage ? `${lastPage.origin}${lastPage.path}` : "(none)"}`,
+      `profiles      : ${
+        Object.keys(config.profiles).length > 0
+          ? Object.keys(config.profiles).join(", ")
+          : "(none configured)"
+      }`,
+      `profile vault : ${config.profileVault.backend}`,
       `crawl purposes: ${config.crawl.crawlPurposes.join(", ")}`,
       `activity log  : ${paths?.logFile ?? "(no session)"} (${config.logging.enabled ? "enabled" : "disabled"})`,
     ];

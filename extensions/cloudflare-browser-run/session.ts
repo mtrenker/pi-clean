@@ -64,11 +64,19 @@ export interface ContextLike {
   close(): Promise<void>;
 }
 
+export interface CdpSessionLike {
+  send(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  on(event: string, handler: (payload: unknown) => void): void;
+  off(event: string, handler: (payload: unknown) => void): void;
+  detach?(): Promise<void>;
+}
+
 export interface BrowserLike {
   newContext(options?: Record<string, unknown>): Promise<ContextLike>;
   contexts(): ContextLike[];
   close(): Promise<void>;
   isConnected(): boolean;
+  newBrowserCDPSession?(): Promise<CdpSessionLike>;
 }
 
 // ---------------------------------------------------------------------------
@@ -282,6 +290,18 @@ export class BrowserSession {
 
   get context(): ContextLike | undefined {
     return this.#context;
+  }
+
+  /** Cloudflare-domain commands (Live View, handoff) travel over a browser CDP session. */
+  async cdpSession(): Promise<CdpSessionLike> {
+    const browser = this.#browser;
+    if (!browser?.newBrowserCDPSession) {
+      throw new BrowserRunError(
+        "no_session",
+        "this browser connection does not expose a CDP session, so Live View is unavailable",
+      );
+    }
+    return browser.newBrowserCDPSession();
   }
 
   /** Held by the human handoff for its whole duration (DESIGN.md section 12.3). */

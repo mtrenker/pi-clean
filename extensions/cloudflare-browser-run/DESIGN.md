@@ -311,6 +311,11 @@ The directory itself is created with mode 0700. Nothing is ever written inside t
       "allowNavigationOutsideProfile": false
     }
   },
+  "profileVault": {
+    "backend": "auto",                     // "auto" | "keyring" | "secret-manager" | "env"
+    "command": "pass-cli",                 // secret-manager backend: stdout is a base64 master key
+    "args": ["item", "view", "--vault-name", "hub", "--item-title", "pi-browser-run-key"]
+  },
   "crawl": {
     "crawlPurposes": ["ai-input"],
     "defaultLimit": 25,
@@ -679,6 +684,11 @@ Storage state is bearer-equivalent authentication material. The scheme is envelo
   kilobytes once local storage is included, which is more than keyring entries are meant to hold,
   while a 32 byte key is exactly what a keyring is for.
 
+- Backends 2 and 3 hold one master key rather than one key per profile, and derive each profile's
+  key with HKDF-SHA256 over the profile name. That keeps profiles cryptographically independent
+  from each other, and it is what makes those backends usable headless: nothing has to be written
+  back to the secret store when a profile is created. The consequence is stated in 11.4.
+
 - `gpg` and `age` were considered and rejected: both add an external trust store and an agent
   prompt to a flow that already has a working keyring, and neither improves the threat model.
 
@@ -697,11 +707,18 @@ instead is make re-authentication cheap: `/browser-login <name>` runs the same f
 profile and a refresh, and overwrites in place.
 
 Deletion. `/browser-profiles delete <name>` clears the wrapping key from the backend first
-(`secret-tool clear` on the matching attributes), then overwrites and unlinks the ciphertext, then
-removes the metadata. Key destruction is the deletion guarantee that actually holds: on a
-copy-on-write or journaling filesystem, overwriting a file does not reliably erase the old blocks,
-so the ciphertext is treated as possibly recoverable and the key is what is destroyed. The README
-says this plainly instead of promising secure erasure.
+(`secret-tool clear` on the matching attributes), then unlinks the ciphertext, then removes the
+metadata. Key destruction is the deletion guarantee that actually holds: on a copy-on-write or
+journaling filesystem, overwriting a file does not reliably erase the old blocks, so the ciphertext
+is treated as possibly recoverable and the key is what is destroyed. If key destruction fails, the
+ciphertext is deliberately left in place, because a sealed file whose key still exists is the state
+the operator can retry from. The README says this plainly instead of promising secure erasure.
+
+The derived backends cannot honour this. Because they hold one master key rather than one key per
+profile, deleting a single profile's key is not a thing they can do; `delete` refuses and says the
+master key must be rotated to invalidate every profile. This is a real limitation of choosing a
+headless-capable backend, and the command states it rather than deleting the metadata and implying
+the bytes are now unreadable.
 
 Failure recovery. A decrypt failure, a missing key, or a format version mismatch marks the profile
 `unreadable` and fails `browser_open` closed with the reason. Nothing falls back to an anonymous
@@ -867,6 +884,8 @@ cannot be implemented honestly.
    returns one public and one private address must be rejected.
 7. Crawl start URLs get the same treatment, plus a check that `includePatterns` and
    `excludePatterns` are syntactically valid patterns rather than regular expressions.
+8. Order matters: when the session confines navigation to a profile's origins, the origin check
+   runs before DNS, so a URL outside the allowlist is rejected without being resolved at all.
 
 ### 15.2 An honest statement of what this protects
 

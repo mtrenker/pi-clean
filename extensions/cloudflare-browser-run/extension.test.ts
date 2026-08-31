@@ -13,7 +13,9 @@ import test from "node:test";
 
 import cloudflareBrowserRun from "./index.ts";
 import { ACCOUNT_ID_ENV, TOKEN_ENV } from "./credentials.ts";
-import { statePaths } from "./config.ts";
+import { ensureStateDir, statePaths } from "./config.ts";
+import { ProfileStore } from "./profiles.ts";
+import { createEnvBackend, ProfileVault, PROFILE_KEY_ENV } from "./vault.ts";
 import { BrowserRunError } from "./errors.ts";
 import {
   collectStrings,
@@ -28,6 +30,11 @@ import {
 } from "./test-support.ts";
 
 const AGENT_DIR_ENV = "PI_CODING_AGENT_DIR";
+
+/** Tests never touch real DNS; every hostname resolves to one public address. */
+const publicLookup = async (): Promise<Array<{ address: string; family: number }>> => [
+  { address: "93.184.216.34", family: 4 },
+];
 
 interface Sandbox {
   pi: FakePi;
@@ -91,7 +98,7 @@ function configureEnvCredentials(): void {
 
 test("AC-C2 the factory registers its surface and does nothing else", async (t) => {
   const box = await sandbox(t);
-  cloudflareBrowserRun(box.pi.api);
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
 
   assert.deepEqual(
     [...box.pi.tools.keys()],
@@ -109,7 +116,10 @@ test("AC-C2 the factory registers its surface and does nothing else", async (t) 
       "browser_close",
     ],
   );
-  assert.deepEqual([...box.pi.commands.keys()], ["browser"]);
+  assert.deepEqual(
+    [...box.pi.commands.keys()],
+    ["browser", "browser-login", "browser-profiles"],
+  );
   assert.ok(box.pi.handlers.has("session_start"));
   assert.ok(box.pi.handlers.has("session_shutdown"));
   assert.equal(box.pi.execCalls.length, 0, "no process is spawned at factory time");
@@ -119,7 +129,7 @@ test("AC-C2 the factory registers its surface and does nothing else", async (t) 
 test("session_start leaves the interaction tools inactive on a fresh branch", async (t) => {
   const box = await sandbox(t);
   box.pi.activeTools = ["read", "bash", "browser_click"];
-  cloudflareBrowserRun(box.pi.api);
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
   const { ctx } = createFakeContext();
 
   await box.pi.emit("session_start", { reason: "startup" }, ctx);
@@ -128,7 +138,7 @@ test("session_start leaves the interaction tools inactive on a fresh branch", as
 
 test("a resumed branch that used the interaction tools keeps their schemas active", async (t) => {
   const box = await sandbox(t);
-  cloudflareBrowserRun(box.pi.api);
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
   const { ctx, ui } = createFakeContext({
     branch: [
       toolResultEntry("browser_open", { state: "active", profile: null, page: null }),
@@ -163,7 +173,7 @@ test("a resumed branch that used the interaction tools keeps their schemas activ
 
 test("AC-C2 session_start reads no secret store and opens no socket", async (t) => {
   const box = await sandbox(t);
-  cloudflareBrowserRun(box.pi.api);
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
   const { ctx, ui } = createFakeContext();
 
   await box.pi.emit("session_start", { reason: "startup" }, ctx);
@@ -177,7 +187,7 @@ test("AC-C2 session_start reads no secret store and opens no socket", async (t) 
 test("session_start sets a badge once credentials are configured, still without resolving", async (t) => {
   const box = await sandbox(t);
   configureEnvCredentials();
-  cloudflareBrowserRun(box.pi.api);
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
   const { ctx, ui } = createFakeContext();
 
   await box.pi.emit("session_start", { reason: "startup" }, ctx);
@@ -191,7 +201,7 @@ test("session_start sets a badge once credentials are configured, still without 
 test("AC-X1 browser_read returns bounded untrusted content and leaks no secret", async (t) => {
   const box = await sandbox(t);
   configureEnvCredentials();
-  cloudflareBrowserRun(box.pi.api);
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
   const { ctx, ui } = createFakeContext();
   await box.pi.emit("session_start", { reason: "startup" }, ctx);
 
@@ -255,7 +265,7 @@ test("AC-X1 browser_read returns bounded untrusted content and leaks no secret",
 test("browser_read rejects a prohibited target before any request", async (t) => {
   const box = await sandbox(t);
   configureEnvCredentials();
-  cloudflareBrowserRun(box.pi.api);
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
   const { ctx } = createFakeContext();
   await box.pi.emit("session_start", { reason: "startup" }, ctx);
 
@@ -277,7 +287,7 @@ test("browser_read rejects a prohibited target before any request", async (t) =>
 
 test("browser_read without credentials reports not_configured and makes no request", async (t) => {
   const box = await sandbox(t);
-  cloudflareBrowserRun(box.pi.api);
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
   const { ctx } = createFakeContext();
   await box.pi.emit("session_start", { reason: "startup" }, ctx);
 
@@ -293,7 +303,7 @@ test("browser_read without credentials reports not_configured and makes no reque
 
 test("prepareArguments strips a leading @ from the URL", async (t) => {
   const box = await sandbox(t);
-  cloudflareBrowserRun(box.pi.api);
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
   const tool = box.pi.tools.get("browser_read");
   assert.ok(tool?.prepareArguments);
   assert.deepEqual(tool.prepareArguments({ url: "@https://example.com/" }), {
@@ -308,7 +318,7 @@ test("prepareArguments strips a leading @ from the URL", async (t) => {
 test("truncated reads report the bound and name the spill file", async (t) => {
   const box = await sandbox(t);
   configureEnvCredentials();
-  cloudflareBrowserRun(box.pi.api);
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
   const { ctx } = createFakeContext();
   await box.pi.emit("session_start", { reason: "startup" }, ctx);
 
@@ -332,7 +342,7 @@ test("truncated reads report the bound and name the spill file", async (t) => {
 
 test("/browser status prints configuration without resolving credentials", async (t) => {
   const box = await sandbox(t);
-  cloudflareBrowserRun(box.pi.api);
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
   const { ctx, ui } = createFakeContext();
   await box.pi.emit("session_start", { reason: "startup" }, ctx);
 
@@ -356,7 +366,7 @@ test("/browser status prints configuration without resolving credentials", async
 test("/browser check reports a rejected token and invalidates the cache", async (t) => {
   const box = await sandbox(t);
   configureEnvCredentials();
-  cloudflareBrowserRun(box.pi.api);
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
   const { ctx, ui } = createFakeContext();
   await box.pi.emit("session_start", { reason: "startup" }, ctx);
 
@@ -379,7 +389,7 @@ test("/browser check reports a rejected token and invalidates the cache", async 
 test("/browser check reports success against a healthy account", async (t) => {
   const box = await sandbox(t);
   configureEnvCredentials();
-  cloudflareBrowserRun(box.pi.api);
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
   const { ctx, ui } = createFakeContext();
   await box.pi.emit("session_start", { reason: "startup" }, ctx);
 
@@ -396,7 +406,7 @@ test("/browser check reports success against a healthy account", async (t) => {
 
 test("/browser close reports that there is no session yet", async (t) => {
   const box = await sandbox(t);
-  cloudflareBrowserRun(box.pi.api);
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
   const { ctx, ui } = createFakeContext();
   await box.pi.emit("session_start", { reason: "startup" }, ctx);
 
@@ -413,7 +423,7 @@ test("browser_open activates the interaction tools additively and reports them",
   const box = await sandbox(t);
   configureEnvCredentials();
   const fake = createFakeBrowser();
-  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser });
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser, lookup: publicLookup });
   const { ctx } = createFakeContext();
   await box.pi.emit("session_start", { reason: "startup" }, ctx);
 
@@ -454,7 +464,7 @@ test("the interaction tools drive one page and end with bounded orientation", as
     snapshot: '- searchbox "Query" [ref=e1]\n- button "Search" [ref=e2]',
   });
   const fake = createFakeBrowser({ page, log });
-  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser });
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser, lookup: publicLookup });
   const { ctx } = createFakeContext();
   await box.pi.emit("session_start", { reason: "startup" }, ctx);
   await box.pi.tools.get("browser_open")?.execute("o", {}, undefined, undefined, ctx);
@@ -485,7 +495,7 @@ test("interaction tools stay listed after close and report no_session", async (t
   const box = await sandbox(t);
   configureEnvCredentials();
   const fake = createFakeBrowser();
-  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser });
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser, lookup: publicLookup });
   const { ctx } = createFakeContext();
   await box.pi.emit("session_start", { reason: "startup" }, ctx);
   await box.pi.tools.get("browser_open")?.execute("o", {}, undefined, undefined, ctx);
@@ -506,6 +516,7 @@ test("browser_open validates the URL before connecting", async (t) => {
   configureEnvCredentials();
   let connects = 0;
   cloudflareBrowserRun(box.pi.api, {
+    lookup: publicLookup,
     connect: async () => {
       connects += 1;
       return createFakeBrowser().browser;
@@ -525,7 +536,7 @@ test("session_shutdown closes an open browser exactly once", async (t) => {
   const box = await sandbox(t);
   configureEnvCredentials();
   const fake = createFakeBrowser();
-  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser });
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser, lookup: publicLookup });
   const { ctx } = createFakeContext();
 
   for (const reason of ["quit", "reload", "new", "resume", "fork"]) {
@@ -543,7 +554,7 @@ test("/browser close closes an open session and status reports the budget", asyn
   const box = await sandbox(t);
   configureEnvCredentials();
   const fake = createFakeBrowser();
-  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser });
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser, lookup: publicLookup });
   const { ctx, ui } = createFakeContext();
   await box.pi.emit("session_start", { reason: "startup" }, ctx);
   await box.pi.tools.get("browser_open")?.execute("o", {}, undefined, undefined, ctx);
@@ -563,7 +574,7 @@ test("a screenshot on an unauthenticated page returns one bounded image", async 
   configureEnvCredentials();
   const page = createFakePage({ screenshotBytes: 2_048 });
   const fake = createFakeBrowser({ page });
-  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser });
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser, lookup: publicLookup });
   const { ctx } = createFakeContext();
   await box.pi.emit("session_start", { reason: "startup" }, ctx);
   await box.pi.tools.get("browser_open")?.execute("o", {}, undefined, undefined, ctx);
@@ -587,7 +598,7 @@ test("confirmClicks always asks the operator and honours a refusal", async (t) =
 
   const page = createFakePage({ locators: { e1: {} } });
   const fake = createFakeBrowser({ page });
-  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser });
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser, lookup: publicLookup });
   const { ctx } = createFakeContext({ confirm: false });
   await box.pi.emit("session_start", { reason: "startup" }, ctx);
   await box.pi.tools.get("browser_open")?.execute("o", {}, undefined, undefined, ctx);
@@ -596,4 +607,250 @@ test("confirmClicks always asks the operator and honours a refusal", async (t) =
     () => box.pi.tools.get("browser_click")!.execute("c", { ref: "e1" }, undefined, undefined, ctx),
     (error: unknown) => error instanceof BrowserRunError && /declined this click/.test(error.detail),
   );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3: named authenticated profiles.
+// ---------------------------------------------------------------------------
+
+const PROFILE_MASTER_KEY = Buffer.alloc(48, 11).toString("base64");
+
+async function writeConfig(agentDir: string, document: unknown): Promise<void> {
+  const paths = statePaths(agentDir);
+  await ensureStateDir(paths);
+  await writeFile(paths.configFile, JSON.stringify(document), "utf8");
+}
+
+async function seedProfile(agentDir: string, name: string, origins: string[]): Promise<void> {
+  const paths = statePaths(agentDir);
+  await ensureStateDir(paths);
+  const vault = new ProfileVault(paths, {
+    backend: createEnvBackend({ [PROFILE_KEY_ENV]: PROFILE_MASTER_KEY }),
+    canMintKeys: false,
+  });
+  const store = new ProfileStore(paths, vault);
+  const host = new URL(origins[0] as string).hostname;
+  await store.save(
+    name,
+    { origins, allowNavigationOutsideProfile: false },
+    {
+      cookies: [
+        {
+          name: "sid",
+          value: "seeded-session-value",
+          domain: host,
+          path: "/",
+          expires: Math.floor(Date.now() / 1000) + 86_400,
+        },
+      ],
+      origins: [{ origin: origins[0] as string, localStorage: [{ name: "t", value: "v" }] }],
+    },
+  );
+}
+
+test("browser_open fails closed on an undeclared or unsaved profile", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  process.env[PROFILE_KEY_ENV] = PROFILE_MASTER_KEY;
+  t.after(() => {
+    delete process.env[PROFILE_KEY_ENV];
+  });
+  await writeConfig(box.agentDir, {
+    profileVault: { backend: "env" },
+    profiles: { "example-site": { origins: ["https://www.example.com"] } },
+  });
+
+  let connects = 0;
+  cloudflareBrowserRun(box.pi.api, {
+    lookup: publicLookup,
+    connect: async () => {
+      connects += 1;
+      return createFakeBrowser().browser;
+    },
+  });
+  const { ctx } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+  const open = box.pi.tools.get("browser_open");
+  assert.ok(open);
+
+  await assert.rejects(
+    () => open.execute("o1", { profile: "not-declared" }, undefined, undefined, ctx),
+    (error: unknown) =>
+      error instanceof BrowserRunError &&
+      error.errorClass === "profile_missing" &&
+      /is not defined/.test(error.detail),
+  );
+
+  await assert.rejects(
+    () => open.execute("o2", { profile: "example-site" }, undefined, undefined, ctx),
+    (error: unknown) =>
+      error instanceof BrowserRunError &&
+      error.errorClass === "profile_missing" &&
+      /\/browser-login example-site/.test(error.detail),
+  );
+
+  assert.equal(connects, 0, "no browser is opened when the profile cannot be restored");
+});
+
+test("a saved profile is restored into an isolated context and confines navigation", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  process.env[PROFILE_KEY_ENV] = PROFILE_MASTER_KEY;
+  t.after(() => {
+    delete process.env[PROFILE_KEY_ENV];
+  });
+  await writeConfig(box.agentDir, {
+    profileVault: { backend: "env" },
+    profiles: { "example-site": { origins: ["https://www.example.com"] } },
+  });
+  await seedProfile(box.agentDir, "example-site", ["https://www.example.com"]);
+
+  const contexts: Array<Record<string, unknown>> = [];
+  const base = createFakeBrowser({ page: createFakePage({ url: "https://www.example.com/" }) });
+  const browser = {
+    ...base.browser,
+    async newContext(options?: Record<string, unknown>) {
+      contexts.push(options ?? {});
+      return base.context;
+    },
+  };
+  cloudflareBrowserRun(box.pi.api, { connect: async () => browser, lookup: publicLookup });
+  const { ctx } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+
+  const result = await box.pi.tools
+    .get("browser_open")!
+    .execute("o", { profile: "example-site" }, undefined, undefined, ctx);
+
+  assert.match(result.content[0]?.text ?? "", /Profile example-site restored/);
+  assert.equal((result.details as { profile: string }).profile, "example-site");
+
+  // The restored state reached the isolated context, and only the allowlisted parts.
+  const storageState = contexts[0]?.["storageState"] as { cookies: Array<{ domain: string }> };
+  assert.equal(storageState.cookies.length, 1);
+  assert.equal(storageState.cookies[0]?.domain, "www.example.com");
+
+  // The profile's origins confine navigation by default.
+  await assert.rejects(
+    () =>
+      box.pi.tools
+        .get("browser_navigate")!
+        .execute("n", { url: "https://tracker.example.net/" }, undefined, undefined, ctx),
+    (error: unknown) =>
+      error instanceof BrowserRunError && error.errorClass === "target_rejected",
+  );
+
+  // No secret from the profile reaches a model-visible or durable surface.
+  const surfaces = [...collectStrings(result.content), ...collectStrings(result.details)];
+  for (const surface of surfaces) {
+    assert.ok(!surface.includes("seeded-session-value"), "a cookie value leaked");
+  }
+});
+
+test("a screenshot on an authenticated page needs a deliberate yes", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  process.env[PROFILE_KEY_ENV] = PROFILE_MASTER_KEY;
+  t.after(() => {
+    delete process.env[PROFILE_KEY_ENV];
+  });
+  await writeConfig(box.agentDir, {
+    profileVault: { backend: "env" },
+    profiles: { "example-site": { origins: ["https://www.example.com"] } },
+  });
+  await seedProfile(box.agentDir, "example-site", ["https://www.example.com"]);
+
+  const fake = createFakeBrowser({ page: createFakePage({ url: "https://www.example.com/" }) });
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser, lookup: publicLookup });
+  const { ctx } = createFakeContext({ confirm: false });
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+  await box.pi.tools.get("browser_open")!.execute("o", { profile: "example-site" }, undefined, undefined, ctx);
+
+  await assert.rejects(
+    () => box.pi.tools.get("browser_screenshot")!.execute("s", {}, undefined, undefined, ctx),
+    (error: unknown) =>
+      error instanceof BrowserRunError && /declined this screenshot/.test(error.detail),
+  );
+
+  const allowed = createFakeContext({ confirm: true });
+  const shot = await box.pi.tools
+    .get("browser_screenshot")!
+    .execute("s2", {}, undefined, undefined, allowed.ctx);
+  assert.equal(shot.content[1]?.type, "image");
+});
+
+test("a screenshot with a profile is refused outright when there is no operator to ask", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  process.env[PROFILE_KEY_ENV] = PROFILE_MASTER_KEY;
+  t.after(() => {
+    delete process.env[PROFILE_KEY_ENV];
+  });
+  await writeConfig(box.agentDir, {
+    profileVault: { backend: "env" },
+    profiles: { "example-site": { origins: ["https://www.example.com"] } },
+  });
+  await seedProfile(box.agentDir, "example-site", ["https://www.example.com"]);
+
+  const fake = createFakeBrowser({ page: createFakePage({ url: "https://www.example.com/" }) });
+  cloudflareBrowserRun(box.pi.api, { connect: async () => fake.browser, lookup: publicLookup });
+  const { ctx } = createFakeContext({ hasUI: false });
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+  await box.pi.tools.get("browser_open")!.execute("o", { profile: "example-site" }, undefined, undefined, ctx);
+
+  await assert.rejects(
+    () => box.pi.tools.get("browser_screenshot")!.execute("s", {}, undefined, undefined, ctx),
+    (error: unknown) =>
+      error instanceof BrowserRunError && /need operator confirmation/.test(error.detail),
+  );
+});
+
+test("/browser-login refuses to run without an interactive host", async (t) => {
+  const box = await sandbox(t);
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
+  const { ctx, ui } = createFakeContext({ hasUI: false });
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+
+  await box.pi.commands.get("browser-login")?.handler("example-site", ctx);
+  assert.match(ui.notifications.at(-1)?.text ?? "", /needs an interactive host/);
+
+  await box.pi.commands.get("browser-login")?.handler("", ctx);
+  assert.match(ui.notifications.at(-1)?.text ?? "", /Usage: \/browser-login/);
+});
+
+test("/browser-profiles lists, inspects, and deletes without printing secrets", async (t) => {
+  const box = await sandbox(t);
+  process.env[PROFILE_KEY_ENV] = PROFILE_MASTER_KEY;
+  t.after(() => {
+    delete process.env[PROFILE_KEY_ENV];
+  });
+  await writeConfig(box.agentDir, {
+    profileVault: { backend: "env" },
+    profiles: { "example-site": { origins: ["https://www.example.com"] } },
+  });
+
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
+  const { ctx, ui } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+  const command = box.pi.commands.get("browser-profiles");
+  assert.ok(command);
+
+  await command.handler("list", ctx);
+  assert.match(ui.notifications.at(-1)?.text ?? "", /No saved profiles/);
+
+  await seedProfile(box.agentDir, "example-site", ["https://www.example.com"]);
+
+  await command.handler("list", ctx);
+  assert.match(ui.notifications.at(-1)?.text ?? "", /example-site\s+saved\s+https:\/\/www\.example\.com/);
+
+  await command.handler("status example-site", ctx);
+  const status = ui.notifications.at(-1)?.text ?? "";
+  assert.match(status, /cookies {8}: 1 kept/);
+  assert.match(status, /key backend {4}: env/);
+  assert.ok(!status.includes("seeded-session-value"));
+
+  // The env backend derives keys from one master key, so it says plainly that a
+  // single profile's key cannot be destroyed.
+  await command.handler("delete example-site", ctx);
+  assert.match(ui.notifications.at(-1)?.text ?? "", /Rotate the variable/);
 });
