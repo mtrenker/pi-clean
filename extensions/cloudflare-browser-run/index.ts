@@ -25,6 +25,7 @@ import {
   type ExtensionContext,
   type ExtensionFactory,
 } from "@earendil-works/pi-coding-agent";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 
 import { Type } from "typebox";
@@ -43,6 +44,8 @@ import {
 } from "./config.ts";
 import {
   boundText,
+  CRAWL_PAGE_MAX_BYTES,
+  CRAWL_PAGE_MAX_LINES,
   ORIENTATION_MAX_BYTES,
   ORIENTATION_MAX_LINES,
   READ_MAX_BYTES,
@@ -55,6 +58,13 @@ import {
 } from "./content.ts";
 import { CredentialStore, type Credentials } from "./credentials.ts";
 import { BrowserRunError, errorMessage, isBrowserRunError } from "./errors.ts";
+import {
+  buildCrawlBody,
+  cancelCrawl,
+  readCrawl,
+  startCrawl,
+  type CrawlPageRecord,
+} from "./crawl.ts";
 import { cdpWebSocketUrl } from "./endpoints.ts";
 import { CloudflareClient, defaultSleep } from "./http.ts";
 import {
@@ -67,6 +77,7 @@ import {
 import { ProfileStore, type ProfileStatus } from "./profiles.ts";
 import { fetchMarkdown, probeCredentials, WAIT_UNTIL_VALUES, type WaitUntil } from "./quick-actions.ts";
 import { SecretRegistry } from "./redact.ts";
+import { CrawlRegistry, isLocalStatus, TERMINAL_STATUSES, type CrawlRecord } from "./registry.ts";
 import { BrowserSession, type BrowserLike } from "./session.ts";
 import { formatOrientation, type PageOrientation } from "./snapshot.ts";
 import { buildDetails, pageRef, type BrowserDetails, type PageRef } from "./state.ts";
@@ -188,6 +199,56 @@ const tabsParameters = Type.Object({
 
 const emptyParameters = Type.Object({});
 
+/**
+ * Activated once a crawl exists, either because this session started one or
+ * because the durable registry already holds one for this working directory.
+ */
+export const CRAWL_FOLLOW_UP_TOOLS = [
+  "browser_crawl_status",
+  "browser_crawl_results",
+  "browser_crawl_cancel",
+] as const;
+
+const crawlStartParameters = Type.Object({
+  url: Type.String({ description: "Absolute http or https URL to start the crawl from." }),
+  limit: Type.Optional(
+    Type.Integer({ minimum: 1, maximum: 100_000, description: "Maximum pages. Clamped by configuration." }),
+  ),
+  depth: Type.Optional(
+    Type.Integer({ minimum: 0, maximum: 5, description: "Link depth. Clamped by configuration." }),
+  ),
+  include_patterns: Type.Optional(
+    Type.Array(Type.String(), { description: "URL wildcard patterns to include. Use * and **." }),
+  ),
+  exclude_patterns: Type.Optional(
+    Type.Array(Type.String(), { description: "URL wildcard patterns to exclude. Takes priority over includes." }),
+  ),
+  render: Type.Optional(
+    Type.Boolean({ description: "Execute JavaScript. Metered, and refused unless the operator enabled it." }),
+  ),
+});
+
+const crawlJobParameters = Type.Object({
+  job_id: Type.String({ description: "Job id returned by browser_crawl_start." }),
+});
+
+const crawlResultsParameters = Type.Object({
+  job_id: Type.String({ description: "Job id returned by browser_crawl_start." }),
+  cursor: Type.Optional(Type.String({ description: "Opaque cursor from a previous page." })),
+  page_size: Type.Optional(
+    Type.Integer({ minimum: 1, maximum: 20, description: "Records per page. Default 5, maximum 20." }),
+  ),
+  status: Type.Optional(
+    StringEnum(["queued", "completed", "disallowed", "skipped", "errored", "cancelled"] as const, {
+      description: "Filter by per-URL status. Disallowed means robots.txt or Content Signals blocked it.",
+    }),
+  ),
+  url: Type.Optional(Type.String({ description: "Keep only records on this page whose URL contains this text." })),
+  include_content: Type.Optional(
+    Type.Boolean({ description: "Return full Markdown for the records on this page instead of an excerpt." }),
+  ),
+});
+
 export type BrowserReadInput = {
   url: string;
   wait_until?: WaitUntil;
@@ -227,6 +288,82 @@ export interface FactoryOverrides {
   lookup?: LookupFn;
 }
 
+
+export type CrawlStartToolInput = {
+  url: string;
+  limit?: number;
+  depth?: number;
+  include_patterns?: string[];
+  exclude_patterns?: string[];
+  render?: boolean;
+};
+
+export type CrawlResultsToolInput = {
+  job_id: string;
+  cursor?: string;
+  page_size?: number;
+  status?: string;
+  url?: string;
+  include_content?: boolean;
+};
+
+/** One line per record, with an excerpt unless the caller asked for full text. */
+export function renderCrawlRecords(records: CrawlPageRecord[], includeContent: boolean): string {
+  if (records.length === 0) return "(no records on this page)";
+  const blocks: string[] = [];
+  for (const record of records) {
+    const title = record.metadata?.title ? ` "${record.metadata.title}"` : "";
+    const httpStatus = record.metadata?.status ? ` http=${record.metadata.status}` : "";
+    blocks.push(`- ${record.url} [${record.status}]${httpStatus}${title}`);
+    if (record.markdown) {
+      const text = includeContent ? record.markdown : record.markdown.slice(0, 800);
+      const suffix = !includeContent && record.markdown.length > 800 ? "\n  ..." : "";
+      blocks.push(
+        text
+          .split("\n")
+          .map((line) => `  ${line}`)
+          .join("\n") + suffix,
+      );
+    }
+  }
+  return blocks.join("\n");
+}
+
+export function formatCrawlList(jobs: CrawlRecord[], elsewhere: number): string {
+  if (jobs.length === 0) {
+    return elsewhere > 0
+      ? `No crawls started from this directory. ${elsewhere} crawl(s) exist for other directories.`
+      : "No crawls in the registry. Start one with browser_crawl_start.";
+  }
+  const lines = ["Crawls started from this directory", ""];
+  for (const job of jobs) {
+    lines.push(
+      `${job.jobId.padEnd(24)} ${job.status.padEnd(24)} ${job.pagesSeen
+        .toString()
+        .padStart(5)} pages  ${job.host}`,
+    );
+  }
+  if (elsewhere > 0) lines.push("", `${elsewhere} further crawl(s) exist for other directories.`);
+  return lines.join("\n");
+}
+
+export function formatCrawlRecord(record: CrawlRecord): string {
+  return [
+    `Crawl ${record.jobId}`,
+    `  status      : ${record.status}${isLocalStatus(record.status) ? " (local)" : ""}`,
+    `  start url   : ${record.startUrl}`,
+    `  pages seen  : ${record.pagesSeen}`,
+    `  browser time: ${
+      record.browserSecondsUsed === null ? "not reported" : `${record.browserSecondsUsed}s`
+    }`,
+    `  purposes    : ${record.crawlPurposes.join(", ")}`,
+    `  started     : ${record.createdAt}`,
+    record.completedAt ? `  completed   : ${record.completedAt}` : "",
+    record.resultsExpireAt ? `  results kept: until ${record.resultsExpireAt}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
 
 function formatProfileList(statuses: ProfileStatus[]): string {
   if (statuses.length === 0) return "No saved profiles. Create one with /browser-login <name>.";
@@ -281,6 +418,9 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
   let lastPage: PageRef | null = null;
   let profileStore: ProfileStore | undefined;
   let profileError: string | undefined;
+  let registryStore: CrawlRegistry | undefined;
+  let sessionRef = randomUUID();
+  let sessionCwd = process.cwd();
 
   function getClient(): CloudflareClient {
     client ??= new CloudflareClient(
@@ -309,6 +449,45 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
         }),
     });
     return session;
+  }
+
+  function crawlRegistry(): CrawlRegistry {
+    registryStore ??= new CrawlRegistry(paths ?? statePaths());
+    return registryStore;
+  }
+
+  /** Fold a Cloudflare read into the durable record, keeping local states honest. */
+  async function applyCrawlRead(
+    record: CrawlRecord,
+    read: { status?: string; browserSecondsUsed: number | null; cursor: string | null; total: number | null },
+    cursor: string | null = null,
+  ): Promise<CrawlRecord> {
+    const patch: Partial<CrawlRecord> = {};
+    if (read.status && read.status !== record.status) {
+      patch.status = read.status as CrawlRecord["status"];
+      patch.local = false;
+      if (TERMINAL_STATUSES.includes(read.status as CrawlRecord["status"])) {
+        const completedAt = new Date().toISOString();
+        patch.completedAt = record.completedAt ?? completedAt;
+        patch.resultsExpireAt = new Date(
+          Date.parse(patch.completedAt) + 14 * 86_400_000,
+        ).toISOString();
+      }
+    }
+    if (read.browserSecondsUsed !== null) patch.browserSecondsUsed = read.browserSecondsUsed;
+    if (read.total !== null) patch.pagesSeen = read.total;
+    if (read.cursor !== null) patch.lastCursor = read.cursor;
+    else if (cursor !== null) patch.lastCursor = cursor;
+
+    if (Object.keys(patch).length === 0) return record;
+    return crawlRegistry().update(record.jobId, patch);
+  }
+
+  function activateCrawlTools(): string[] {
+    const active = pi.getActiveTools();
+    const added = CRAWL_FOLLOW_UP_TOOLS.filter((name) => !active.includes(name));
+    if (added.length > 0) pi.setActiveTools([...new Set([...active, ...added])]);
+    return added;
   }
 
   /**
@@ -491,17 +670,39 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     });
     client = undefined;
     session = undefined;
+    registryStore = undefined;
+    profileStore = undefined;
+    sessionRef = randomUUID();
+    sessionCwd = ctx.cwd;
 
     // A resumed branch that used the interaction tools keeps their schemas active,
     // so the model's next call fails with session_expired and a reopen instruction
     // rather than an unknown-tool error.
     const resumedInteractive = reconstructFromBranch(ctx);
     const activeTools = pi.getActiveTools();
-    pi.setActiveTools(
-      resumedInteractive
-        ? [...new Set([...activeTools, ...INTERACTION_TOOLS])]
-        : activeTools.filter((name) => !(INTERACTION_TOOLS as readonly string[]).includes(name)),
+    // Start from the entry points only. The follow-up tools are added back below
+    // when this branch used them or when the durable registry holds a job.
+    const base = activeTools.filter(
+      (name) =>
+        !(INTERACTION_TOOLS as readonly string[]).includes(name) &&
+        !(CRAWL_FOLLOW_UP_TOOLS as readonly string[]).includes(name),
     );
+    pi.setActiveTools(resumedInteractive ? [...new Set([...base, ...INTERACTION_TOOLS])] : base);
+
+    // Cheap: reads one index file. Ages out jobs whose results Cloudflare has dropped.
+    const expired = await crawlRegistry()
+      .sweep(config.crawl.resultCacheDays)
+      .catch(() => [] as string[]);
+    const knownJobs = await crawlRegistry()
+      .list({ cwd: sessionCwd })
+      .catch(() => [] as CrawlRecord[]);
+    if (knownJobs.length > 0) activateCrawlTools();
+    if (expired.length > 0 && ctx.hasUI) {
+      ctx.ui.notify(
+        `Cloudflare Browser Run: ${expired.length} crawl result set(s) aged out and were dropped.`,
+        "info",
+      );
+    }
 
     const { configured } = credentials.describe(config);
     ctx.ui.setStatus(
@@ -944,6 +1145,273 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
     },
   });
 
+  pi.registerTool({
+    name: "browser_crawl_start",
+    label: "Start Crawl",
+    description:
+      "Start an asynchronous Cloudflare crawl of a public documentation site and return its job id. " +
+      "The job keeps running after Pi exits and can be checked from a later session. Defaults are " +
+      "conservative: Markdown only, no JavaScript rendering, same site, and bounded pages and depth. " +
+      "Cloudflare respects robots.txt and Content Signals; results are kept for 14 days.",
+    promptSnippet: "Start a bounded asynchronous crawl of a public documentation site",
+    promptGuidelines: [
+      "Use browser_crawl_start only for public documentation sites, and expect results in a later session rather than immediately.",
+      "Use browser_read instead of browser_crawl_start when one page answers the question.",
+    ],
+    parameters: crawlStartParameters,
+    prepareArguments: (args) => normalizeUrlArgument<CrawlStartToolInput>(args),
+    async execute(_toolCallId, params, signal) {
+      const input = params as CrawlStartToolInput;
+      const startedAt = Date.now();
+      const target = await validate(input.url);
+
+      // The cost cap is checked before any request, so exceeding it costs nothing.
+      const registry = crawlRegistry();
+      const startedToday = await registry.countStartedSince(Date.now() - 86_400_000);
+      if (startedToday >= config.crawl.maxJobsPerDay) {
+        throw new BrowserRunError(
+          "quota_exhausted",
+          `${startedToday} crawls have been started in the last 24 hours, which is the configured ` +
+            `maximum of ${config.crawl.maxJobsPerDay}.`,
+        );
+      }
+
+      const applied = buildCrawlBody(
+        {
+          url: target.toString(),
+          ...(input.limit === undefined ? {} : { limit: input.limit }),
+          ...(input.depth === undefined ? {} : { depth: input.depth }),
+          ...(input.include_patterns ? { includePatterns: input.include_patterns } : {}),
+          ...(input.exclude_patterns ? { excludePatterns: input.exclude_patterns } : {}),
+          ...(input.render === undefined ? {} : { render: input.render }),
+        },
+        config.crawl,
+      );
+
+      const credentials = await requireCredentials(signal);
+      const jobId = await startCrawl(getClient(), credentials, applied.body, signal).catch(noteFailure);
+
+      const now = new Date().toISOString();
+      const record: CrawlRecord = {
+        jobId,
+        startUrl: target.toString(),
+        host: target.hostname,
+        formats: ["markdown"],
+        limit: applied.body["limit"] as number,
+        depth: applied.body["depth"] as number,
+        render: applied.body["render"] as boolean,
+        crawlPurposes: [...config.crawl.crawlPurposes],
+        status: "queued",
+        local: true,
+        createdAt: now,
+        updatedAt: now,
+        completedAt: null,
+        resultsExpireAt: null,
+        pagesSeen: 0,
+        browserSecondsUsed: null,
+        lastCursor: null,
+        cwd: sessionCwd,
+        sessionRef,
+      };
+      await registry.add(record);
+      const added = activateCrawlTools();
+
+      await logger?.log({
+        event: "crawl_start",
+        tool: "browser_crawl_start",
+        target: logSafeTarget(target.toString()),
+        durationMs: Date.now() - startedAt,
+      });
+
+      const lines = [
+        `Crawl ${jobId} started on ${target.origin}.`,
+        `  pages       : up to ${record.limit}`,
+        `  depth       : ${record.depth}`,
+        `  render      : ${record.render ? "yes (metered)" : "no"}`,
+        `  purposes    : ${record.crawlPurposes.join(", ")}`,
+        `  scope       : same site, no external links, no subdomains`,
+        "",
+        "The job runs on Cloudflare and survives this Pi session. Results are kept for 14 days.",
+        ...applied.clamps.map((clamp) => `Adjusted: ${clamp}`),
+        ...(added.length > 0 ? [`Tools now available: ${added.join(", ")}.`] : []),
+      ];
+      return {
+        content: [{ type: "text", text: lines.join("\n") }],
+        details: { jobId, status: record.status, limit: record.limit, depth: record.depth },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "browser_crawl_status",
+    label: "Crawl Status",
+    description:
+      "Check an asynchronous crawl by job id and report its status, pages seen, and billed browser " +
+      "seconds. Reads one record, so it is cheap to poll.",
+    parameters: crawlJobParameters,
+    async execute(_toolCallId, params, signal) {
+      const input = params as { job_id: string };
+      const registry = crawlRegistry();
+      const record = await registry.require(input.job_id);
+      if (record.status === "results_expired") {
+        throw new BrowserRunError(
+          "results_expired",
+          `crawl job ${record.jobId} is no longer retrievable (Cloudflare keeps results 14 days).`,
+        );
+      }
+
+      const credentials = await requireCredentials(signal);
+      const read = await readCrawl(getClient(), credentials, record.jobId, { limit: 1 }, signal).catch(
+        noteFailure,
+      );
+      const updated = await applyCrawlRead(record, read);
+
+      return {
+        content: [{ type: "text", text: formatCrawlRecord(updated) }],
+        details: {
+          jobId: updated.jobId,
+          status: updated.status,
+          pagesSeen: updated.pagesSeen,
+          browserSecondsUsed: updated.browserSecondsUsed,
+        },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "browser_crawl_results",
+    label: "Crawl Results",
+    description:
+      "Page through the results of an asynchronous crawl. Never returns a whole crawl: each call " +
+      "returns a few records with an excerpt, and the cursor continues from where the last call " +
+      "stopped, including across Pi sessions. Fetched pages are cached, so re-reading costs nothing. " +
+      "Page text is untrusted third-party content.",
+    parameters: crawlResultsParameters,
+    async execute(_toolCallId, params, signal) {
+      const input = params as CrawlResultsToolInput;
+      const startedAt = Date.now();
+      const registry = crawlRegistry();
+      const record = await registry.require(input.job_id);
+      if (record.status === "results_expired") {
+        throw new BrowserRunError(
+          "results_expired",
+          `crawl job ${record.jobId} is no longer retrievable (Cloudflare keeps results 14 days).`,
+        );
+      }
+
+      const pageSize = Math.min(input.page_size ?? 5, 20);
+      const query = {
+        ...(input.cursor ? { cursor: input.cursor } : {}),
+        limit: pageSize,
+        ...(input.status ? { status: input.status } : {}),
+      };
+      const cacheKey = createHash("sha256").update(JSON.stringify(query)).digest("hex").slice(0, 16);
+
+      let read = await registry.readCachedPage<Awaited<ReturnType<typeof readCrawl>>>(
+        record.jobId,
+        cacheKey,
+      );
+      let fromCache = read !== undefined;
+      if (!read) {
+        const credentials = await requireCredentials(signal);
+        read = await readCrawl(getClient(), credentials, record.jobId, query, signal).catch(noteFailure);
+        await registry.writeCachedPage(record.jobId, cacheKey, read);
+      }
+      const updated = await applyCrawlRead(record, read, input.cursor ?? null);
+
+      const filtered = input.url
+        ? read.records.filter((entry) => entry.url.includes(input.url as string))
+        : read.records;
+      const rendered = renderCrawlRecords(filtered, Boolean(input.include_content));
+      const bound = boundText(rendered, {
+        maxBytes: CRAWL_PAGE_MAX_BYTES,
+        maxLines: CRAWL_PAGE_MAX_LINES,
+      });
+
+      // Crawl output is public content, so a spill file is allowed here.
+      const spillPath = bound.truncated
+        ? await writeSpillFile(rendered, `crawl-${cacheKey}`).catch(() => undefined)
+        : undefined;
+
+      const header = [
+        `Crawl ${updated.jobId} (${updated.status})${fromCache ? ", served from the local cache" : ""}`,
+        `records on this page: ${filtered.length}${input.url ? ` (filtered from ${read.records.length})` : ""}`,
+        read.cursor
+          ? `next cursor: ${read.cursor}`
+          : "no further pages: this is the end of the result set",
+      ].join("\n");
+
+      const body = wrapUntrusted(bound.content, {
+        source: updated.startUrl,
+        tool: "browser_crawl_results",
+      });
+      const notice = truncationNotice(bound, spillPath ? { spillPath } : {});
+
+      await logger?.log({
+        event: "crawl_results",
+        tool: "browser_crawl_results",
+        target: logSafeTarget(updated.startUrl),
+        bytes: bound.outputBytes,
+        truncated: bound.truncated,
+        durationMs: Date.now() - startedAt,
+      });
+
+      return {
+        content: [
+          { type: "text", text: [header, "", body, notice].filter(Boolean).join("\n") },
+        ],
+        details: {
+          jobId: updated.jobId,
+          status: updated.status,
+          cursor: read.cursor,
+          records: filtered.length,
+          fromCache,
+          truncated: bound.truncated,
+        },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "browser_crawl_cancel",
+    label: "Cancel Crawl",
+    description:
+      "Cancel a running asynchronous crawl. Browser time already billed is not refunded.",
+    parameters: crawlJobParameters,
+    async execute(_toolCallId, params, signal) {
+      const input = params as { job_id: string };
+      const registry = crawlRegistry();
+      const record = await registry.require(input.job_id);
+      if (TERMINAL_STATUSES.includes(record.status)) {
+        return {
+          content: [{ type: "text", text: `Crawl ${record.jobId} already finished as ${record.status}.` }],
+          details: { jobId: record.jobId, status: record.status },
+        };
+      }
+
+      const credentials = await requireCredentials(signal);
+      await cancelCrawl(getClient(), credentials, record.jobId, signal).catch(noteFailure);
+      const updated = await registry.update(record.jobId, {
+        status: "cancelled_by_user",
+        local: false,
+        completedAt: new Date().toISOString(),
+      });
+      await logger?.log({ event: "crawl_cancel", tool: "browser_crawl_cancel" });
+
+      return {
+        content: [
+          {
+            type: "text",
+            text:
+              `Crawl ${updated.jobId} cancelled. Browser time already billed is not refunded; ` +
+              "cancelling stops further work rather than undoing cost.",
+          },
+        ],
+        details: { jobId: updated.jobId, status: updated.status },
+      };
+    },
+  });
+
   pi.registerCommand("browser", {
     description: "Cloudflare Browser Run status, health check, and close: /browser [status|check|close]",
     getArgumentCompletions: (prefix) => {
@@ -968,6 +1436,84 @@ const cloudflareBrowserRun = (pi: ExtensionAPI, overrides?: FactoryOverrides): v
         return;
       }
       showStatus(ctx);
+    },
+  });
+
+  pi.registerCommand("browser-crawls", {
+    description:
+      "Asynchronous crawls across sessions: list | refresh | show <id> | cancel <id> | forget <id>",
+    getArgumentCompletions: (prefix) => {
+      const verbs = ["list", "refresh", "show", "cancel", "forget"];
+      const items = verbs
+        .filter((value) => value.startsWith(prefix))
+        .map((value) => ({ value, label: value }));
+      return items.length > 0 ? items : null;
+    },
+    async handler(args, ctx) {
+      const [verb = "list", jobId] = args.trim().split(/\s+/).filter(Boolean);
+      const registry = crawlRegistry();
+      try {
+        if (verb === "list") {
+          const jobs = await registry.list({ cwd: sessionCwd });
+          const all = await registry.list();
+          ctx.ui.notify(formatCrawlList(jobs, all.length - jobs.length), "info");
+          return;
+        }
+        if (verb === "refresh") {
+          const jobs = await registry.list({ cwd: sessionCwd });
+          const open = jobs.filter((job) => !TERMINAL_STATUSES.includes(job.status));
+          if (open.length === 0) {
+            ctx.ui.notify("No running crawls to refresh.", "info");
+            return;
+          }
+          const credentials = await requireCredentials();
+          const refreshed: CrawlRecord[] = [];
+          for (const job of open) {
+            const read = await readCrawl(getClient(), credentials, job.jobId, { limit: 1 }).catch(
+              noteFailure,
+            );
+            refreshed.push(await applyCrawlRead(job, read));
+          }
+          ctx.ui.notify(refreshed.map(formatCrawlRecord).join("\n\n"), "info");
+          return;
+        }
+        if (!jobId) {
+          ctx.ui.notify(`Usage: /browser-crawls ${verb} <job-id>`, "warning");
+          return;
+        }
+        if (verb === "show") {
+          ctx.ui.notify(formatCrawlRecord(await registry.require(jobId)), "info");
+          return;
+        }
+        if (verb === "cancel") {
+          const record = await registry.require(jobId);
+          if (TERMINAL_STATUSES.includes(record.status)) {
+            ctx.ui.notify(`Crawl ${jobId} already finished as ${record.status}.`, "info");
+            return;
+          }
+          const credentials = await requireCredentials();
+          await cancelCrawl(getClient(), credentials, jobId).catch(noteFailure);
+          await registry.update(jobId, {
+            status: "cancelled_by_user",
+            local: false,
+            completedAt: new Date().toISOString(),
+          });
+          ctx.ui.notify(
+            `Crawl ${jobId} cancelled. Browser time already billed is not refunded.`,
+            "info",
+          );
+          return;
+        }
+        if (verb === "forget") {
+          await registry.forget(jobId);
+          ctx.ui.notify(`Crawl ${jobId} removed from the local registry with its cached results.`, "info");
+          return;
+        }
+        ctx.ui.notify(`Unknown subcommand ${verb}. Use list, refresh, show, cancel, or forget.`, "warning");
+      } catch (error) {
+        const detail = isBrowserRunError(error) ? error.message : errorMessage(error);
+        ctx.ui.notify(`/browser-crawls failed. ${detail}`, "error");
+      }
     },
   });
 

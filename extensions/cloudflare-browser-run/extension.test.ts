@@ -114,11 +114,15 @@ test("AC-C2 the factory registers its surface and does nothing else", async (t) 
       "browser_screenshot",
       "browser_tabs",
       "browser_close",
+      "browser_crawl_start",
+      "browser_crawl_status",
+      "browser_crawl_results",
+      "browser_crawl_cancel",
     ],
   );
   assert.deepEqual(
     [...box.pi.commands.keys()],
-    ["browser", "browser-login", "browser-profiles"],
+    ["browser", "browser-crawls", "browser-login", "browser-profiles"],
   );
   assert.ok(box.pi.handlers.has("session_start"));
   assert.ok(box.pi.handlers.has("session_shutdown"));
@@ -853,4 +857,236 @@ test("/browser-profiles lists, inspects, and deletes without printing secrets", 
   // single profile's key cannot be destroyed.
   await command.handler("delete example-site", ctx);
   assert.match(ui.notifications.at(-1)?.text ?? "", /Rotate the variable/);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 4: asynchronous crawls.
+// ---------------------------------------------------------------------------
+
+test("browser_crawl_start registers a durable job and activates the follow-up tools", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
+  const { ctx } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+
+  assert.ok(!box.pi.activeTools.includes("browser_crawl_status"), "inactive until a job exists");
+
+  box.setResponse({ body: { success: true, result: { jobId: "job-abc" } } });
+  const result = await box.pi.tools
+    .get("browser_crawl_start")!
+    .execute("c", { url: "https://docs.example.com/" }, undefined, undefined, ctx);
+
+  const text = result.content[0]?.text ?? "";
+  assert.match(text, /Crawl job-abc started on https:\/\/docs\.example\.com/);
+  assert.match(text, /pages {7}: up to 25/);
+  assert.match(text, /render {6}: no/);
+  assert.match(text, /purposes {4}: ai-input/);
+  assert.match(text, /same site, no external links, no subdomains/);
+  assert.match(text, /survives this Pi session/);
+  assert.match(text, /Tools now available: browser_crawl_status/);
+
+  for (const name of ["browser_crawl_status", "browser_crawl_results", "browser_crawl_cancel"]) {
+    assert.ok(box.pi.activeTools.includes(name), name);
+  }
+
+  const body = JSON.parse(String(box.fetchCalls.at(-1)?.init.body)) as Record<string, unknown>;
+  assert.deepEqual(body["formats"], ["markdown"]);
+  assert.equal(body["render"], false);
+  assert.deepEqual(body["crawlPurposes"], ["ai-input"]);
+  assert.deepEqual(body["options"], { includeExternalLinks: false, includeSubdomains: false });
+});
+
+test("a job in the durable registry activates the follow-up tools in a later session", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
+  const { ctx } = createFakeContext({ cwd: "/repo/here" });
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+  box.setResponse({ body: { success: true, result: { jobId: "job-later" } } });
+  await box.pi.tools
+    .get("browser_crawl_start")!
+    .execute("c", { url: "https://docs.example.com/" }, undefined, undefined, ctx);
+
+  // A brand new extension instance, as a later Pi process would build.
+  const second = createFakePi();
+  cloudflareBrowserRun(second.api, { lookup: publicLookup });
+  await second.emit("session_start", { reason: "startup" }, ctx);
+  assert.ok(second.activeTools.includes("browser_crawl_status"));
+
+  const listed = await second.commands.get("browser-crawls")?.handler("list", ctx);
+  void listed;
+});
+
+test("the daily crawl cap is enforced before any request", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  await writeConfig(box.agentDir, { crawl: { maxJobsPerDay: 1 } });
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
+  const { ctx } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+
+  box.setResponse({ body: { success: true, result: { jobId: "job-1" } } });
+  await box.pi.tools
+    .get("browser_crawl_start")!
+    .execute("c1", { url: "https://docs.example.com/" }, undefined, undefined, ctx);
+  const callsAfterFirst = box.fetchCalls.length;
+
+  await assert.rejects(
+    () =>
+      box.pi.tools
+        .get("browser_crawl_start")!
+        .execute("c2", { url: "https://docs.example.com/" }, undefined, undefined, ctx),
+    (error: unknown) =>
+      error instanceof BrowserRunError &&
+      error.errorClass === "quota_exhausted" &&
+      /configured maximum of 1/.test(error.detail),
+  );
+  assert.equal(box.fetchCalls.length, callsAfterFirst, "the cap costs nothing to enforce");
+});
+
+test("crawl results page, cache, and mark the text untrusted", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
+  const { ctx } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+
+  box.setResponse({ body: { success: true, result: { jobId: "job-page" } } });
+  await box.pi.tools
+    .get("browser_crawl_start")!
+    .execute("c", { url: "https://docs.example.com/" }, undefined, undefined, ctx);
+
+  box.setResponse({
+    body: {
+      success: true,
+      result: {
+        status: "completed",
+        browserSecondsUsed: 4,
+        cursor: "cursor-2",
+        total: 12,
+        results: [
+          {
+            url: "https://docs.example.com/a",
+            status: "completed",
+            markdown: `# A\n${"detail ".repeat(300)}`,
+            metadata: { status: 200, title: "Page A" },
+          },
+          { url: "https://docs.example.com/blocked", status: "disallowed" },
+        ],
+      },
+    },
+  });
+
+  const first = await box.pi.tools
+    .get("browser_crawl_results")!
+    .execute("r", { job_id: "job-page" }, undefined, undefined, ctx);
+  const text = first.content[0]?.text ?? "";
+  assert.match(text, /Crawl job-page \(completed\)/);
+  assert.match(text, /next cursor: cursor-2/);
+  assert.match(text, /<untrusted-page-content source="https:\/\/docs\.example\.com\/" tool="browser_crawl_results">/);
+  assert.match(text, /https:\/\/docs\.example\.com\/blocked \[disallowed\]/);
+  assert.equal((first.details as { fromCache: boolean }).fromCache, false);
+
+  const before = box.fetchCalls.length;
+  const second = await box.pi.tools
+    .get("browser_crawl_results")!
+    .execute("r2", { job_id: "job-page" }, undefined, undefined, ctx);
+  assert.equal(box.fetchCalls.length, before, "a cached page costs no request");
+  assert.equal((second.details as { fromCache: boolean }).fromCache, true);
+  assert.match(second.content[0]?.text ?? "", /served from the local cache/);
+
+  // A URL filter narrows the current page without another request.
+  const filtered = await box.pi.tools
+    .get("browser_crawl_results")!
+    .execute("r3", { job_id: "job-page", url: "blocked" }, undefined, undefined, ctx);
+  assert.match(filtered.content[0]?.text ?? "", /records on this page: 1 \(filtered from 2\)/);
+});
+
+test("crawl status and cancel update the durable record", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
+  const { ctx } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+
+  box.setResponse({ body: { success: true, result: { jobId: "job-x" } } });
+  await box.pi.tools
+    .get("browser_crawl_start")!
+    .execute("c", { url: "https://docs.example.com/" }, undefined, undefined, ctx);
+
+  box.setResponse({
+    body: { success: true, result: { status: "running", browserSecondsUsed: 2, total: 3 } },
+  });
+  const status = await box.pi.tools
+    .get("browser_crawl_status")!
+    .execute("s", { job_id: "job-x" }, undefined, undefined, ctx);
+  assert.match(status.content[0]?.text ?? "", /status {6}: running/);
+  assert.equal((status.details as { pagesSeen: number }).pagesSeen, 3);
+
+  box.setResponse({ body: { success: true, result: {} } });
+  const cancelled = await box.pi.tools
+    .get("browser_crawl_cancel")!
+    .execute("x", { job_id: "job-x" }, undefined, undefined, ctx);
+  assert.match(cancelled.content[0]?.text ?? "", /not refunded/);
+  assert.equal((cancelled.details as { status: string }).status, "cancelled_by_user");
+
+  // Cancelling a finished job is reported rather than repeated upstream.
+  const before = box.fetchCalls.length;
+  const again = await box.pi.tools
+    .get("browser_crawl_cancel")!
+    .execute("x2", { job_id: "job-x" }, undefined, undefined, ctx);
+  assert.match(again.content[0]?.text ?? "", /already finished as cancelled_by_user/);
+  assert.equal(box.fetchCalls.length, before);
+});
+
+test("an unknown job id is reported without contacting Cloudflare", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
+  const { ctx } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+  box.setResponse({ body: { success: true, result: { jobId: "job-known" } } });
+  await box.pi.tools
+    .get("browser_crawl_start")!
+    .execute("c", { url: "https://docs.example.com/" }, undefined, undefined, ctx);
+
+  const before = box.fetchCalls.length;
+  await assert.rejects(
+    () =>
+      box.pi.tools
+        .get("browser_crawl_status")!
+        .execute("s", { job_id: "job-unknown" }, undefined, undefined, ctx),
+    (error: unknown) => error instanceof BrowserRunError && error.errorClass === "job_not_found",
+  );
+  assert.equal(box.fetchCalls.length, before);
+});
+
+test("/browser-crawls lists, shows, and forgets durable jobs", async (t) => {
+  const box = await sandbox(t);
+  configureEnvCredentials();
+  cloudflareBrowserRun(box.pi.api, { lookup: publicLookup });
+  const { ctx, ui } = createFakeContext();
+  await box.pi.emit("session_start", { reason: "startup" }, ctx);
+  const command = box.pi.commands.get("browser-crawls");
+  assert.ok(command);
+
+  await command.handler("list", ctx);
+  assert.match(ui.notifications.at(-1)?.text ?? "", /No crawls in the registry/);
+
+  box.setResponse({ body: { success: true, result: { jobId: "job-cmd" } } });
+  await box.pi.tools
+    .get("browser_crawl_start")!
+    .execute("c", { url: "https://docs.example.com/" }, undefined, undefined, ctx);
+
+  await command.handler("list", ctx);
+  assert.match(ui.notifications.at(-1)?.text ?? "", /job-cmd\s+queued/);
+
+  await command.handler("show job-cmd", ctx);
+  assert.match(ui.notifications.at(-1)?.text ?? "", /status {6}: queued \(local\)/);
+
+  await command.handler("forget job-cmd", ctx);
+  assert.match(ui.notifications.at(-1)?.text ?? "", /removed from the local registry/);
+  await command.handler("list", ctx);
+  assert.match(ui.notifications.at(-1)?.text ?? "", /No crawls in the registry/);
 });

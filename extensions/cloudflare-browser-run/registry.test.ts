@@ -1,0 +1,213 @@
+/**
+ * Crawl registry tests - DESIGN.md acceptance criteria AC-R1 to AC-R6, AC-R10.
+ */
+
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+
+import { ensureStateDir, statePaths } from "./config.ts";
+import { BrowserRunError } from "./errors.ts";
+import {
+  CrawlRegistry,
+  isLocalStatus,
+  RESULT_RETENTION_DAYS,
+  TERMINAL_STATUSES,
+  type CrawlRecord,
+} from "./registry.ts";
+import { FIXTURE_ACCOUNT_ID, FIXTURE_TOKEN } from "./test-support.ts";
+
+const NOW = Date.UTC(2026, 5, 1);
+
+function record(overrides: Partial<CrawlRecord> = {}): CrawlRecord {
+  return {
+    jobId: "job-1",
+    startUrl: "https://docs.example.com/",
+    host: "docs.example.com",
+    formats: ["markdown"],
+    limit: 25,
+    depth: 2,
+    render: false,
+    crawlPurposes: ["ai-input"],
+    status: "queued",
+    local: true,
+    createdAt: new Date(NOW).toISOString(),
+    updatedAt: new Date(NOW).toISOString(),
+    completedAt: null,
+    resultsExpireAt: null,
+    pagesSeen: 0,
+    browserSecondsUsed: null,
+    lastCursor: null,
+    cwd: "/repo/one",
+    sessionRef: "session-a",
+    ...overrides,
+  };
+}
+
+async function makeRegistry(
+  t: { after: (fn: () => Promise<void>) => void },
+  now = NOW,
+): Promise<{ registry: CrawlRegistry; dir: string }> {
+  const dir = await mkdtemp(join(tmpdir(), "cfbr-registry-"));
+  t.after(async () => rm(dir, { recursive: true, force: true }));
+  const paths = statePaths(dir);
+  await ensureStateDir(paths);
+  return { registry: new CrawlRegistry(paths, () => now), dir };
+}
+
+test("AC-R1 a registered job holds no account id, token, or page content", async (t) => {
+  const { registry } = await makeRegistry(t);
+  await registry.add(record());
+
+  const raw = await readFile(registry.indexPath, "utf8");
+  assert.ok(!raw.includes(FIXTURE_ACCOUNT_ID));
+  assert.ok(!raw.includes(FIXTURE_TOKEN));
+  assert.ok(!raw.includes("cookie"));
+  assert.equal((await stat(registry.indexPath)).mode & 0o777, 0o600);
+
+  const stored = await registry.require("job-1");
+  assert.equal(stored.startUrl, "https://docs.example.com/");
+  assert.equal(stored.sessionRef, "session-a");
+});
+
+test("AC-R2 the registry survives a restart", async (t) => {
+  const { registry, dir } = await makeRegistry(t);
+  await registry.add(record());
+
+  // A fresh instance over the same directory, as a later Pi process would build.
+  const reopened = new CrawlRegistry(statePaths(dir), () => NOW);
+  const jobs = await reopened.list();
+  assert.equal(jobs.length, 1);
+  assert.equal(jobs[0]?.jobId, "job-1");
+});
+
+test("updates apply to one record and keep every other record from disk", async (t) => {
+  const { registry, dir } = await makeRegistry(t);
+  await registry.add(record({ jobId: "job-1" }));
+  await registry.add(record({ jobId: "job-2", cwd: "/repo/two" }));
+
+  // Simulate another process writing while this one holds a stale view.
+  const other = new CrawlRegistry(statePaths(dir), () => NOW + 1000);
+  await other.update("job-2", { status: "running", local: false });
+
+  const updated = await registry.update("job-1", { status: "running", local: false, pagesSeen: 7 });
+  assert.equal(updated.pagesSeen, 7);
+  assert.equal((await registry.require("job-2")).status, "running", "the other record survived");
+});
+
+test("updating an unknown job reports job_not_found", async (t) => {
+  const { registry } = await makeRegistry(t);
+  await assert.rejects(
+    () => registry.update("missing", { pagesSeen: 1 }),
+    (error: unknown) => error instanceof BrowserRunError && error.errorClass === "job_not_found",
+  );
+  await assert.rejects(
+    () => registry.require("missing"),
+    (error: unknown) =>
+      error instanceof BrowserRunError && /use \/browser-crawls list/i.test(error.detail),
+  );
+});
+
+test("listing scopes to a working directory by default", async (t) => {
+  const { registry } = await makeRegistry(t);
+  await registry.add(record({ jobId: "job-1", cwd: "/repo/one" }));
+  await registry.add(record({ jobId: "job-2", cwd: "/repo/two" }));
+
+  assert.equal((await registry.list({ cwd: "/repo/one" })).length, 1);
+  assert.equal((await registry.list()).length, 2);
+});
+
+test("AC-R10 the daily counter only counts recent jobs", async (t) => {
+  const { registry } = await makeRegistry(t);
+  await registry.add(record({ jobId: "old", createdAt: new Date(NOW - 3 * 86_400_000).toISOString() }));
+  await registry.add(record({ jobId: "fresh" }));
+
+  assert.equal(await registry.countStartedSince(NOW - 86_400_000), 1);
+  assert.equal(await registry.countStartedSince(NOW - 7 * 86_400_000), 2);
+});
+
+test("AC-R3 and AC-R4 cached pages are keyed, reread from disk, and never refetched", async (t) => {
+  const { registry } = await makeRegistry(t);
+  await registry.add(record());
+
+  assert.equal(await registry.readCachedPage("job-1", "aaaa"), undefined);
+  const path = await registry.writeCachedPage("job-1", "aaaa", { records: [{ url: "u" }] });
+  assert.equal((await stat(path)).mode & 0o777, 0o600);
+
+  const cached = await registry.readCachedPage<{ records: Array<{ url: string }> }>("job-1", "aaaa");
+  assert.equal(cached?.records[0]?.url, "u");
+
+  await registry.writeCachedPage("job-1", "bbbb", { records: [] });
+  assert.deepEqual(await registry.cachedPageKeys("job-1"), ["aaaa", "bbbb"]);
+
+  assert.throws(() => registry.cacheDir("../escape"), /not well formed/);
+  await assert.rejects(() => registry.writeCachedPage("job-1", "../escape", {}), /not well formed/);
+});
+
+test("AC-R5 the sweep ages out jobs past Cloudflare's retention and keeps younger ones", async (t) => {
+  const { registry } = await makeRegistry(t);
+  await registry.add(
+    record({
+      jobId: "old",
+      status: "completed",
+      local: false,
+      completedAt: new Date(NOW - 15 * 86_400_000).toISOString(),
+    }),
+  );
+  await registry.add(
+    record({
+      jobId: "recent",
+      status: "completed",
+      local: false,
+      completedAt: new Date(NOW - 13 * 86_400_000).toISOString(),
+    }),
+  );
+  await registry.writeCachedPage("old", "aaaa", { records: [] });
+  await registry.writeCachedPage("recent", "aaaa", { records: [] });
+
+  const expired = await registry.sweep(RESULT_RETENTION_DAYS);
+  assert.deepEqual(expired, ["old"]);
+  assert.equal((await registry.require("old")).status, "results_expired");
+  assert.equal((await registry.require("recent")).status, "completed");
+  assert.deepEqual(await registry.cachedPageKeys("old"), []);
+  assert.deepEqual(await registry.cachedPageKeys("recent"), ["aaaa"]);
+
+  // A second sweep is a no-op rather than a repeated report.
+  assert.deepEqual(await registry.sweep(RESULT_RETENTION_DAYS), []);
+});
+
+test("AC-R6 forgetting a job removes its record and its cache", async (t) => {
+  const { registry } = await makeRegistry(t);
+  await registry.add(record());
+  await registry.writeCachedPage("job-1", "aaaa", { records: [] });
+
+  await registry.forget("job-1");
+  assert.equal(await registry.get("job-1"), undefined);
+  assert.deepEqual(await registry.cachedPageKeys("job-1"), []);
+
+  // Forgetting twice is safe.
+  await registry.forget("job-1");
+});
+
+test("a corrupt index is treated as empty rather than crashing the session", async (t) => {
+  const { registry, dir } = await makeRegistry(t);
+  await (await import("node:fs/promises")).writeFile(
+    join(statePaths(dir).crawlsDir, "index.json"),
+    "{ not json",
+    "utf8",
+  );
+  assert.deepEqual(await registry.list(), []);
+  await registry.add(record());
+  assert.equal((await registry.list()).length, 1);
+});
+
+test("local and Cloudflare statuses stay distinguishable", () => {
+  assert.equal(isLocalStatus("queued"), true);
+  assert.equal(isLocalStatus("results_expired"), true);
+  assert.equal(isLocalStatus("completed"), false);
+  assert.equal(isLocalStatus("running"), false);
+  assert.ok(TERMINAL_STATUSES.includes("cancelled_by_user"));
+  assert.ok(!TERMINAL_STATUSES.includes("running"));
+});

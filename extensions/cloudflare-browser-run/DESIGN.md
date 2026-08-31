@@ -127,6 +127,7 @@ security boundaries.
 | Protocol traffic such as `Browser.getVersion` counts as session activity for the idle timer | one 11-minute idle test during phase 3 | require handoffs to finish inside `keep_alive` and say so in the handoff prompt |
 | ~~`locator.ariaSnapshot()` is public in `playwright-core@1.62.1` and its output is stable enough to mint refs from~~ Resolved in phase 2: `page.ariaSnapshot({ mode: "ai" })` is public and already emits `[ref=eN]`, and Playwright ships an `aria-ref=` selector engine, so refs come from Playwright rather than from us | read the pinned type definitions during phase 2 | no fallback needed |
 | `Cloudflare.getLiveView` and `Cloudflare.handoff` are reachable through `browser.newBrowserCDPSession()` under `connectOverCDP` | phase 3 | open a second raw websocket to the same session for Cloudflare-domain commands |
+| The `/crawl` read envelope names its record array `results` and its continuation token `cursor` | first live crawl | the parser already accepts `records`, `urls`, `pages`, and `data`, and `nextCursor`; widen it if the live shape differs |
 | The CDP session id is not on its own a bearer capability, since REST and websocket calls still require the token | phase 2 | treat the session id as secret and hash it everywhere, which the logging design already does |
 
 ## 3. Directory and module layout
@@ -986,8 +987,10 @@ can see what was skipped rather than wondering why a page is missing.
 `browser_crawl_results` never returns a whole crawl.
 
 - Default page size 5 records, maximum 20. Each record returns url, status, HTTP status, title, and
-  the first 800 bytes of Markdown. Full content for one page requires `include_content: true` with
-  an explicit `url`.
+  the first 800 bytes of Markdown. `include_content: true` returns full Markdown for the records on
+  the current page, and `url` filters that page to matching records. Both act on the page in hand
+  rather than searching the whole job, because finding one URL across a job would mean paging the
+  entire result set.
 - Cloudflare's `cursor` is stored as `lastCursor` and returned to the model as an opaque token, so
   paging continues across Pi sessions.
 - Every fetched page is cached under `crawls/<jobId>/page-*.json` before any truncation, so re-reads
