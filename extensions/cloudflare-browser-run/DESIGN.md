@@ -669,12 +669,17 @@ per context.
 - A timeout or an abort permanently gates the action, it does not merely stop waiting for it. The
   queued operation receives an abandonment signal that fires in both cases, and every driver call
   that changes page or tab state checks that signal immediately before it runs: navigate, click,
-  fill, select, press, and tab open and close. Read-only steps deliberately do not check, because an
-  abandoned snapshot or screenshot wastes work and changes nothing. Placing the check at the
-  mutation rather than after each wait makes the invariant structural: a future edit that adds an
-  await earlier in an action cannot reopen the window. Two waits made this necessary, an operator
-  confirmation and the password-field inspection that precedes a fill, either of which can outlast
-  the caller.
+  fill, the optional Enter that submits a fill, select, press, and tab open and close. An action with
+  two mutations is checked before each of them, not only before the first, because the caller can
+  give up in the round-trip between them and submitting a form nobody is waiting for is an external
+  side effect. Read-only steps deliberately do not check, because an abandoned snapshot or
+  screenshot wastes work and changes nothing.
+
+  Every check sits at the mutation rather than after the wait that precedes it. That makes the
+  invariant structural: it holds for a click with no operator confirmation exactly as it does for one
+  with, and a future edit that introduces an await earlier in an action cannot reopen the window.
+  Three waits made this necessary: an operator confirmation, the password-field inspection before a
+  fill, and the fill itself before its optional submit.
 - `signal` is honored: an aborted turn rejects the waiter and releases the mutex.
 - While state is `handoff`, the mutex is held by the handoff, so every model action is rejected
   with `busy_handoff` instead of interleaving with a human typing a password.
@@ -1566,3 +1571,11 @@ that changes page or tab state now checks the abandonment signal immediately bef
 was the better trade, because the password-field inspection before a fill is exactly the same window
 the confirmation fix closed, and placing the check at the mutation makes the invariant survive
 future edits instead of depending on where the waits happen to be today.
+
+A follow-up pass found two places where that extension was still incomplete. The click check sat
+inside the optional confirmation branch, so the default unconfirmed path had none, and a fill with
+`submit` checked before typing but not before the Enter that follows it. The second was a live
+defect: an abort landing during `fill()` returned failure to the caller while the continuation still
+submitted the form. The first was defense in depth, since an unconfirmed click has no await between
+entering the queued window and the mutation and the queue's own guards catch every abandonment
+first, but the invariant is now true as written rather than true by coincidence.

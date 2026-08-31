@@ -11,6 +11,7 @@ import test from "node:test";
 import { BrowserRunError } from "./errors.ts";
 import {
   ActionQueue,
+  assertNotAbandoned,
   BrowserSession,
   isExpiryError,
   type BrowserLike,
@@ -829,4 +830,73 @@ test("an abandoned fill does not type after the password inspection", async () =
   );
   await new Promise((resolve) => setTimeout(resolve, 80));
   assert.ok(!log.some((entry) => entry.startsWith("fill:")), "an abandoned fill still typed");
+});
+
+test("an abort between typing and submitting does not submit the form", async () => {
+  // fill() is a driver round-trip, so the caller can give up after the text is
+  // typed but before Enter. Submitting a form nobody is waiting for is an
+  // external side effect, so the gate has to sit between the two mutations, not
+  // only before the first.
+  const log: string[] = [];
+  const page = createFakePage({ log });
+  page.locator = (() => ({
+    async getAttribute() {
+      return null;
+    },
+    async fill(value: string) {
+      log.push(`fill:${value}`);
+      // The caller's timeout expires while the text is being typed.
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    },
+    async press(key: string) {
+      log.push(`press:${key}`);
+    },
+    async click() {},
+    async selectOption() {
+      return [];
+    },
+    async screenshot() {
+      return Buffer.alloc(10);
+    },
+    async boundingBox() {
+      return { x: 0, y: 0, width: 10, height: 10 };
+    },
+    async count() {
+      return 1;
+    },
+  })) as unknown as typeof page.locator;
+
+  const harness = makeSession({ actionTimeoutMs: 25 }, createFakeBrowser({ page }));
+  await harness.session.open({});
+
+  await assert.rejects(
+    () => harness.session.fill("e1", "query", { submit: true }),
+    (error: unknown) =>
+      error instanceof BrowserRunError && error.errorClass === "session_expired",
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.ok(log.includes("fill:query"), "the text was typed before the caller gave up");
+  assert.ok(!log.some((entry) => entry.startsWith("press:")), "an abandoned fill still submitted");
+});
+
+test("the abandonment gate reports the caller was already told it failed", () => {
+  // The check that now sits immediately before every state-changing driver call,
+  // including an unconfirmed click. On today's code an unconfirmed click has no
+  // await between entering the queued window and the mutation, so the queue's own
+  // guards catch every abandonment first; this pins the helper's contract so the
+  // invariant survives an edit that adds one.
+  const live = new AbortController();
+  assert.doesNotThrow(() => assertNotAbandoned(live.signal, "browser_click"));
+  assert.doesNotThrow(() => assertNotAbandoned(undefined, "browser_click"));
+
+  const abandoned = new AbortController();
+  abandoned.abort();
+  assert.throws(
+    () => assertNotAbandoned(abandoned.signal, "browser_click"),
+    (error: unknown) =>
+      error instanceof BrowserRunError &&
+      error.errorClass === "session_expired" &&
+      /browser_click was abandoned before it acted, so nothing was done/.test(error.detail),
+  );
 });

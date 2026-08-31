@@ -551,13 +551,17 @@ export class BrowserSession {
         const before = page.url();
         if (options.confirm) {
           const approved = await options.confirm({ url: before, ref });
-          // The caller may have timed out or aborted while the operator was
-          // deciding. A late yes must not click something nobody is waiting for.
+          // A late yes must not click something nobody is waiting for, and the
+          // caller should hear that it was abandoned rather than that it was
+          // approved.
           assertNotAbandoned(abandoned, "browser_click");
           if (!approved) {
             throw new BrowserRunError("invalid_request", "the operator declined this click");
           }
         }
+        // The invariant, whatever preceded it: an unconfirmed click can still have
+        // spent its whole timeout waiting behind an earlier action in the queue.
+        assertNotAbandoned(abandoned, "browser_click");
         await page.locator(refSelector(ref)).click({
           ...(options.button ? { button: options.button } : {}),
         });
@@ -588,7 +592,13 @@ export class BrowserSession {
         assertNotAbandoned(abandoned, "browser_fill");
         const before = page.url();
         await locator.fill(text);
-        if (options.submit) await locator.press("Enter");
+        if (options.submit) {
+          // fill() is a driver round-trip of its own, so the caller can give up
+          // between typing and submitting. Submitting a form nobody is waiting
+          // for is an external side effect, which is the whole point of the gate.
+          assertNotAbandoned(abandoned, "browser_fill");
+          await locator.press("Enter");
+        }
         await this.#assertSettledTarget(page);
         return this.orient(page, page.url() !== before, ref);
       },
