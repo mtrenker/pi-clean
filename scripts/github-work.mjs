@@ -438,7 +438,7 @@ function issueAgentPrompt(agent, number, repository) {
 }
 
 function reviewAgentPrompt(reviewer, number, repository) {
-  const task = `Independently review GitHub pull request #${number} in ${repository}. Inspect the issue context, full diff, tests, regressions, and security. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization.`;
+  const task = `Independently review GitHub pull request #${number} in ${repository}. Read the relevant issue, accepted scope, durable design direction, full diff, and tests. Review correctness, regressions, error handling, security, and maintainability against the supported contract. Distinguish reachable blockers, maintainability risks, unresolved design gaps, and out-of-contract concerns. A blocker needs a concrete failure path in a supported environment; theoretical or future-call-path concerns are non-blocking unless they expose a reachable security or data-loss risk. Martin is one developer responsible for many projects: assess whether he can find the entry points, trace state and invariants, diagnose failures, recover safely, and change the code without an agent. Flag hidden coupling, disproportionate abstraction or change size, duplicated policy, tests that obscure rather than explain the contract, and reasoning that exists only in an agent transcript. Return evidence-backed findings with category, file and line evidence, concrete impact, supported-contract assumption, and the smallest maintainable correction. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization.`;
   if (reviewer === "claude") {
     return `${task} As Claude Opus 5, evaluate any new or materially changed product, UX, interaction, visual, architecture, API, or data-model design.`;
   }
@@ -449,7 +449,7 @@ function managedAgentCommand(agent, prompt) {
   switch (agent) {
     case "pi": return `pi ${shellQuote(prompt)}`;
     case "claude": return `claude --model claude-opus-5 --effort high --permission-mode bypassPermissions ${shellQuote(prompt)}`;
-    case "codex": return `codex --full-auto ${shellQuote(prompt)}`;
+    case "codex": return `codex --model gpt-5.6-sol -c 'model_reasoning_effort=\"high\"' --ask-for-approval never --sandbox workspace-write ${shellQuote(prompt)}`;
     default: throw new Error("managed agent must be pi, claude, or codex");
   }
 }

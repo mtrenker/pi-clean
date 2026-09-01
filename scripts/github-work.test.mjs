@@ -208,7 +208,7 @@ test("managed start creates a native Herdr issue worktree and launches in its ro
 
 for (const [agent, expectedLaunch] of [
   ["claude", "claude --model claude-opus-5 --effort high --permission-mode bypassPermissions 'Work on GitHub issue #10 in owner/repo. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge. Keep any delegated agent that shares this worktree in this Herdr workspace as a sibling pane or a named tab, never a second workspace. As Claude Opus 5, own and document any unresolved product, UX, interaction, visual, architecture, API, or data-model design before implementing it.'"],
-  ["codex", "codex --full-auto 'Work on GitHub issue #10 in owner/repo. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge. Keep any delegated agent that shares this worktree in this Herdr workspace as a sibling pane or a named tab, never a second workspace. Do not originate or materially change unresolved product, UX, interaction, visual, architecture, API, or data-model design. If such design is required and is not already approved, stop and report the required Claude Opus 5 handoff.'"],
+  ["codex", "codex --model gpt-5.6-sol -c 'model_reasoning_effort=\"high\"' --ask-for-approval never --sandbox workspace-write 'Work on GitHub issue #10 in owner/repo. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge. Keep any delegated agent that shares this worktree in this Herdr workspace as a sibling pane or a named tab, never a second workspace. Do not originate or materially change unresolved product, UX, interaction, visual, architecture, API, or data-model design. If such design is required and is not already approved, stop and report the required Claude Opus 5 handoff.'"],
 ]) {
   test(`managed ${agent} issue authors use the exact non-prompting profile`, async (t) => {
     const fixture = await mockEnvironment(t);
@@ -223,11 +223,19 @@ for (const [agent, expectedLaunch] of [
   });
 }
 
-for (const [reviewer, expectedLaunch] of [
-  ["claude", "claude --model claude-opus-5 --effort high --permission-mode bypassPermissions 'Independently review GitHub pull request #20 in owner/repo. Inspect the issue context, full diff, tests, regressions, and security. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization. As Claude Opus 5, evaluate any new or materially changed product, UX, interaction, visual, architecture, API, or data-model design.'"],
-  ["codex", "codex --full-auto 'Independently review GitHub pull request #20 in owner/repo. Inspect the issue context, full diff, tests, regressions, and security. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization. Review implementation fidelity against approved design, but do not make final judgments on unresolved product, UX, interaction, visual, architecture, API, or data-model design; flag those for Claude Opus 5.'"],
+for (const [reviewer, expectedProfile, designMarker] of [
+  [
+    "claude",
+    "claude --model claude-opus-5 --effort high --permission-mode bypassPermissions ",
+    /As Claude Opus 5, evaluate any new or materially changed/,
+  ],
+  [
+    "codex",
+    "codex --model gpt-5.6-sol -c 'model_reasoning_effort=\"high\"' --ask-for-approval never --sandbox workspace-write ",
+    /flag those for Claude Opus 5/,
+  ],
 ]) {
-  test(`managed ${reviewer} PR reviewers use the exact non-prompting profile`, async (t) => {
+  test(`managed ${reviewer} PR reviewers use the exact non-prompting profile and maintainability contract`, async (t) => {
     const fixture = await mockEnvironment(t);
     const result = invoke(["review-pr", "20", "--reviewer", reviewer], { ...fixture.env, HERDR_ENV: "1" });
     assert.equal(result.status, 0, result.stderr);
@@ -235,8 +243,17 @@ for (const [reviewer, expectedLaunch] of [
     const log = await commandLog(fixture.logPath);
     const launch = findCommand(log, "herdr", ["pane", "run", "p-review"]);
     assert.ok(launch, "expected the reviewer agent to launch in its detached workspace");
-    assert.equal(launchedAgentCommand(launch), expectedLaunch);
-    if (reviewer === "codex") assert.doesNotMatch(launch.args[3], /danger-full-access/);
+    const command = launchedAgentCommand(launch);
+    assert.ok(command.startsWith(expectedProfile), `expected launch profile ${expectedProfile}`);
+    assert.match(command, /maintainability against the supported contract/);
+    assert.match(command, /A blocker needs a concrete failure path in a supported environment/);
+    assert.match(command, /Martin is one developer responsible for many projects/);
+    assert.match(command, /reasoning that exists only in an agent transcript/);
+    assert.match(command, designMarker);
+    if (reviewer === "codex") {
+      assert.doesNotMatch(command, /--full-auto/);
+      assert.doesNotMatch(command, /danger-full-access/);
+    }
   });
 }
 
