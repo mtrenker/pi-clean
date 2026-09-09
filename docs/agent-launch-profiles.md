@@ -145,10 +145,6 @@ Model benchmarks or promotions, including Astra, Sonnet, and Terra/Luna. Host sa
 scheduler, agent framework, schema ecosystem, or telemetry service. Changes to personal settings or
 external skills. Non-interactive subprocess delegation.
 
-## Review history
-
-Findings and dispositions: [round 1](reviews/issue-41-round-1.md), [round 2](reviews/issue-41-round-2.md).
-
 ## Acceptance criteria
 
 1. One module holds every launch setting, and both the helper and the skill recipes read it.
