@@ -1,6 +1,8 @@
 # Issue 41, review round 1 dispositions
 
-Reviewer: GPT-5.6 Sol, independent detached review session, against `87a837f`. Author: Claude Opus 5.
+Reviewer: GPT-5.6 Sol, independent read-only issue-diff review against `87a837f`, in the issue
+worktree while its author was idle. This was not a detached PR review. The coordinator supplied
+additional evidence checks for findings 7 and 8. Author: Claude Opus 5.
 Every finding was reproduced or checked against a primary source before it was acted on. All eight
 were confirmed; none was rejected or deferred as design-dependent.
 
