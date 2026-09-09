@@ -108,12 +108,13 @@ When a repository uses the recommended Project workflow, implementation candidat
 Use the shared helper rather than editing the primary checkout:
 
 ```bash
-node /resolved/pi-clean/scripts/github-work.mjs start-issue <number> --agent pi
+node /resolved/pi-clean/scripts/github-work.mjs start-issue <number>
 ```
 
-Before selecting an agent, inspect whether the issue contains unresolved design. Start that design
-work with Claude Opus 5. Use Pi or Codex only when the Opus direction is already durable and the
-issue is bounded to investigation, implementation within it, or validation.
+The default agent is `claude`, which launches Claude Opus 5 at effort `high`. Before choosing a
+different one, inspect whether the issue contains unresolved design. Design work stays with Opus.
+Pass `--agent codex` or `--agent pi` only when the Opus direction is already durable and the issue is
+bounded to investigation, implementation within it, or validation.
 
 The primary checkout is a control plane. Implementation belongs in the returned worktree. Reuse
 an existing issue worktree when the helper reports one.

@@ -7,6 +7,16 @@ import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
+import {
+  DEFAULT_ISSUE_AGENT,
+  DEFAULT_REVIEWER,
+  describeProfiles,
+  launchCommand,
+  profileForAgent,
+  profileIds,
+  shellQuote
+} from "./agent-profiles.mjs";
+
 const AGENTS = new Set(["pi", "claude", "codex", "none"]);
 
 async function main() {
@@ -32,6 +42,10 @@ async function main() {
         return output(await cleanup("pr", id, options));
       case "status":
         return output(await status());
+      case "profiles":
+        return output(describeProfiles());
+      case "launch-command":
+        return console.log(profileLaunchCommand(options));
       case "help":
       case undefined:
         return printHelp(command ? 0 : 1);
@@ -45,7 +59,7 @@ async function main() {
 }
 
 async function startIssue(number, options) {
-  const agent = options.agent ?? "pi";
+  const agent = options.agent ?? DEFAULT_ISSUE_AGENT;
   verifyTools(agent, agent !== "none");
   const context = repoContext();
   if (process.env.HERDR_ENV === "1") verifyNativeHerdrWorktreeSupport(context.repoRoot);
@@ -155,7 +169,7 @@ async function startIssue(number, options) {
 }
 
 async function reviewPr(number, options) {
-  const reviewer = options.reviewer ?? "claude";
+  const reviewer = options.reviewer ?? DEFAULT_REVIEWER;
   verifyTools(reviewer, true);
   const context = repoContext();
   const pr = jsonCommand("gh", ["pr", "view", number, "--json", "number,title,state,url,headRefName,baseRefName"]);
@@ -429,8 +443,12 @@ function launchAgentInHerdrPane(paneId, agent, prompt, launchEnvironment = {}) {
   return true;
 }
 
+// Applies at every effort level. The profile flags in agent-profiles.mjs are a second layer,
+// not a guarantee; this instruction is the binding one.
+const DELEGATION_BOUNDARY = "Do not spawn native worker subagents or background agents. Delegate only as a visible Herdr pane or named tab in this workspace, keeping one writer in this worktree, and never create a second workspace for this checkout.";
+
 function issueAgentPrompt(agent, number, repository) {
-  const task = `Work on GitHub issue #${number} in ${repository}. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge. Keep any delegated agent that shares this worktree in this Herdr workspace as a sibling pane or a named tab, never a second workspace.`;
+  const task = `Work on GitHub issue #${number} in ${repository}. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge. ${DELEGATION_BOUNDARY}`;
   if (agent === "claude") {
     return `${task} As Claude Opus 5, own and document any unresolved product, UX, interaction, visual, architecture, API, or data-model design before implementing it.`;
   }
@@ -438,7 +456,7 @@ function issueAgentPrompt(agent, number, repository) {
 }
 
 function reviewAgentPrompt(reviewer, number, repository) {
-  const task = `Independently review GitHub pull request #${number} in ${repository}. Read the relevant issue, accepted scope, durable design direction, full diff, and tests. Review correctness, regressions, error handling, security, and maintainability against the supported contract. Distinguish reachable blockers, maintainability risks, unresolved design gaps, and out-of-contract concerns. A blocker needs a concrete failure path in a supported environment; theoretical or future-call-path concerns are non-blocking unless they expose a reachable security or data-loss risk. Martin is one developer responsible for many projects: assess whether he can find the entry points, trace state and invariants, diagnose failures, recover safely, and change the code without an agent. Flag hidden coupling, disproportionate abstraction or change size, duplicated policy, tests that obscure rather than explain the contract, and reasoning that exists only in an agent transcript. Return evidence-backed findings with category, file and line evidence, concrete impact, supported-contract assumption, and the smallest maintainable correction. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization.`;
+  const task = `Independently review GitHub pull request #${number} in ${repository}. Read the relevant issue, accepted scope, durable design direction, full diff, and tests. Review correctness, regressions, error handling, security, and maintainability against the supported contract. Distinguish reachable blockers, maintainability risks, unresolved design gaps, and out-of-contract concerns. A blocker needs a concrete failure path in a supported environment; theoretical or future-call-path concerns are non-blocking unless they expose a reachable security or data-loss risk. Martin is one developer responsible for many projects: assess whether he can find the entry points, trace state and invariants, diagnose failures, recover safely, and change the code without an agent. Flag hidden coupling, disproportionate abstraction or change size, duplicated policy, tests that obscure rather than explain the contract, and reasoning that exists only in an agent transcript. Return evidence-backed findings with category, file and line evidence, concrete impact, supported-contract assumption, and the smallest maintainable correction. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization. ${DELEGATION_BOUNDARY}`;
   if (reviewer === "claude") {
     return `${task} As Claude Opus 5, evaluate any new or materially changed product, UX, interaction, visual, architecture, API, or data-model design.`;
   }
@@ -446,12 +464,13 @@ function reviewAgentPrompt(reviewer, number, repository) {
 }
 
 function managedAgentCommand(agent, prompt) {
-  switch (agent) {
-    case "pi": return `pi ${shellQuote(prompt)}`;
-    case "claude": return `claude --model claude-opus-5 --effort high --permission-mode bypassPermissions ${shellQuote(prompt)}`;
-    case "codex": return `codex --model gpt-5.6-sol -c 'model_reasoning_effort=\"high\"' --ask-for-approval never --sandbox workspace-write ${shellQuote(prompt)}`;
-    default: throw new Error("managed agent must be pi, claude, or codex");
-  }
+  return launchCommand({ profile: profileForAgent(agent).id, prompt });
+}
+
+function profileLaunchCommand(options) {
+  if (!options.profile) throw new Error(`--profile is required; supported: ${profileIds().join(", ")}`);
+  if (!options.prompt) throw new Error("--prompt is required");
+  return launchCommand({ profile: options.profile, effort: options.effort, prompt: options.prompt });
 }
 
 function createHerdrWorkspace(path, label, agent, prompt, labelPrefix = label, launchEnvironment = {}) {
@@ -549,8 +568,10 @@ function allowedOptions(command) {
     case "start-issue": return new Map([["agent", "value"], ["branch", "value"], ["allow-closed", "boolean"]]);
     case "review-pr": return new Map([["reviewer", "value"], ["allow-closed", "boolean"]]);
     case "finish-issue": return new Map([["delete-branch", "boolean"]]);
+    case "launch-command": return new Map([["profile", "value"], ["effort", "value"], ["prompt", "value"]]);
     case "cleanup-pr":
     case "status":
+    case "profiles":
     case "help":
     case undefined: return new Map();
     default: return new Map();
@@ -625,10 +646,6 @@ function truncate(value, length) {
   return value.length <= length ? value : `${value.slice(0, length - 1)}…`;
 }
 
-function shellQuote(value) {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
-}
-
 function requireId(command, id) {
   if (!id || !/^\d+$/.test(id)) throw new Error(`${command} requires a numeric issue or PR number`);
 }
@@ -638,7 +655,7 @@ function output(value) {
 }
 
 function printHelp(code) {
-  console.log(`github-work — isolated GitHub issue and PR work in Herdr\n\nUsage:\n  github-work start-issue <number> [--agent pi|claude|codex|none]\n  github-work review-pr <number> [--reviewer pi|claude|codex]\n  github-work status\n  github-work finish-issue <number> [--delete-branch]\n  github-work cleanup-pr <number>\n\nEnvironment:\n  GITHUB_WORKTREE_ROOT       default: ~/.local/share/agent-worktrees\n  GITHUB_WORK_REMOTE         default: origin\n  FLIGHTDECK_TELEMETRY_FILE  optional Flightdeck-compatible JSONL sink\n`);
+  console.log(`github-work — isolated GitHub issue and PR work in Herdr\n\nUsage:\n  github-work start-issue <number> [--agent claude|codex|pi|none]   (default: ${DEFAULT_ISSUE_AGENT})\n  github-work review-pr <number> [--reviewer claude|codex|pi]      (default: ${DEFAULT_REVIEWER})\n  github-work status\n  github-work finish-issue <number> [--delete-branch]\n  github-work cleanup-pr <number>\n  github-work profiles\n  github-work launch-command --profile <id> [--effort <level>] --prompt <text>\n\nLaunch profiles (docs/agent-launch-profiles.md):\n  ${profileIds().join(", ")}\n\nEnvironment:\n  GITHUB_WORKTREE_ROOT       default: ~/.local/share/agent-worktrees\n  GITHUB_WORK_REMOTE         default: origin\n  FLIGHTDECK_TELEMETRY_FILE  optional Flightdeck-compatible JSONL sink\n`);
   process.exitCode = code;
 }
 
