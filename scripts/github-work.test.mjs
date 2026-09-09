@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { flightdeckLaunchEnvironment } from "./github-work.mjs";
+import { AGENT_PROFILES, DELEGATION_BOUNDARY, launchCommand, profileIds } from "./agent-profiles.mjs";
 
 const script = fileURLToPath(new URL("./github-work.mjs", import.meta.url));
 
@@ -206,10 +207,19 @@ test("managed start creates a native Herdr issue worktree and launches in its ro
   assert.equal("herdrPaneId" in telemetry[0].attributes, false);
 });
 
-for (const [agent, expectedLaunch] of [
-  ["claude", "claude --model claude-opus-5 --effort high --permission-mode bypassPermissions 'Work on GitHub issue #10 in owner/repo. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge. Keep any delegated agent that shares this worktree in this Herdr workspace as a sibling pane or a named tab, never a second workspace. As Claude Opus 5, own and document any unresolved product, UX, interaction, visual, architecture, API, or data-model design before implementing it.'"],
-  ["codex", "codex --model gpt-5.6-sol -c 'model_reasoning_effort=\"high\"' --ask-for-approval never --sandbox workspace-write 'Work on GitHub issue #10 in owner/repo. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge. Keep any delegated agent that shares this worktree in this Herdr workspace as a sibling pane or a named tab, never a second workspace. Do not originate or materially change unresolved product, UX, interaction, visual, architecture, API, or data-model design. If such design is required and is not already approved, stop and report the required Claude Opus 5 handoff.'"],
+const ISSUE_TASK = "Work on GitHub issue #10 in owner/repo. Read the repository instructions and issue,"
+  + " implement it in this worktree, validate the changes, and prepare a pull request. Do not merge.";
+const OPUS_DESIGN_SUFFIX = " As Claude Opus 5, own and document any unresolved product, UX, interaction,"
+  + " visual, architecture, API, or data-model design before implementing it.";
+const WORKER_DESIGN_SUFFIX = " Do not originate or materially change unresolved product, UX, interaction,"
+  + " visual, architecture, API, or data-model design. If such design is required and is not already"
+  + " approved, stop and report the required Claude Opus 5 handoff.";
+
+for (const [agent, profile, designSuffix] of [
+  ["claude", "claude-opus", OPUS_DESIGN_SUFFIX],
+  ["codex", "codex-sol-write", WORKER_DESIGN_SUFFIX],
 ]) {
+  const expectedLaunch = launchCommand({ profile, prompt: `${ISSUE_TASK}${designSuffix}` });
   test(`managed ${agent} issue authors use the exact non-prompting profile`, async (t) => {
     const fixture = await mockEnvironment(t);
     const result = invoke(["start-issue", "10", "--agent", agent], { ...fixture.env, HERDR_ENV: "1" });
@@ -226,12 +236,12 @@ for (const [agent, expectedLaunch] of [
 for (const [reviewer, expectedProfile, designMarker] of [
   [
     "claude",
-    "claude --model claude-opus-5 --effort high --permission-mode bypassPermissions ",
+    "claude --model claude-opus-5 --effort high --disallowed-tools Agent,Workflow --permission-mode bypassPermissions -- ",
     /As Claude Opus 5, evaluate any new or materially changed/,
   ],
   [
     "codex",
-    "codex --model gpt-5.6-sol -c 'model_reasoning_effort=\"high\"' --ask-for-approval never --sandbox workspace-write ",
+    "codex --model gpt-5.6-sol -c 'model_reasoning_effort=\"high\"' --disable multi_agent --ask-for-approval never --sandbox workspace-write -- ",
     /flag those for Claude Opus 5/,
   ],
 ]) {
@@ -373,4 +383,132 @@ test("non-Herdr start with agent none retains the direct Git path", async (t) =>
   const log = await commandLog(fixture.logPath);
   assert.ok(log.some((entry) => entry.program === "git" && entry.args.includes("worktree") && entry.args.includes("add")));
   assert.equal(log.some((entry) => entry.program === "herdr"), false);
+});
+
+test("start-issue defaults to the pinned Opus profile instead of an ambient agent", async (t) => {
+  const fixture = await mockEnvironment(t);
+  const result = invoke(["start-issue", "10"], { ...fixture.env, HERDR_ENV: "1" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).agent, "claude");
+
+  const log = await commandLog(fixture.logPath);
+  const launch = findCommand(log, "herdr", ["pane", "run", "p-create"]);
+  assert.equal(launchedAgentCommand(launch), launchCommand({
+    profile: "claude-opus",
+    prompt: `${ISSUE_TASK}${OPUS_DESIGN_SUFFIX}`
+  }));
+});
+
+test("launch-command prints the same string the helper launches", async (t) => {
+  const fixture = await mockEnvironment(t);
+  const result = invoke(["start-issue", "10", "--agent", "codex"], { ...fixture.env, HERDR_ENV: "1" });
+  assert.equal(result.status, 0, result.stderr);
+  const log = await commandLog(fixture.logPath);
+  const launched = launchedAgentCommand(findCommand(log, "herdr", ["pane", "run", "p-create"]));
+  const prompt = `${ISSUE_TASK}${WORKER_DESIGN_SUFFIX}`;
+
+  const printed = invoke(["launch-command", "--profile", "codex-sol-write", "--prompt", prompt]);
+  assert.equal(printed.status, 0, printed.stderr);
+  assert.equal(printed.stdout.trim(), launched);
+});
+
+const DELEGATION_CONTROLS = { claude: "--disallowed-tools Agent,Workflow", codex: "--disable multi_agent" };
+
+test("rendered commands match the reported profile metadata at every supported effort", () => {
+  for (const id of profileIds()) {
+    const profile = AGENT_PROFILES[id];
+    const efforts = profile.efforts.length > 0 ? profile.efforts : [undefined];
+    for (const effort of efforts) {
+      const command = launchCommand({ profile: id, effort, prompt: "task" });
+      const where = `${id} at ${effort}`;
+      const control = DELEGATION_CONTROLS[profile.program];
+      if (profile.nativeDelegation === "disabled") {
+        assert.ok(control, `${id} claims a disabled control its program cannot render`);
+        assert.ok(command.includes(control), where);
+      } else if (control) {
+        assert.equal(command.includes(control), false, `${where} renders a control its metadata does not claim`);
+      }
+      if (profile.execution !== "ambient") assert.ok(command.includes(profile.execution), where);
+      if (effort) assert.match(command, new RegExp(`(--effort ${effort}\\b|model_reasoning_effort="${effort}")`));
+      assert.ok(command.includes(DELEGATION_BOUNDARY), `${where} omits the delegation boundary`);
+    }
+  }
+});
+
+test("a prompt that starts with a dash reaches the agent as a prompt", () => {
+  for (const id of profileIds()) {
+    const command = launchCommand({ profile: id, prompt: "-h" });
+    assert.match(command, / -- '-h /, id);
+  }
+});
+
+test("no profile uses a removed flag, a host-wide sandbox escape, or a floating model alias", () => {
+  for (const id of profileIds()) {
+    const command = launchCommand({ profile: id, prompt: "task" });
+    assert.doesNotMatch(command, /--full-auto/, id);
+    assert.doesNotMatch(command, /danger-full-access|--dangerously-bypass-approvals-and-sandbox/, id);
+    assert.doesNotMatch(command, /--model (fable|opus|sonnet)\b/, id);
+  }
+});
+
+test("unsupported launch settings fail visibly and name the supported values", () => {
+  const unknownProfile = invoke(["launch-command", "--profile", "claude-astra", "--prompt", "task"]);
+  assert.equal(unknownProfile.status, 1);
+  assert.match(unknownProfile.stderr, /unknown launch profile: claude-astra; supported: claude-opus/);
+
+  const unknownEffort = invoke(["launch-command", "--profile", "claude-opus", "--effort", "ultra", "--prompt", "task"]);
+  assert.equal(unknownEffort.status, 1);
+  assert.match(unknownEffort.stderr, /unsupported effort ultra for profile claude-opus; supported: low, medium, high, xhigh, max/);
+
+  const missingPrompt = invoke(["launch-command", "--profile", "claude-opus"]);
+  assert.equal(missingPrompt.status, 1);
+  assert.match(missingPrompt.stderr, /--prompt is required/);
+
+  const unknownAgent = invoke(["start-issue", "10", "--agent", "fable"], { ...process.env, HERDR_ENV: "1" });
+  assert.equal(unknownAgent.status, 1);
+  assert.match(unknownAgent.stderr, /agent must be pi, claude, codex, or none/);
+});
+
+test("profiles reports the pinned models, defaults, and verified CLI versions", () => {
+  const result = invoke(["profiles"]);
+  assert.equal(result.status, 0, result.stderr);
+  const listed = JSON.parse(result.stdout);
+  assert.equal(listed.defaults.issueAgent, "claude");
+  assert.equal(listed.defaults.reviewer, "claude");
+  assert.equal(listed.profiles.find((profile) => profile.id === "claude-fable").model, "claude-fable-5-1");
+  assert.equal(listed.profiles.find((profile) => profile.id === "pi-ambient").nativeDelegation, "uncontrolled");
+  assert.equal(listed.verifiedClis.claude, "2.1.266");
+});
+
+test("generated commands parse into the intended argv under a real shell", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "github-work-launch-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const bin = join(root, "bin");
+  await mkdir(bin, { recursive: true });
+  const argvPath = join(root, "argv.json");
+  for (const program of ["claude", "codex", "pi"]) {
+    const path = join(bin, program);
+    await writeFile(path, `#!/usr/bin/env node\nimport { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(argvPath)}, JSON.stringify(process.argv.slice(2)));\n`);
+    await chmod(path, 0o755);
+  }
+
+  const prompt = "-h Review only: PR #42's diff. Don't merge.";
+  const task = `${prompt} ${DELEGATION_BOUNDARY}`;
+  const expected = {
+    "claude-opus": ["--model", "claude-opus-5", "--effort", "high", "--disallowed-tools", "Agent,Workflow",
+      "--permission-mode", "bypassPermissions", "--", task],
+    "codex-sol-read": ["--model", "gpt-5.6-sol", "-c", 'model_reasoning_effort="medium"', "--disable", "multi_agent",
+      "--ask-for-approval", "never", "--sandbox", "read-only", "--", task],
+    "pi-ambient": ["--", task]
+  };
+
+  for (const [profile, argv] of Object.entries(expected)) {
+    const command = launchCommand({ profile, prompt });
+    const run = spawnSync("bash", ["-c", command], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` }
+    });
+    assert.equal(run.status, 0, run.stderr);
+    assert.deepEqual(JSON.parse(await readFile(argvPath, "utf8")), argv, profile);
+  }
 });

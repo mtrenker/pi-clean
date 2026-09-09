@@ -41,6 +41,13 @@ Martin explicitly requests Fable implementation for that specific task. Use Opus
 workers. Make the Opus design durable in the issue, an artifact, or repository documentation before
 dependent implementation proceeds.
 
+Launch settings for delegated sessions live in `scripts/agent-profiles.mjs` and are documented in
+[`docs/agent-launch-profiles.md`](docs/agent-launch-profiles.md). Get a command from
+`node scripts/github-work.mjs launch-command`; never write a model, effort, or permission flag into
+a recipe. Every launch carries a prompt instruction against native worker spawning, and the Claude
+and Codex profiles add a vendor flag for it; Pi's extension surface is not controlled by these
+profiles. Delegate as a visible Herdr pane or tab.
+
 ## Worktrees and Herdr
 
 - Worktrees live under `~/.local/share/agent-worktrees/github.com/<owner>/<repo>/`.

@@ -15,7 +15,7 @@ This package separates durable project state from live execution:
 | Herdr | Live workspaces, agents, tests, servers, and logs |
 | Flightdeck | Read-only operational overview and attention signals |
 
-The `github-issues` and `github-pull-requests` skills define the agent workflow. The read-only `scripts/github-planning.mjs` helper provides configured cross-repository snapshots, structural findings, draft validation, and the `/github-daily` evidence sequence; see [Deterministic GitHub planning](github-planning.md). The `scripts/github-work.mjs` helper separately owns worktree and Herdr lifecycle mechanics.
+The `github-issues` and `github-pull-requests` skills define the agent workflow. The read-only `scripts/github-planning.mjs` helper provides configured cross-repository snapshots, structural findings, draft validation, and the `/github-daily` evidence sequence; see [Deterministic GitHub planning](github-planning.md). The `scripts/github-work.mjs` helper separately owns worktree and Herdr lifecycle mechanics, and reads every executable launch setting from `scripts/agent-profiles.mjs`; see [Agent launch profiles](agent-launch-profiles.md).
 
 ## Project planning and work admission
 
@@ -72,7 +72,7 @@ they may compact after workspaces or panes close.
 
 ## Interactive delegation policy
 
-Pi-clean does not provide non-interactive Claude or Codex subprocess delegation. Delegated work must remain visible in Herdr, and the externally managed `herdr` skill discovered from `~/.agents/skills/` is the canonical source for current CLI commands.
+Pi-clean does not provide non-interactive Claude or Codex subprocess delegation. Delegated work must remain visible in Herdr. The externally managed `herdr` skill discovered from `~/.agents/skills/` describes response shapes, but verify its commands against `herdr --help`: the installed copy predates Herdr 0.8.2 and still documents the removed `herdr wait`. `herdr --skill` prints the current version; refreshing that personal file is an operator action, and this repository never edits it.
 
 Use a split pane in the current workspace only for a bounded read-only investigation where sharing the checkout is safe. Starting another issue, or mutating any other checkout, uses `start-issue` and its isolated linked-worktree workspace. Independent review uses `review-pr` and its detached review worktree and workspace.
 
@@ -95,17 +95,25 @@ When coordinating with a delegated agent:
 2. After `working` has been observed, accept either `done` or `idle` as settled and read the final pane output. Herdr's `done` means completed but unread; focusing or reading the completed pane can acknowledge that ephemeral state and return it to `idle`, so a waiter must never require only `done`.
 3. Keep the pane available so the operator can focus it to inspect, guide, interrupt, or resume the agent.
 
-The helper launches managed Claude issue authors and PR reviewers as Claude Opus 5 with `--permission-mode bypassPermissions`. It launches managed Codex authors and reviewers with `--full-auto`; Codex therefore keeps its workspace-write sandbox and is not given `danger-full-access`. Managed Pi and Codex prompts require an Opus handoff instead of inventing unresolved design. These profiles avoid repeated prompts for routine local reads, tests, and review commands. They do not authorize publishing a review, approving, merging, deleting remote branches, or another protected remote mutation without explicit operator approval. Claude's bypass mode does not sandbox host filesystem or process access, and a detached worktree isolates Git state rather than untrusted repository code; stronger sandboxing is separate follow-up work.
+Launch settings come from `scripts/agent-profiles.mjs`. Managed Claude authors and reviewers run the `claude-opus` profile: `claude-opus-5`, effort `high`, `--permission-mode bypassPermissions`. Managed Codex authors and reviewers run `codex-sol-write`: `gpt-5.6-sol`, effort `high`, `--ask-for-approval never --sandbox workspace-write`. The removed `--full-auto` alias is gone, and no profile uses `danger-full-access`. Managed Pi and Codex prompts require an Opus handoff instead of inventing unresolved design.
+
+Every rendered launch appends a delegation boundary to its prompt, and the vendor profiles add a flag at every effort level: Codex passes `--disable multi_agent`, Claude passes `--disallowed-tools Agent,Workflow` for its two documented spawning tools. `pi-ambient` has no such flag, because Pi loads extensions from personal settings that this repository does not control. These are boundaries, not guarantees. Each session still has a shell, the flags are not verified end to end, and neither profile sandboxes the host. A detached worktree isolates Git state rather than untrusted repository code; stronger sandboxing is separate follow-up work.
+
+These profiles avoid repeated prompts for routine local reads, tests, and review commands. They do not authorize publishing a review, approving, merging, deleting remote branches, or another protected remote mutation without explicit operator approval.
+
+Skill recipes and ad-hoc launches must not retype these flags. `node scripts/github-work.mjs launch-command --profile <id> [--effort <level>] --prompt <text>` prints the exact command, and `node scripts/github-work.mjs profiles` prints the pinned models, defaults, and verified CLI versions.
 
 ## Start issue implementation
 
 From any checkout of the target repository, while running inside Herdr:
 
 ```bash
-node /path/to/pi-clean/scripts/github-work.mjs start-issue 123 --agent pi
+node /path/to/pi-clean/scripts/github-work.mjs start-issue 123
 ```
 
-Supported agents are `pi`, `claude`, `codex`, and `none`. The default is `pi`. Inside Herdr,
+Supported agents are `claude`, `codex`, `pi`, and `none`. The default is `claude`, which pins Opus 5 at
+effort `high`; `pi` remains available but takes its model, effort, and tool policy from personal
+settings, so its runs are not reproducible from this repository. Inside Herdr,
 issue-author checkouts use Herdr's linked-worktree API even with `--agent none`. Outside Herdr,
 `--agent none` provides the compatibility path that creates only a direct Git worktree.
 

@@ -63,7 +63,7 @@ directory containing the active skill's `SKILL.md`. Execute its absolute path, n
 to the target repository:
 
 ```bash
-node /resolved/pi-clean/scripts/github-work.mjs start-issue 123 --agent pi
+node /resolved/pi-clean/scripts/github-work.mjs start-issue 123
 node /resolved/pi-clean/scripts/github-work.mjs review-pr 456 --reviewer claude
 node /resolved/pi-clean/scripts/github-work.mjs status
 ```
@@ -74,6 +74,11 @@ Worktrees live under:
 ~/.local/share/agent-worktrees/github.com/<owner>/<repo>/issues/<number>-<slug>/
 ~/.local/share/agent-worktrees/github.com/<owner>/<repo>/prs/<number>/review-<reviewer>/
 ```
+
+Issue authors and reviewers default to the `claude-opus` profile: `claude-opus-5` at effort `high`,
+prompting suppressed, native subagents disabled. Pass `--agent codex`, `--agent pi`, or `--agent none`
+to change that. `launch-command --profile <id> --prompt <text>` prints the exact command for any other
+session, so no recipe repeats a model or permission flag.
 
 One branch and author worktree belong to one issue. Reviewers use separate detached worktrees.
 Do not modify an author's worktree during independent review.

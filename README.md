@@ -61,12 +61,16 @@ See [the deterministic issue-grooming guide](docs/github-planning.md) and its pl
 Issue implementation and independent reviews run in isolated worktrees. Inside Herdr, issue author worktrees use Herdr's native linked-worktree lifecycle:
 
 ```bash
-node scripts/github-work.mjs start-issue 123 --agent pi
-node scripts/github-work.mjs review-pr 456 --reviewer claude
+node scripts/github-work.mjs start-issue 123
+node scripts/github-work.mjs review-pr 456 --reviewer codex
 node scripts/github-work.mjs status
 node scripts/github-work.mjs cleanup-pr 456
 node scripts/github-work.mjs finish-issue 123 --delete-branch
+node scripts/github-work.mjs profiles
+node scripts/github-work.mjs launch-command --profile codex-sol-read --prompt 'Investigate the parser.'
 ```
+
+Issue authors and reviewers default to the `claude-opus` profile. `scripts/agent-profiles.mjs` holds every model, effort, permission, and delegation setting; `launch-command` prints the exact command so skills and recipes do not retype flags. See [Agent launch profiles](docs/agent-launch-profiles.md).
 
 Worktrees are stored outside project folders under `~/.local/share/agent-worktrees/github.com/<owner>/<repo>/`. Outside Herdr, `start-issue --agent none` retains a direct-Git fallback; Herdr-managed issue work requires native worktree support in Herdr 0.7.3 or newer.
 
