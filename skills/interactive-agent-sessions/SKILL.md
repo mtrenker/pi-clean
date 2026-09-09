@@ -132,6 +132,8 @@ Profiles: `claude-opus`, `claude-fable`, `codex-sol-write`, `codex-sol-read`, `p
 
 An unsupported profile or effort exits non-zero and names the supported values. Never work around that by writing the command by hand: a silent fallback to a different model, effort, or permission mode is the failure this helper exists to prevent.
 
+The printed command ends its options with `--`, so a prompt that starts with a dash is passed as text rather than read as a flag, and it carries the delegation boundary appended to your prompt.
+
 These are TUI entry points because no subcommand is present. For an interactive-session request, never use Claude `--print`/`-p`, `--background`/`--bg`, or `claude agents`; never use Codex `exec` or the non-interactive `codex review` command. Do not redirect or pipe the agent's TUI.
 
 The removed Codex `--full-auto` alias is spelled `--ask-for-approval never --sandbox workspace-write`. Do not use `--dangerously-bypass-approvals-and-sandbox` or `--sandbox danger-full-access`; worktree isolation is not a host sandbox.
@@ -150,13 +152,13 @@ Codex adds `ultra` above `max`. Use it only when Martin asks for it; it is never
 
 ## Native delegation
 
-A worker delegates in the open or not at all. Every profile disables the vendor's own worker spawning, at every effort level, and every managed prompt repeats the boundary:
+A worker delegates in the open or not at all. `launch-command` appends the delegation boundary to every prompt it renders, so the instruction reaches ad-hoc launches and recipes as well as managed issue and review sessions. The Claude and Codex profiles add a flag at every effort level:
 
 - Codex sessions pass `--disable multi_agent`. Verify with `codex --disable multi_agent features list`, which reports `multi_agent stable false` against a default of `true`. An unknown feature name exits non-zero.
-- Claude sessions pass `--settings '{"disabledBuiltinTools":["Task"]}'`. That key removes a built-in tool instead of denying it through the permission system, which is why it is used rather than a deny rule that `bypassPermissions` would skip. Its effect was not verified end to end.
-- Pi ships no sub-agents, so it has nothing to disable.
+- Claude sessions pass `--disallowed-tools Task`. Claude's permissions documentation says a bare tool name in a deny rule removes the tool from the model's context, so this is removal rather than a prompt `bypassPermissions` would skip, and a deny rule naming no known tool warns at startup. Its effect was not verified end to end.
+- `pi-ambient` has no flag. Pi ships no built-in sub-agents, but it loads extensions from personal settings and an extension can add one, so its delegation is uncontrolled and only the prompt carries the boundary.
 
-Treat these as boundaries, not guarantees. Every profile still has a shell and could start an agent through it; the flags are unverified end to end without a paid session; and none of them sandboxes the host. Say it that way in reports. Codex `ultra` still requires an explicit request from Martin, though it no longer implies worker spawning.
+Treat these as boundaries, not guarantees. Every profile still has a shell and could start an agent through it, the flags are unverified end to end, and none of them sandboxes the host. Say it that way in reports. Codex `ultra` still requires an explicit request from Martin, though it no longer implies worker spawning.
 
 Delegate instead by launching a visible Herdr pane or named tab with `launch-command`, keeping one writer in a shared worktree.
 

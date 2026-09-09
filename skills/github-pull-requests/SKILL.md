@@ -50,8 +50,8 @@ node /resolved/pi-clean/scripts/github-work.mjs review-pr <number> --reviewer cl
 ```
 
 `claude` is the default reviewer and launches Claude Opus 5; `--reviewer codex` launches GPT-5.6-sol
-under a `workspace-write` sandbox. Both profiles disable native subagents, so a reviewer that needs
-help asks for a second visible session.
+under a `workspace-write` sandbox. Both instruct the reviewer not to spawn native subagents and pass
+their vendor's flag for it, so a reviewer that needs help asks for a second visible session.
 
 Review the full diff for correctness, regressions, security, error handling, maintainability,
 test quality, and issue acceptance criteria. Run focused validation when practical. Distinguish:

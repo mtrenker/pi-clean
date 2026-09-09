@@ -36,7 +36,7 @@ A recipe that hand-writes `claude --model ...` is a defect, not a shortcut.
 | `claude-fable` | `claude` | `claude-fable-5-1` | `high` | `--permission-mode bypassPermissions` | disabled |
 | `codex-sol-write` | `codex` | `gpt-5.6-sol` | `high` | `--ask-for-approval never --sandbox workspace-write` | disabled |
 | `codex-sol-read` | `codex` | `gpt-5.6-sol` | `medium` | `--ask-for-approval never --sandbox read-only` | disabled |
-| `pi-ambient` | `pi` | ambient | ambient | ambient | not applicable |
+| `pi-ambient` | `pi` | ambient | ambient | ambient | uncontrolled |
 
 Helper defaults:
 
@@ -70,29 +70,39 @@ Managed sessions must not spawn their own hidden workers. Delegation stays visib
 panes and tabs a human can read, interrupt, and resume, because operator repair time, not model
 throughput, is the binding constraint.
 
-What each profile actually does, verified against Claude Code 2.1.266, Codex CLI 0.153.4, and Herdr
-0.8.2 on 2026-09-09:
+`launchCommand` appends the delegation boundary to every prompt it renders, so the instruction
+reaches ad-hoc `launch-command` launches and skill recipes, not only managed issue and review
+prompts. The prompt is the binding rule; the flags below are a second layer.
+
+Flags per vendor, checked against Claude Code 2.1.266, Codex CLI 0.153.4, and Herdr 0.8.2 on
+2026-09-09:
 
 - Codex: `--disable multi_agent`, equivalent to `-c features.multi_agent=false`. Verified with
   `codex --disable multi_agent features list`, which reports `multi_agent stable false` while the
   unoverridden default is `true` at every effort level. An unknown feature name exits non-zero with
   `Unknown feature flag`, so a typo fails visibly.
-- Claude: `--settings '{"disabledBuiltinTools":["Task"]}'`. `Task` is the internal name of the
-  subagent tool in this build; the CLI describes `--append-subagent-system-prompt` as applying to
-  "every Task-tool subagent". `disabledBuiltinTools` removes a built-in tool instead of denying it
-  through the permission system, which is why it is used rather than a deny rule that
-  `--permission-mode bypassPermissions` would skip. Malformed `--settings` JSON exits non-zero; a
-  settings JSON string is accepted, checked with `claude --settings '{"disabledBuiltinTools":["Task"]}' doctor`.
-- Pi: no control, because Pi ships no sub-agents. Its own documentation says so and suggests
-  spawning separate `pi` instances instead.
+- Claude: `--disallowed-tools Task`. Claude's permissions documentation states that rules evaluate
+  deny first and that a bare tool name in a deny rule removes the tool from the model's context
+  entirely, so this is tool removal rather than a prompt that `bypassPermissions` skips. A deny rule
+  naming no known tool produces a startup warning, which is how a wrong name surfaces. `Task` is the
+  canonical name of the subagent tool in this build; its transcript label is `Agent`, and the CLI
+  describes `--append-subagent-system-prompt` as applying to "every Task-tool subagent". Running one
+  rendered command against the live CLI showed the prompt reaching the model with no unknown-tool
+  warning, which is the documented signal for a wrong name.
+- Pi: none. Pi ships no built-in sub-agents, but it loads extensions from personal settings, and an
+  extension can register a sub-agent tool. This repository does not control that surface, so
+  `pi-ambient` reports its delegation as `uncontrolled` rather than disabled.
+
+Every launch also ends its options with `--` before the prompt, so a prompt that starts with a dash
+reaches the agent as text. Without it, `--prompt '-h'` made all three CLIs print help and exit.
 
 ### Enforcement limits
 
 These are boundaries, not guarantees. State them this way in any report:
 
-- Claude's removal of `Task` could not be verified end to end without starting a paid session, and
-  an unrecognized settings key would fail silently. The prompt text carries the binding instruction;
-  the setting is a second layer.
+- The Claude and Codex flags were not verified end to end in a live session; the documented
+  mechanisms and their visible failure modes are the evidence.
+- `pi-ambient` has no delegation control at all. Only its prompt carries the boundary.
 - Every profile keeps a shell. Any of them could start another agent through `bash`, and no flag
   here prevents that.
 - Codex `workspace-write` and Claude `bypassPermissions` limit prompting, not the host. A worktree
@@ -109,13 +119,16 @@ These are boundaries, not guarantees. State them this way in any report:
 - The external `herdr` skill under `~/.agents/skills/` is stale and still documents `herdr wait`.
   Refreshing it is an operator action: `herdr --skill` prints the current version. This repository
   neither edits nor ships that file.
-- Version drift is expected. A flag that disappears makes the launch fail visibly rather than
-  silently degrade to a different model, effort, permission mode, or delegation right.
+- Version drift is expected, and it fails visibly only where the CLI checks the input: a removed
+  flag is an unknown argument, an unknown Codex feature name exits non-zero, and a deny rule naming
+  no known tool warns at startup. A renamed tool or a silently accepted setting is not covered, so
+  re-check the flags in this document when a CLI updates.
 
 ## Tradeoffs
 
-- Defaulting `start-issue` to Opus costs more per issue than the ambient Pi default and gives a
-  reproducible launch plus design ownership in the same session. Accepted; `--agent pi` remains.
+- Defaulting `start-issue` to Opus buys a reproducible launch and design ownership in the same
+  session. Its cost relative to the previous ambient Pi default is unknown, because that default's
+  provider, model, and effort come from personal settings. Accepted; `--agent pi` remains.
 - Pi stays supported but is marked ambient. Its model and effort come from personal settings, so its
   runs are not reproducible from this repository. Accepted rather than pinning Pi settings the
   repository does not own.
@@ -130,14 +143,20 @@ Model benchmarks or promotions, including Astra, Sonnet, and Terra/Luna. Host sa
 scheduler, agent framework, schema ecosystem, or telemetry service. Changes to personal settings or
 external skills. Non-interactive subprocess delegation.
 
+## Review history
+
+Round 1 findings and their dispositions: [issue 41, round 1](reviews/issue-41-round-1.md).
+
 ## Acceptance criteria
 
 1. One module holds every launch setting, and both the helper and the skill recipes read it.
 2. `start-issue` and `review-pr` defaults are stated in the helper, this document, and the skill,
    and a test asserts the resolved command.
-3. No recipe or document uses `--full-auto`, `danger-full-access`, `herdr wait`, or the bare `fable`
-   alias.
-4. Every profile carries its delegation control at every supported effort, asserted by test.
+3. No active recipe or launch path invokes `--full-auto`, `danger-full-access`, `herdr wait`, or the
+   bare `fable` alias. Naming them while documenting the migration is expected.
+4. Rendered commands match the profile metadata that `profiles` reports, at every supported effort,
+   asserted by test: a profile claiming a disabled control renders it, one that does not claim it
+   does not, and the execution value is the one reported.
 5. An unsupported profile, effort, or agent fails with a non-zero exit and a message naming the
    supported values.
 6. Documentation describes delegation control as a boundary with named limits, never as a

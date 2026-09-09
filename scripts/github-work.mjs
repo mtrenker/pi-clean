@@ -443,12 +443,8 @@ function launchAgentInHerdrPane(paneId, agent, prompt, launchEnvironment = {}) {
   return true;
 }
 
-// Applies at every effort level. The profile flags in agent-profiles.mjs are a second layer,
-// not a guarantee; this instruction is the binding one.
-const DELEGATION_BOUNDARY = "Do not spawn native worker subagents or background agents. Delegate only as a visible Herdr pane or named tab in this workspace, keeping one writer in this worktree, and never create a second workspace for this checkout.";
-
 function issueAgentPrompt(agent, number, repository) {
-  const task = `Work on GitHub issue #${number} in ${repository}. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge. ${DELEGATION_BOUNDARY}`;
+  const task = `Work on GitHub issue #${number} in ${repository}. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge.`;
   if (agent === "claude") {
     return `${task} As Claude Opus 5, own and document any unresolved product, UX, interaction, visual, architecture, API, or data-model design before implementing it.`;
   }
@@ -456,7 +452,7 @@ function issueAgentPrompt(agent, number, repository) {
 }
 
 function reviewAgentPrompt(reviewer, number, repository) {
-  const task = `Independently review GitHub pull request #${number} in ${repository}. Read the relevant issue, accepted scope, durable design direction, full diff, and tests. Review correctness, regressions, error handling, security, and maintainability against the supported contract. Distinguish reachable blockers, maintainability risks, unresolved design gaps, and out-of-contract concerns. A blocker needs a concrete failure path in a supported environment; theoretical or future-call-path concerns are non-blocking unless they expose a reachable security or data-loss risk. Martin is one developer responsible for many projects: assess whether he can find the entry points, trace state and invariants, diagnose failures, recover safely, and change the code without an agent. Flag hidden coupling, disproportionate abstraction or change size, duplicated policy, tests that obscure rather than explain the contract, and reasoning that exists only in an agent transcript. Return evidence-backed findings with category, file and line evidence, concrete impact, supported-contract assumption, and the smallest maintainable correction. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization. ${DELEGATION_BOUNDARY}`;
+  const task = `Independently review GitHub pull request #${number} in ${repository}. Read the relevant issue, accepted scope, durable design direction, full diff, and tests. Review correctness, regressions, error handling, security, and maintainability against the supported contract. Distinguish reachable blockers, maintainability risks, unresolved design gaps, and out-of-contract concerns. A blocker needs a concrete failure path in a supported environment; theoretical or future-call-path concerns are non-blocking unless they expose a reachable security or data-loss risk. Martin is one developer responsible for many projects: assess whether he can find the entry points, trace state and invariants, diagnose failures, recover safely, and change the code without an agent. Flag hidden coupling, disproportionate abstraction or change size, duplicated policy, tests that obscure rather than explain the contract, and reasoning that exists only in an agent transcript. Return evidence-backed findings with category, file and line evidence, concrete impact, supported-contract assumption, and the smallest maintainable correction. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization.`;
   if (reviewer === "claude") {
     return `${task} As Claude Opus 5, evaluate any new or materially changed product, UX, interaction, visual, architecture, API, or data-model design.`;
   }

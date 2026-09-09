@@ -5,9 +5,15 @@
 const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 const CODEX_EFFORTS = [...CLAUDE_EFFORTS, "ultra"];
 
-// Removes the built-in subagent tool instead of denying it, so it also applies under
-// --permission-mode bypassPermissions. See docs/agent-launch-profiles.md for enforcement limits.
-const CLAUDE_NO_NATIVE_DELEGATION = '{"disabledBuiltinTools":["Task"]}';
+// Canonical name of Claude's subagent tool. A bare tool name in a deny rule removes the tool from
+// the model's context rather than prompting, and an unknown name warns at startup.
+// See docs/agent-launch-profiles.md for enforcement limits.
+const CLAUDE_SUBAGENT_TOOL = "Task";
+
+// Every launch repeats this, because no flag here is a guarantee.
+export const DELEGATION_BOUNDARY = "Do not spawn native worker subagents or background agents."
+  + " Delegate only as a visible Herdr pane or named tab in this workspace, keeping one writer in this"
+  + " worktree, and never create a second workspace for this checkout.";
 
 export const VERIFIED_CLIS = {
   claude: "2.1.266",
@@ -59,7 +65,7 @@ export const AGENT_PROFILES = {
     efforts: [],
     defaultEffort: null,
     execution: "ambient",
-    nativeDelegation: "not-applicable",
+    nativeDelegation: "uncontrolled",
     designOwner: false
   }
 };
@@ -104,23 +110,32 @@ export function resolveEffort(profile, requested) {
 
 // Exact interactive command for a Herdr pane. Never add a fallback: an unsupported model,
 // effort, or permission value must fail here instead of silently launching something else.
+// `--` keeps a prompt that starts with a dash from being read as an option.
 export function launchCommand({ profile: id, effort, prompt }) {
   const profile = agentProfile(id);
   const level = resolveEffort(profile, effort);
   if (typeof prompt !== "string" || prompt.length === 0) throw new Error("launch prompt is required");
+  const task = shellQuote(withDelegationBoundary(prompt));
+  const disabled = profile.nativeDelegation === "disabled";
 
   switch (profile.program) {
     case "claude":
-      return `claude --model ${profile.model} --effort ${level} --permission-mode bypassPermissions`
-        + ` --settings ${shellQuote(CLAUDE_NO_NATIVE_DELEGATION)} ${shellQuote(prompt)}`;
+      return `claude --model ${profile.model} --effort ${level}`
+        + `${disabled ? ` --disallowed-tools ${CLAUDE_SUBAGENT_TOOL}` : ""}`
+        + ` --permission-mode ${profile.execution} -- ${task}`;
     case "codex":
-      return `codex --model ${profile.model} -c 'model_reasoning_effort="${level}"' --disable multi_agent`
-        + ` --ask-for-approval never --sandbox ${profile.execution} ${shellQuote(prompt)}`;
+      return `codex --model ${profile.model} -c 'model_reasoning_effort="${level}"'`
+        + `${disabled ? " --disable multi_agent" : ""}`
+        + ` --ask-for-approval never --sandbox ${profile.execution} -- ${task}`;
     case "pi":
-      return `pi ${shellQuote(prompt)}`;
+      return `pi -- ${task}`;
     default:
       throw new Error(`profile ${profile.id} has no launch template`);
   }
+}
+
+function withDelegationBoundary(prompt) {
+  return prompt.includes(DELEGATION_BOUNDARY) ? prompt : `${prompt} ${DELEGATION_BOUNDARY}`;
 }
 
 export function describeProfiles() {

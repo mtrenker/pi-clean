@@ -44,8 +44,9 @@ dependent implementation proceeds.
 Launch settings for delegated sessions live in `scripts/agent-profiles.mjs` and are documented in
 [`docs/agent-launch-profiles.md`](docs/agent-launch-profiles.md). Get a command from
 `node scripts/github-work.mjs launch-command`; never write a model, effort, or permission flag into
-a recipe. Every profile disables the vendor's native worker spawning, so delegate as a visible Herdr
-pane or tab.
+a recipe. Every launch carries a prompt instruction against native worker spawning, and the Claude
+and Codex profiles add a vendor flag for it; Pi's extension surface is not controlled by these
+profiles. Delegate as a visible Herdr pane or tab.
 
 ## Worktrees and Herdr
 

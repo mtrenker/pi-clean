@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { flightdeckLaunchEnvironment } from "./github-work.mjs";
-import { AGENT_PROFILES, launchCommand, profileIds } from "./agent-profiles.mjs";
+import { AGENT_PROFILES, DELEGATION_BOUNDARY, launchCommand, profileIds } from "./agent-profiles.mjs";
 
 const script = fileURLToPath(new URL("./github-work.mjs", import.meta.url));
 
@@ -208,10 +208,7 @@ test("managed start creates a native Herdr issue worktree and launches in its ro
 });
 
 const ISSUE_TASK = "Work on GitHub issue #10 in owner/repo. Read the repository instructions and issue,"
-  + " implement it in this worktree, validate the changes, and prepare a pull request. Do not merge."
-  + " Do not spawn native worker subagents or background agents. Delegate only as a visible Herdr pane"
-  + " or named tab in this workspace, keeping one writer in this worktree, and never create a second"
-  + " workspace for this checkout.";
+  + " implement it in this worktree, validate the changes, and prepare a pull request. Do not merge.";
 const OPUS_DESIGN_SUFFIX = " As Claude Opus 5, own and document any unresolved product, UX, interaction,"
   + " visual, architecture, API, or data-model design before implementing it.";
 const WORKER_DESIGN_SUFFIX = " Do not originate or materially change unresolved product, UX, interaction,"
@@ -239,12 +236,12 @@ for (const [agent, profile, designSuffix] of [
 for (const [reviewer, expectedProfile, designMarker] of [
   [
     "claude",
-    "claude --model claude-opus-5 --effort high --permission-mode bypassPermissions --settings '{\"disabledBuiltinTools\":[\"Task\"]}' ",
+    "claude --model claude-opus-5 --effort high --disallowed-tools Task --permission-mode bypassPermissions -- ",
     /As Claude Opus 5, evaluate any new or materially changed/,
   ],
   [
     "codex",
-    "codex --model gpt-5.6-sol -c 'model_reasoning_effort=\"high\"' --disable multi_agent --ask-for-approval never --sandbox workspace-write ",
+    "codex --model gpt-5.6-sol -c 'model_reasoning_effort=\"high\"' --disable multi_agent --ask-for-approval never --sandbox workspace-write -- ",
     /flag those for Claude Opus 5/,
   ],
 ]) {
@@ -415,21 +412,33 @@ test("launch-command prints the same string the helper launches", async (t) => {
   assert.equal(printed.stdout.trim(), launched);
 });
 
-test("every profile keeps its delegation control at every supported effort", () => {
+const DELEGATION_CONTROLS = { claude: "--disallowed-tools Task", codex: "--disable multi_agent" };
+
+test("rendered commands match the reported profile metadata at every supported effort", () => {
   for (const id of profileIds()) {
     const profile = AGENT_PROFILES[id];
     const efforts = profile.efforts.length > 0 ? profile.efforts : [undefined];
     for (const effort of efforts) {
       const command = launchCommand({ profile: id, effort, prompt: "task" });
-      if (profile.program === "claude") {
-        assert.match(command, /--settings '\{"disabledBuiltinTools":\["Task"\]\}'/, `${id} at ${effort}`);
-      } else if (profile.program === "codex") {
-        assert.match(command, /--disable multi_agent/, `${id} at ${effort}`);
-      } else {
-        assert.equal(profile.nativeDelegation, "not-applicable");
+      const where = `${id} at ${effort}`;
+      const control = DELEGATION_CONTROLS[profile.program];
+      if (profile.nativeDelegation === "disabled") {
+        assert.ok(control, `${id} claims a disabled control its program cannot render`);
+        assert.ok(command.includes(control), where);
+      } else if (control) {
+        assert.equal(command.includes(control), false, `${where} renders a control its metadata does not claim`);
       }
+      if (profile.execution !== "ambient") assert.ok(command.includes(profile.execution), where);
       if (effort) assert.match(command, new RegExp(`(--effort ${effort}\\b|model_reasoning_effort="${effort}")`));
+      assert.ok(command.includes(DELEGATION_BOUNDARY), `${where} omits the delegation boundary`);
     }
+  }
+});
+
+test("a prompt that starts with a dash reaches the agent as a prompt", () => {
+  for (const id of profileIds()) {
+    const command = launchCommand({ profile: id, prompt: "-h" });
+    assert.match(command, / -- '-h /, id);
   }
 });
 
@@ -467,7 +476,7 @@ test("profiles reports the pinned models, defaults, and verified CLI versions", 
   assert.equal(listed.defaults.issueAgent, "claude");
   assert.equal(listed.defaults.reviewer, "claude");
   assert.equal(listed.profiles.find((profile) => profile.id === "claude-fable").model, "claude-fable-5-1");
-  assert.equal(listed.profiles.find((profile) => profile.id === "pi-ambient").nativeDelegation, "not-applicable");
+  assert.equal(listed.profiles.find((profile) => profile.id === "pi-ambient").nativeDelegation, "uncontrolled");
   assert.equal(listed.verifiedClis.claude, "2.1.266");
 });
 
@@ -483,13 +492,14 @@ test("generated commands parse into the intended argv under a real shell", async
     await chmod(path, 0o755);
   }
 
-  const prompt = "Review only: PR #42's diff. Don't merge.";
+  const prompt = "-h Review only: PR #42's diff. Don't merge.";
+  const task = `${prompt} ${DELEGATION_BOUNDARY}`;
   const expected = {
-    "claude-opus": ["--model", "claude-opus-5", "--effort", "high", "--permission-mode", "bypassPermissions",
-      "--settings", '{"disabledBuiltinTools":["Task"]}', prompt],
+    "claude-opus": ["--model", "claude-opus-5", "--effort", "high", "--disallowed-tools", "Task",
+      "--permission-mode", "bypassPermissions", "--", task],
     "codex-sol-read": ["--model", "gpt-5.6-sol", "-c", 'model_reasoning_effort="medium"', "--disable", "multi_agent",
-      "--ask-for-approval", "never", "--sandbox", "read-only", prompt],
-    "pi-ambient": [prompt]
+      "--ask-for-approval", "never", "--sandbox", "read-only", "--", task],
+    "pi-ambient": ["--", task]
   };
 
   for (const [profile, argv] of Object.entries(expected)) {
