@@ -5,10 +5,11 @@
 const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 const CODEX_EFFORTS = [...CLAUDE_EFFORTS, "ultra"];
 
-// Canonical name of Claude's subagent tool. A bare tool name in a deny rule removes the tool from
-// the model's context rather than prompting, and an unknown name warns at startup.
-// See docs/agent-launch-profiles.md for enforcement limits.
-const CLAUDE_SUBAGENT_TOOL = "Task";
+// Claude's two documented tools that spawn workers: Agent (subagents) and Workflow (a script that
+// orchestrates many subagents). These are the canonical names from the tools reference, which
+// permission rules match; a bare name in a deny rule removes the tool from the model's context
+// rather than prompting. See docs/agent-launch-profiles.md for enforcement limits.
+const CLAUDE_SPAWNING_TOOLS = "Agent,Workflow";
 
 // Every launch repeats this, because no flag here is a guarantee.
 export const DELEGATION_BOUNDARY = "Do not spawn native worker subagents or background agents."
@@ -121,7 +122,7 @@ export function launchCommand({ profile: id, effort, prompt }) {
   switch (profile.program) {
     case "claude":
       return `claude --model ${profile.model} --effort ${level}`
-        + `${disabled ? ` --disallowed-tools ${CLAUDE_SUBAGENT_TOOL}` : ""}`
+        + `${disabled ? ` --disallowed-tools ${CLAUDE_SPAWNING_TOOLS}` : ""}`
         + ` --permission-mode ${profile.execution} -- ${task}`;
     case "codex":
       return `codex --model ${profile.model} -c 'model_reasoning_effort="${level}"'`

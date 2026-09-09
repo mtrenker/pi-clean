@@ -81,14 +81,13 @@ Flags per vendor, checked against Claude Code 2.1.266, Codex CLI 0.153.4, and He
   `codex --disable multi_agent features list`, which reports `multi_agent stable false` while the
   unoverridden default is `true` at every effort level. An unknown feature name exits non-zero with
   `Unknown feature flag`, so a typo fails visibly.
-- Claude: `--disallowed-tools Task`. Claude's permissions documentation states that rules evaluate
-  deny first and that a bare tool name in a deny rule removes the tool from the model's context
-  entirely, so this is tool removal rather than a prompt that `bypassPermissions` skips. A deny rule
-  naming no known tool produces a startup warning, which is how a wrong name surfaces. `Task` is the
-  canonical name of the subagent tool in this build; its transcript label is `Agent`, and the CLI
-  describes `--append-subagent-system-prompt` as applying to "every Task-tool subagent". Running one
-  rendered command against the live CLI showed the prompt reaching the model with no unknown-tool
-  warning, which is the documented signal for a wrong name.
+- Claude: `--disallowed-tools Agent,Workflow`. The tools reference gives `Agent` as the canonical
+  name of the tool that spawns a subagent and `Workflow` as the one that runs a script orchestrating
+  many subagents in the background; both are the strings permission rules match. The permissions
+  documentation states that rules evaluate deny first and that a bare tool name in a deny rule
+  removes the tool from the model's context entirely, so this is tool removal rather than a prompt
+  that `bypassPermissions` skips. A deny rule naming no known tool produces a startup warning, which
+  is how a wrong name surfaces.
 - Pi: none. Pi ships no built-in sub-agents, but it loads extensions from personal settings, and an
   extension can register a sub-agent tool. This repository does not control that surface, so
   `pi-ambient` reports its delegation as `uncontrolled` rather than disabled.
@@ -102,6 +101,9 @@ These are boundaries, not guarantees. State them this way in any report:
 
 - The Claude and Codex flags were not verified end to end in a live session; the documented
   mechanisms and their visible failure modes are the evidence.
+- The Claude rule covers the two documented spawning tools. Messaging tools such as `SendMessage`
+  and `ListAgents` can still reach agents and sessions that already exist; this control is about
+  spawning, not messaging, and it is not a capability audit.
 - `pi-ambient` has no delegation control at all. Only its prompt carries the boundary.
 - Every profile keeps a shell. Any of them could start another agent through `bash`, and no flag
   here prevents that.
@@ -145,7 +147,7 @@ external skills. Non-interactive subprocess delegation.
 
 ## Review history
 
-Round 1 findings and their dispositions: [issue 41, round 1](reviews/issue-41-round-1.md).
+Findings and dispositions: [round 1](reviews/issue-41-round-1.md), [round 2](reviews/issue-41-round-2.md).
 
 ## Acceptance criteria
 

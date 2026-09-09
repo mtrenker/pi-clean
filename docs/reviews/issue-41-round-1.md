@@ -15,7 +15,7 @@ were confirmed; none was rejected or deferred as design-dependent.
 | 5 | Criterion banned naming obsolete commands | Confirmed | Reworded to "no active recipe or launch path invokes" |
 | 6 | Unsupported cost comparison | Confirmed | Comparison removed, rationale kept |
 | 7 | Boundary missing from ad-hoc launches | Confirmed | `launchCommand` appends it to every prompt |
-| 8 | Wrong rationale about deny rules under bypass | Confirmed | Switched to the documented `--disallowed-tools Task` |
+| 8 | Wrong rationale about deny rules under bypass | Confirmed | Switched to a documented deny rule; the tool name was corrected in [round 2](issue-41-round-2.md) |
 
 ## Evidence and detail
 
@@ -44,7 +44,8 @@ were confirmed; none was rejected or deferred as design-dependent.
    `DELEGATION_BOUNDARY` and is appended by `launchCommand`, once, for every profile including
    `pi-ambient`. The duplicate copies in `issueAgentPrompt` and `reviewAgentPrompt` were removed, so
    there is one definition and one insertion point.
-8. Correct, and my earlier rationale was wrong. Claude's permissions documentation states that rules
+8. Correct, and my earlier rationale was wrong. The mechanism below stands; the tool name it used
+   does not, and [round 2](issue-41-round-2.md) replaces it with the canonical `Agent,Workflow`. Claude's permissions documentation states that rules
    evaluate deny first and that a bare tool name in a deny rule removes the tool from the model's
    context entirely, which is removal rather than a prompt `bypassPermissions` skips. The profiles
    now pass `--disallowed-tools Task`, a documented mechanism that also warns at startup when the

@@ -236,7 +236,7 @@ for (const [agent, profile, designSuffix] of [
 for (const [reviewer, expectedProfile, designMarker] of [
   [
     "claude",
-    "claude --model claude-opus-5 --effort high --disallowed-tools Task --permission-mode bypassPermissions -- ",
+    "claude --model claude-opus-5 --effort high --disallowed-tools Agent,Workflow --permission-mode bypassPermissions -- ",
     /As Claude Opus 5, evaluate any new or materially changed/,
   ],
   [
@@ -412,7 +412,7 @@ test("launch-command prints the same string the helper launches", async (t) => {
   assert.equal(printed.stdout.trim(), launched);
 });
 
-const DELEGATION_CONTROLS = { claude: "--disallowed-tools Task", codex: "--disable multi_agent" };
+const DELEGATION_CONTROLS = { claude: "--disallowed-tools Agent,Workflow", codex: "--disable multi_agent" };
 
 test("rendered commands match the reported profile metadata at every supported effort", () => {
   for (const id of profileIds()) {
@@ -495,7 +495,7 @@ test("generated commands parse into the intended argv under a real shell", async
   const prompt = "-h Review only: PR #42's diff. Don't merge.";
   const task = `${prompt} ${DELEGATION_BOUNDARY}`;
   const expected = {
-    "claude-opus": ["--model", "claude-opus-5", "--effort", "high", "--disallowed-tools", "Task",
+    "claude-opus": ["--model", "claude-opus-5", "--effort", "high", "--disallowed-tools", "Agent,Workflow",
       "--permission-mode", "bypassPermissions", "--", task],
     "codex-sol-read": ["--model", "gpt-5.6-sol", "-c", 'model_reasoning_effort="medium"', "--disable", "multi_agent",
       "--ask-for-approval", "never", "--sandbox", "read-only", "--", task],
