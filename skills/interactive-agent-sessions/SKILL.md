@@ -188,6 +188,7 @@ Decide placement in this order:
 | Delegated subtask of the current issue, including a coding subtask | Sibling pane or named tab in the current issue workspace | Same worktree, one writer at a time; never a second workspace |
 | Starting another issue, or mutating any other checkout | Dedicated issue worktree and semantic Herdr workspace | Use `scripts/github-work.mjs start-issue`; never mutate from a sibling pane |
 | Independent PR review | Detached review worktree and semantic Herdr workspace | Use `scripts/github-work.mjs review-pr`; never review in the author worktree |
+| Preview for a UI checkpoint | Named tab or sibling pane in the current issue workspace | Visible and interruptible; never a background job |
 
 Read the current placement rather than assuming it. `herdr pane current` returns the running session's `workspace_id`, `tab_id`, and `pane_id`. Split from that pane, or create a tab with `herdr tab create --workspace "$WORKSPACE" --cwd "$PWD"`. Do not call `herdr workspace create` for a checkout that already has a workspace, and do not rename the issue workspace for a subtask; name the tab or pane instead.
 
@@ -200,6 +201,43 @@ Use workspace labels such as `pi-clean · #26 · interactive sessions` and `pi-c
 Start the TUI with its initial prompt in the created terminal. Focus the new pane, tab, or workspace for direct interaction unless Martin asks to keep the current focus. Report the semantic workspace, tab, and pane label after launch; IDs may be included only as current routing handles.
 
 Do not replace direct interaction with coordinator polling. The session must remain visible so Martin can inspect, interrupt, and continue it. If Martin asks to stay in the current pane, launch with no focus, report the location immediately, and leave the new terminal visible and focusable.
+
+## Checkpoints and previews
+
+[The shared workflow policy](../_shared/github-workflow.md) defines when to pause, what a checkpoint
+contains, and what accepting a design does not authorize. This skill owns where the preview runs and
+how the pause reaches Martin.
+
+A preview is an ordinary long-running process, so it follows the placement policy above: a sibling
+pane when it belongs next to the work, a named tab when it is long-lived or noisy, always in this
+worktree's existing workspace. Never a background job, never `&`, never a second workspace for this
+checkout, and never a redirected TUI. The start command comes from the target repository's own
+documentation; this repository does not supply one, and improvising a command is not a substitute for
+asking.
+
+```bash
+WORKSPACE=$(herdr pane current | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["workspace_id"])')
+PREVIEW=$(herdr tab create --workspace "$WORKSPACE" --cwd "$PWD" --label 'preview' --no-focus | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["root_pane"]["pane_id"])')
+herdr pane rename "$PREVIEW" 'Preview · dev server'
+herdr pane run "$PREVIEW" '<start command documented by the target repository>'
+```
+
+Run installs, migrations, and fixture seeding before the checkpoint opens, in the same visible
+placement. Then open the route yourself and confirm it rendered before asking.
+
+Ask the question in your own session so Herdr can classify it: Herdr reports `blocked` when it
+recognizes an approval or question UI. Whether a Claude Code question reliably raises it has not been
+observed end to end here, so also send an operator-visible notification, which is what reaches Martin
+if the state does not change:
+
+```bash
+herdr notification show 'owner/repo #123 checkpoint' --body 'Compare the two list densities at http://localhost:5173/items' --sound request
+```
+
+While the checkpoint is open, hold the preview still. The freeze in the shared policy covers writes
+from tests and tools, not only commits: no edits, no branch switch or rebase, no install, no rebuild
+or restart of the preview process. Reads and read-only checks are fine. Re-check the worktree state
+when Martin answers instead of assuming it is as you left it.
 
 ## Recipes
 

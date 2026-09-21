@@ -22,6 +22,16 @@ design pass first and persist its thesis, constitution, key states, constraints,
 criteria in an issue, design artifact, or repository document. If implementation reveals a material
 design gap, return that decision to Opus rather than filling it in opportunistically.
 
+## Feedback checkpoints
+
+Where this work runs under the [shared workflow policy](../_shared/github-workflow.md), stop for the
+user's judgment at consequential UI/UX decisions instead of presenting a finished surface. Show a
+renderable composition or a vertical slice early, while redirecting is still cheap, with a running
+instance you opened yourself and the specific decision you are asking about. Routine work inside an
+accepted direction continues without pausing. A bounded prototype is a good way to make an unresolved
+visual choice inspectable, and showing one does not make it accepted production design. Change
+nothing that alters what the user is looking at while the question is open.
+
 ## 1. Read the situation
 
 Inspect the product, real content/data, current UI, design tokens, components, technical constraints, and brand signals before proposing a direction. Preserve useful conventions; do not restyle the product by reflex.
