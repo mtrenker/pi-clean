@@ -15,7 +15,9 @@ This package separates durable project state from live execution:
 | Herdr | Live workspaces, agents, tests, servers, and logs |
 | Flightdeck | Read-only operational overview and attention signals |
 
-The `github-issues` and `github-pull-requests` skills define the agent workflow. The read-only `scripts/github-planning.mjs` helper provides configured cross-repository snapshots, structural findings, draft validation, and the `/github-daily` evidence sequence; see [Deterministic GitHub planning](github-planning.md). The `scripts/github-work.mjs` helper separately owns worktree and Herdr lifecycle mechanics, and reads every executable launch setting from `scripts/agent-profiles.mjs`; see [Agent launch profiles](agent-launch-profiles.md).
+The `github-issues` and `github-pull-requests` skills define the agent workflow, and
+[Reviewable delivery](reviewable-delivery.md) records the design behind their checkpoint, preview,
+and stacked pull request rules. The read-only `scripts/github-planning.mjs` helper provides configured cross-repository snapshots, structural findings, draft validation, and the `/github-daily` evidence sequence; see [Deterministic GitHub planning](github-planning.md). The `scripts/github-work.mjs` helper separately owns worktree and Herdr lifecycle mechanics, and reads every executable launch setting from `scripts/agent-profiles.mjs`; see [Agent launch profiles](agent-launch-profiles.md).
 
 ## Project planning and work admission
 
@@ -32,7 +34,7 @@ The recommended minimum is:
 
 A Ready issue names its outcome, scope, non-goals, acceptance criteria, relationships, architecture constraints, and validation. `agent-ready` additionally means a cold agent can execute from a fresh worktree without reconstructing chat history or making unresolved product, architecture, visual, security, or migration decisions.
 
-Treat human review as the bottleneck: one human implementation, one active agent issue by default, and no more than two PRs awaiting human review. Start another agent issue only when it is unblocked, has low expected file overlap, and remains reviewable as a separate mental unit. Do not start parent outcomes, Inbox items, or Backlog items.
+Treat human review as the bottleneck: one human implementation, one active agent issue by default, and no more than two PRs awaiting human review, counting each stack layer separately. Start another agent issue only when it is unblocked, has low expected file overlap, and remains reviewable as a separate mental unit. Do not start parent outcomes, Inbox items, or Backlog items.
 
 See [`skills/github-issues/references/project-workflow.md`](../skills/github-issues/references/project-workflow.md) for fields, views, automation, inspection commands, rollout, and web-UI limitations.
 
@@ -45,6 +47,17 @@ See [`skills/github-issues/references/project-workflow.md`](../skills/github-iss
 
 The primary checkout is the control plane and should remain on its default branch. Agents perform
 implementation and independent review only in managed worktrees.
+
+An issue worktree may hold more than one branch when its change is delivered as a stack of layer
+pull requests. Two helper behaviors follow from that, and neither changes:
+
+- On a rerun, `start-issue` derives the branch from whatever the worktree currently has checked out,
+  so it reports the current layer, and passing a different `--branch` throws.
+- `finish-issue --delete-branch` deletes exactly one branch, the one attached to the worktree at
+  removal time, with `git branch -d`. Other layer branches remain and are removed deliberately.
+
+Check out the canonical `issue/<number>-<slug>` branch and leave the worktree clean before
+`finish-issue`.
 
 ## Directory and identity conventions
 

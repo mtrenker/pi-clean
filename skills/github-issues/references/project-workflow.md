@@ -44,7 +44,7 @@ Parent outcome
 └── independently deliverable child issues
 ```
 
-Parent issues describe success and collect sub-issue progress. Do not create implementation branches or PRs for parent issues. Child issues should normally map to one worktree and one PR.
+Parent issues describe success and collect sub-issue progress. Do not create implementation branches or PRs for parent issues. Child issues should normally map to one worktree, which delivers one PR or a stack of layer PRs when the change is worth reading in several units. Layers do not change the limits below: each layer awaiting review counts as a PR awaiting review.
 
 Use native issue dependencies for ordering. Do not model blocked work with a status or label when a dependency relationship expresses it accurately.
 
@@ -69,7 +69,7 @@ Treat human review capacity as the bottleneck:
 
 - one human implementation in progress;
 - one active agent issue by default;
-- no more than two PRs waiting for human review;
+- no more than two PRs waiting for human review, counting each stack layer separately;
 - start another agent issue only when it is unblocked, has low expected file overlap, and the operator can still review both changes coherently.
 
 Agent work should come from approximately:

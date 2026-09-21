@@ -37,7 +37,9 @@ The `interactive-agent-sessions` skill defines the current version-verified non-
 
 ## GitHub issue and pull request workflow
 
-GitHub issues are the durable mental model for work. Each implementation uses one bounded issue, one managed worktree, one semantic Herdr workspace, one pull request, and independent or human review.
+GitHub issues are the durable mental model for work. Each implementation uses one bounded issue, one managed worktree, one semantic Herdr workspace, and independent or human review. That worktree delivers one pull request, or a stack of layer pull requests when the change is worth reading in several units.
+
+Agents stop for Martin's judgment at consequential UI/UX decisions and bring a running preview to the question, rather than presenting a finished surface at the end. Accepting a design lets the agent keep implementing; committing, publishing, and merging stay separate authorizations. See [Reviewable delivery](docs/reviewable-delivery.md).
 
 The package includes reusable skills:
 
