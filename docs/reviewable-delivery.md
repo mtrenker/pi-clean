@@ -145,7 +145,7 @@ their own and do not depend on stacking.
 
 ## Trying this branch
 
-Nothing below changes personal settings. The branch is `issue/43-add-a-trial-workflow-for-stacked-prs-and-human-ui-`
+Everything below except the last option leaves personal settings untouched. The branch is `issue/43-add-a-trial-workflow-for-stacked-prs-and-human-ui-`
 in the managed worktree:
 
 ```bash
@@ -179,8 +179,13 @@ This repository is a pi package, not a Claude Code plugin, so Claude Code has no
 per-session flag. Give a Claude session the absolute paths instead: the skills are plain Markdown and
 the helper runs from the branch path above.
 
-Installing the branch is the alternative, and it does write settings. `pi install` pins a tag or a
-commit, so pass the commit rather than the branch name, and remove it afterwards.
+Installing the branch is the alternative, and it writes settings. pi documents git refs as pinned
+tags or commits, so pass the commit rather than the branch name, and remove it when the trial ends:
+
+```bash
+pi install git:git@github.com:mtrenker/pi-clean@<commit>
+pi remove git:git@github.com:mtrenker/pi-clean
+```
 
 Signals that the process is working: each diff is small enough to read in one sitting, every UI
 question arrives with a preview already loaded, and nothing was committed, published, or merged

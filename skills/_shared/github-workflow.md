@@ -144,7 +144,7 @@ Start commands belong to the target repository, not to these skills. Each reposi
 every previewable surface, how to start it, how to pick a port that does not collide with another
 worktree, what data or fixture isolation it needs, and how to tear it down. Managed worktrees isolate
 files, not ports or shared databases. Verify the port is free before binding, and record the URL in
-the checkpoint and in the layer's pull request body. When the repository documents none of this, say
+the checkpoint and in the pull request body. When the repository documents none of this, say
 so and ask rather than improvising a start command. Tearing down a preview and removing per-worktree
 data is a separate step, and a destructive one where it deletes data.
 
@@ -179,8 +179,9 @@ prompting suppressed, native subagents disabled. Pass `--agent codex`, `--agent 
 to change that. `launch-command --profile <id> --prompt <text>` prints the exact command for any other
 session, so no recipe repeats a model or permission flag.
 
-One branch and author worktree belong to one issue. Reviewers use separate detached worktrees.
-Do not modify an author's worktree during independent review.
+One author worktree belongs to one issue, and so does its Herdr workspace. That worktree holds the
+issue branch, plus any layer branches when the change is delivered as a stack. Reviewers use separate
+detached worktrees. Do not modify an author's worktree during independent review.
 
 If `FLIGHTDECK_TELEMETRY_FILE` is configured, the helper emits best-effort Flightdeck-compatible
 `worktree.created`, `agent.run.started`, and `worktree.removed` events only when those transitions
