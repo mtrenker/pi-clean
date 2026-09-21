@@ -61,6 +61,55 @@ worktree, and independent review keeps using detached review worktrees. No helpe
 what `start-issue` and `finish-issue` do when a worktree holds several branches is recorded in
 [the workflow guide](github-workflow.md#prerequisites).
 
+## Amendment: where an independent review runs
+
+Recorded 2026-09-21, after the first review of this work. Martin: "creating new workspaces for a
+review of a worktree is wild for me to follow." A separate filesystem does not have to mean a
+separate workspace, and treating it that way scattered one issue's work across the window.
+
+An independent review keeps its own detached worktree. What changes is where its session lives: a
+named tab inside a workspace that already belongs to this repository, with its working directory in
+that detached checkout. Isolation stays a filesystem property, placement becomes a window property,
+and the two stop being confused.
+
+**Host selection, in order.** Each step uses live identity, not a stored registry:
+
+1. `--workspace <id>` when given. It must exist and belong to this repository, or the command fails.
+2. The caller's own workspace, when the caller runs in a Herdr pane whose workspace belongs to this
+   repository. Running `review-pr` from an issue worktree puts the review beside that issue.
+3. The repository's primary workspace, the one whose checkout is the repository root rather than a
+   linked worktree.
+4. Otherwise the command fails and names the candidates. There is no fallback that creates a
+   workspace.
+
+Herdr gives each workspace a `worktree` block with `repo_root`, `checkout_path` and
+`is_linked_worktree`. Two workspaces belong to the same repository when their `repo_root` matches the
+root `git rev-parse --git-common-dir` reports, which is what makes this deterministic without the
+helper keeping state of its own.
+
+**Recognising a review that already exists.** A review is identified by the working directory of a
+pane, not by a label or a remembered ID. A pane whose directory is that review's worktree is that
+review, wherever someone has since moved it. The helper reports that placement and does not create a
+second one, which is also why a workspace whose own checkout is a review worktree, from before this
+amendment, is recognised and left alone rather than migrated.
+
+**Order of operations.** Placement and agent state are read before the worktree is touched. Checking
+out a new head under a reviewer that is still working would change the tree it is reading, so an
+active review refuses the refresh instead of refusing after it.
+
+**Cleanup closes what it opened, and nothing else.** Review cleanup closes the panes whose directory
+is that review's worktree, closes their tab only when the tab held nothing else, and closes a
+workspace only when that workspace's own checkout is the review worktree. A host workspace, the
+author's tab, another review, a preview, and any unrelated pane are never closed.
+
+**Finishing an issue does not strand a review.** An issue workspace can now host review tabs, so
+removing it would take live review sessions and their checkouts with it. `finish-issue` refuses while
+a review checkout is hosted there and says which one to clean up or move first.
+
+The rules are in [the shared policy](../skills/_shared/github-workflow.md#reviewable-delivery) and
+[`github-pull-requests`](../skills/github-pull-requests/SKILL.md#independent-review); the commands
+are in `scripts/github-work.mjs`.
+
 ## Tradeoffs
 
 Rebase churn is the real cost of stacking. Every change to a lower layer forces the upper layers
