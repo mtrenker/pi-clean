@@ -93,25 +93,34 @@ if (program === "gh") {
     else if (commandArgs[0] === "worktree") process.exit(0);
     else if (commandArgs[0] === "show-ref") process.exit(state.branchExists ? 0 : 1);
     else if (commandArgs[0] === "status") process.stdout.write(state.dirty ?? "");
+    else if (commandArgs[0] === "checkout") process.exit(0);
     else if (commandArgs[0] === "branch") process.exit(0);
     else fail("unexpected git command: " + commandArgs.join(" "));
   }
 } else if (program === "herdr") {
-  if (args[0] === "pane" && args[1] === "list") json({ result: { panes: [] } });
+  if (args[0] === "pane" && args[1] === "list") json({ result: { panes: state.panes ?? [] } });
+  else if (args[0] === "pane" && args[1] === "current") json({ result: { pane: state.currentPane ?? null } });
   else if (args[0] === "pane" && args[1] === "run") process.exit(0);
+  else if (args[0] === "pane" && args[1] === "close") process.exit(0);
+  else if (args[0] === "tab" && args[1] === "list") json({ result: { tabs: state.tabs ?? [] } });
+  else if (args[0] === "tab" && args[1] === "create") {
+    json({ result: { tab: { tab_id: "t-review" }, root_pane: { pane_id: "p-review", tab_id: "t-review" } } });
+  }
+  else if (args[0] === "tab" && args[1] === "close") process.exit(0);
+  else if (args[0] === "tab" && args[1] === "rename") process.exit(0);
   else if (args[0] === "worktree" && args[1] === "list") {
     if (state.unsupportedHerdr) fail("unknown command: worktree", 2);
     json({ result: { type: "worktree_list", source: {}, worktrees: [] } });
   } else if (args[0] === "worktree" && args[1] === "create") {
-    json({ result: { type: "worktree_created", workspace: { workspace_id: "w-create", label: state.label }, root_pane: { pane_id: "p-create" }, worktree: { path: state.issuePath, is_linked_worktree: true } } });
+    json({ result: { type: "worktree_created", workspace: { workspace_id: "w-create", label: state.label }, root_pane: { pane_id: "p-create", tab_id: "t-author" }, worktree: { path: state.issuePath, is_linked_worktree: true } } });
   } else if (args[0] === "worktree" && args[1] === "open") {
-    json({ result: { type: "worktree_opened", workspace: { workspace_id: "w-open", label: state.label }, root_pane: { pane_id: "p-open" }, worktree: { path: state.issuePath, is_linked_worktree: true }, already_open: state.alreadyOpen ?? true } });
+    json({ result: { type: "worktree_opened", workspace: { workspace_id: "w-open", label: state.label }, root_pane: { pane_id: "p-open", tab_id: "t-author" }, worktree: { path: state.issuePath, is_linked_worktree: true }, already_open: state.alreadyOpen ?? true } });
   } else if (args[0] === "worktree" && args[1] === "remove") {
     json({ result: { type: "worktree_removed", workspace_id: args[3], path: state.issuePath, forced: false } });
   } else if (args[0] === "workspace" && args[1] === "list") {
     json({ result: { workspaces: state.workspaces ?? [] } });
   } else if (args[0] === "workspace" && args[1] === "create") {
-    json({ result: { workspace: { workspace_id: "w-review", label: args[5] }, root_pane: { pane_id: "p-review" } } });
+    fail("the helper must never create a Herdr workspace");
   } else if (args[0] === "workspace" && args[1] === "close") {
     state.workspaces = (state.workspaces ?? []).filter((workspace) => workspace.workspace_id !== args[2]);
     writeFileSync(statePath, JSON.stringify(state));
@@ -139,7 +148,7 @@ async function mockEnvironment(t, overrides = {}) {
   const state = {
     repoRoot,
     issuePath,
-    label: "repo · #10 · Native worktree",
+    label: "#10 · Native worktree",
     worktreePorcelain: `worktree ${repoRoot}\nHEAD abc\nbranch refs/heads/main\n\n`,
     ...overrides
   };
@@ -148,6 +157,7 @@ async function mockEnvironment(t, overrides = {}) {
   return {
     issuePath,
     repoRoot,
+    worktreeRoot,
     statePath,
     logPath,
     telemetryPath,
@@ -179,6 +189,12 @@ function existingIssuePorcelain(repoRoot, issuePath) {
   return `worktree ${repoRoot}\nHEAD abc\nbranch refs/heads/main\n\nworktree ${issuePath}\nHEAD def\nbranch refs/heads/issue/10-native-worktree\n\n`;
 }
 
+async function patchState(fixture, mutate) {
+  const state = JSON.parse(await readFile(fixture.statePath, "utf8"));
+  mutate(state);
+  await writeFile(fixture.statePath, JSON.stringify(state));
+}
+
 test("managed start creates a native Herdr issue worktree and launches in its root pane", async (t) => {
   const fixture = await mockEnvironment(t);
   const result = invoke(["start-issue", "10", "--agent", "pi"], { ...fixture.env, HERDR_ENV: "1" });
@@ -194,7 +210,7 @@ test("managed start creates a native Herdr issue worktree and launches in its ro
   assert.deepEqual(create.args, [
     "worktree", "create", "--cwd", fixture.repoRoot,
     "--branch", "issue/10-native-worktree", "--base", "origin/main",
-    "--path", fixture.issuePath, "--label", "repo · #10 · Native worktree", "--no-focus"
+    "--path", fixture.issuePath, "--label", "#10 · Native worktree", "--no-focus"
   ]);
   const launch = findCommand(log, "herdr", ["pane", "run", "p-create"]);
   assert.ok(launch);
@@ -244,6 +260,22 @@ for (const [agent, profile, designSuffix] of [
   });
 }
 
+const REVIEW_PATH_SUFFIX = ["github.com", "owner", "repo", "prs", "20", "review-claude"];
+
+function reviewPath(fixture) {
+  return join(fixture.worktreeRoot, ...REVIEW_PATH_SUFFIX);
+}
+
+function repoWorkspace(overrides = {}) {
+  return {
+    workspace_id: "w-primary",
+    label: "repo",
+    agent_status: "idle",
+    worktree: { checkout_path: "/repo", repo_root: "/repo", is_linked_worktree: false },
+    ...overrides
+  };
+}
+
 for (const [reviewer, expectedProfile, designMarker] of [
   [
     "claude",
@@ -258,12 +290,15 @@ for (const [reviewer, expectedProfile, designMarker] of [
 ]) {
   test(`managed ${reviewer} PR reviewers use the exact non-prompting profile and maintainability contract`, async (t) => {
     const fixture = await mockEnvironment(t);
+    await patchState(fixture, (state) => {
+      state.workspaces = [repoWorkspace({ worktree: { checkout_path: fixture.repoRoot, repo_root: fixture.repoRoot, is_linked_worktree: false } })];
+    });
     const result = invoke(["review-pr", "20", "--reviewer", reviewer], { ...fixture.env, HERDR_ENV: "1" });
     assert.equal(result.status, 0, result.stderr);
 
     const log = await commandLog(fixture.logPath);
     const launch = findCommand(log, "herdr", ["pane", "run", "p-review"]);
-    assert.ok(launch, "expected the reviewer agent to launch in its detached workspace");
+    assert.ok(launch, "expected the reviewer agent to launch in its review tab");
     const command = launchedAgentCommand(launch);
     assert.ok(command.startsWith(expectedProfile), `expected launch profile ${expectedProfile}`);
     assert.match(command, /maintainability against the supported contract/);
@@ -278,6 +313,255 @@ for (const [reviewer, expectedProfile, designMarker] of [
     }
   });
 }
+
+test("review-pr opens a compact review tab in the primary workspace and never creates one", async (t) => {
+  const fixture = await mockEnvironment(t);
+  await patchState(fixture, (state) => {
+    state.workspaces = [repoWorkspace({ worktree: { checkout_path: fixture.repoRoot, repo_root: fixture.repoRoot, is_linked_worktree: false } })];
+  });
+
+  const result = invoke(["review-pr", "20"], { ...fixture.env, HERDR_ENV: "1" });
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.herdrWorkspaceId, "w-primary");
+  assert.equal(output.herdrTabId, "t-review");
+  assert.equal(output.herdrPaneId, "p-review");
+  assert.equal(output.herdrTabLabel, "PR #20 · Review");
+  assert.equal(output.createdTab, true);
+  assert.equal(output.createdWorkspace, false);
+  assert.equal(output.worktreePath, reviewPath(fixture));
+
+  const log = await commandLog(fixture.logPath);
+  const create = findCommand(log, "herdr", ["tab", "create"]);
+  assert.deepEqual(create.args, [
+    "tab", "create", "--workspace", "w-primary", "--cwd", reviewPath(fixture),
+    "--label", "PR #20 · Review", "--no-focus"
+  ]);
+  assert.equal(log.some((entry) => entry.program === "herdr" && entry.args[0] === "workspace" && entry.args[1] === "create"), false);
+});
+
+test("review-pr hosts the review in the caller's issue workspace", async (t) => {
+  const fixture = await mockEnvironment(t);
+  await patchState(fixture, (state) => {
+    state.workspaces = [
+      repoWorkspace({ worktree: { checkout_path: fixture.repoRoot, repo_root: fixture.repoRoot, is_linked_worktree: false } }),
+      {
+        workspace_id: "w-issue",
+        label: "#10 · Native worktree",
+        agent_status: "idle",
+        worktree: { checkout_path: fixture.issuePath, repo_root: fixture.repoRoot, is_linked_worktree: true }
+      }
+    ];
+    state.currentPane = { pane_id: "p-author", workspace_id: "w-issue", tab_id: "w-issue:t1", cwd: fixture.issuePath };
+    state.panes = [state.currentPane];
+  });
+
+  const result = invoke(["review-pr", "20"], { ...fixture.env, HERDR_ENV: "1" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).herdrWorkspaceId, "w-issue");
+  const log = await commandLog(fixture.logPath);
+  assert.deepEqual(findCommand(log, "herdr", ["tab", "create"]).args.slice(0, 4), ["tab", "create", "--workspace", "w-issue"]);
+});
+
+test("review-pr reuses a review that was moved, without creating a second one", async (t) => {
+  const fixture = await mockEnvironment(t);
+  await patchState(fixture, (state) => {
+    state.worktreePorcelain = `worktree ${fixture.repoRoot}\nHEAD abc\nbranch refs/heads/main\n\nworktree ${reviewPath(fixture)}\nHEAD def\ndetached\n\n`;
+    state.workspaces = [{
+      workspace_id: "w-issue",
+      label: "#10 · Native worktree",
+      agent_status: "idle",
+      worktree: { checkout_path: fixture.issuePath, repo_root: fixture.repoRoot, is_linked_worktree: true }
+    }];
+    state.panes = [
+      { pane_id: "p-author", workspace_id: "w-issue", tab_id: "w-issue:t1", cwd: fixture.issuePath, agent_status: "idle" },
+      { pane_id: "p-moved", workspace_id: "w-issue", tab_id: "w-issue:t2", cwd: reviewPath(fixture), agent_status: "idle" }
+    ];
+  });
+
+  const result = invoke(["review-pr", "20"], { ...fixture.env, HERDR_ENV: "1" });
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.reusedPlacement, true);
+  assert.equal(output.herdrPaneId, "p-moved");
+  assert.equal(output.herdrWorkspaceId, "w-issue");
+  assert.equal(output.createdTab, false);
+  const log = await commandLog(fixture.logPath);
+  assert.equal(log.some((entry) => entry.program === "herdr" && entry.args[0] === "tab" && entry.args[1] === "create"), false);
+  assert.equal(log.some((entry) => entry.program === "herdr" && entry.args[1] === "run"), false);
+});
+
+test("review-pr refuses to refresh a review whose agent is still working, before touching git", async (t) => {
+  const fixture = await mockEnvironment(t);
+  await patchState(fixture, (state) => {
+    state.workspaces = [repoWorkspace({ worktree: { checkout_path: fixture.repoRoot, repo_root: fixture.repoRoot, is_linked_worktree: false } })];
+    state.panes = [{ pane_id: "p-busy", workspace_id: "w-primary", tab_id: "w-primary:t2", cwd: reviewPath(fixture), agent_status: "working" }];
+  });
+
+  const result = invoke(["review-pr", "20"], { ...fixture.env, HERDR_ENV: "1" });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /refusing to refresh review worktree while its agent is working/);
+  const log = await commandLog(fixture.logPath);
+  assert.equal(log.some((entry) => entry.program === "git" && entry.args.includes("fetch")), false);
+  assert.equal(log.some((entry) => entry.program === "git" && entry.args.includes("checkout")), false);
+});
+
+test("review-pr names the reviewer only when another reviewer is already placed", async (t) => {
+  const fixture = await mockEnvironment(t);
+  await patchState(fixture, (state) => {
+    state.workspaces = [repoWorkspace({ worktree: { checkout_path: fixture.repoRoot, repo_root: fixture.repoRoot, is_linked_worktree: false } })];
+    state.panes = [{
+      pane_id: "p-codex",
+      workspace_id: "w-primary",
+      tab_id: "w-primary:t2",
+      cwd: join(fixture.worktreeRoot, "github.com", "owner", "repo", "prs", "20", "review-codex"),
+      agent_status: "idle"
+    }];
+  });
+
+  const result = invoke(["review-pr", "20"], { ...fixture.env, HERDR_ENV: "1" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).herdrTabLabel, "PR #20 · Review (claude)");
+});
+
+test("review-pr refuses a dirty review worktree before refreshing it", async (t) => {
+  const fixture = await mockEnvironment(t);
+  await patchState(fixture, (state) => {
+    state.worktreePorcelain = `worktree ${fixture.repoRoot}\nHEAD abc\nbranch refs/heads/main\n\nworktree ${reviewPath(fixture)}\nHEAD def\ndetached\n\n`;
+    state.dirty = " M file.txt\n";
+    state.workspaces = [repoWorkspace({ worktree: { checkout_path: fixture.repoRoot, repo_root: fixture.repoRoot, is_linked_worktree: false } })];
+  });
+
+  const result = invoke(["review-pr", "20"], { ...fixture.env, HERDR_ENV: "1" });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /refusing to refresh dirty review worktree/);
+  const log = await commandLog(fixture.logPath);
+  assert.equal(log.some((entry) => entry.program === "git" && entry.args.includes("checkout")), false);
+});
+
+test("review-pr fails with the candidates when no host can be chosen", async (t) => {
+  const fixture = await mockEnvironment(t, { workspaces: [] });
+  const result = invoke(["review-pr", "20"], { ...fixture.env, HERDR_ENV: "1" });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /no Herdr workspace belongs to/);
+  const log = await commandLog(fixture.logPath);
+  assert.equal(log.some((entry) => entry.program === "herdr" && entry.args[0] === "tab" && entry.args[1] === "create"), false);
+});
+
+test("review-pr rejects an explicit workspace from another repository", async (t) => {
+  const fixture = await mockEnvironment(t);
+  await patchState(fixture, (state) => {
+    state.workspaces = [
+      repoWorkspace({ worktree: { checkout_path: fixture.repoRoot, repo_root: fixture.repoRoot, is_linked_worktree: false } }),
+      { workspace_id: "w-other", label: "other", agent_status: "idle", worktree: { checkout_path: "/elsewhere", repo_root: "/elsewhere", is_linked_worktree: false } }
+    ];
+  });
+
+  const result = invoke(["review-pr", "20", "--workspace", "w-other"], { ...fixture.env, HERDR_ENV: "1" });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /does not belong to/);
+});
+
+test("cleanup-pr closes the review tab and leaves its host and neighbours alone", async (t) => {
+  const fixture = await mockEnvironment(t);
+  await patchState(fixture, (state) => {
+    state.worktreePorcelain = `worktree ${fixture.repoRoot}\nHEAD abc\nbranch refs/heads/main\n\nworktree ${reviewPath(fixture)}\nHEAD def\ndetached\n\n`;
+    state.workspaces = [{
+      workspace_id: "w-issue",
+      label: "#10 · Native worktree",
+      agent_status: "idle",
+      worktree: { checkout_path: fixture.issuePath, repo_root: fixture.repoRoot, is_linked_worktree: true }
+    }];
+    state.panes = [
+      { pane_id: "p-author", workspace_id: "w-issue", tab_id: "w-issue:t1", cwd: fixture.issuePath, agent_status: "idle" },
+      { pane_id: "p-review", workspace_id: "w-issue", tab_id: "w-issue:t2", cwd: reviewPath(fixture), agent_status: "idle" }
+    ];
+  });
+
+  const result = invoke(["cleanup-pr", "20"], { ...fixture.env, HERDR_ENV: "1" });
+  assert.equal(result.status, 0, result.stderr);
+  const log = await commandLog(fixture.logPath);
+  assert.ok(findCommand(log, "herdr", ["tab", "close", "w-issue:t2"]));
+  assert.equal(log.some((entry) => entry.program === "herdr" && entry.args[0] === "workspace" && entry.args[1] === "close"), false);
+  assert.equal(log.some((entry) => entry.program === "herdr" && entry.args[0] === "tab" && entry.args[2] === "w-issue:t1"), false);
+  assert.equal(log.some((entry) => entry.program === "herdr" && entry.args[0] === "pane" && entry.args[1] === "close"), false);
+});
+
+test("cleanup-pr closes only the review pane when its tab holds other work", async (t) => {
+  const fixture = await mockEnvironment(t);
+  await patchState(fixture, (state) => {
+    state.worktreePorcelain = `worktree ${fixture.repoRoot}\nHEAD abc\nbranch refs/heads/main\n\nworktree ${reviewPath(fixture)}\nHEAD def\ndetached\n\n`;
+    state.workspaces = [repoWorkspace({ worktree: { checkout_path: fixture.repoRoot, repo_root: fixture.repoRoot, is_linked_worktree: false } })];
+    state.panes = [
+      { pane_id: "p-preview", workspace_id: "w-primary", tab_id: "w-primary:t2", cwd: fixture.repoRoot, agent_status: "idle" },
+      { pane_id: "p-review", workspace_id: "w-primary", tab_id: "w-primary:t2", cwd: reviewPath(fixture), agent_status: "idle" }
+    ];
+  });
+
+  const result = invoke(["cleanup-pr", "20"], { ...fixture.env, HERDR_ENV: "1" });
+  assert.equal(result.status, 0, result.stderr);
+  const log = await commandLog(fixture.logPath);
+  assert.ok(findCommand(log, "herdr", ["pane", "close", "p-review"]));
+  assert.equal(log.some((entry) => entry.program === "herdr" && entry.args[0] === "tab" && entry.args[1] === "close"), false);
+});
+
+test("cleanup-pr refuses while the review agent is working", async (t) => {
+  const fixture = await mockEnvironment(t);
+  await patchState(fixture, (state) => {
+    state.worktreePorcelain = `worktree ${fixture.repoRoot}\nHEAD abc\nbranch refs/heads/main\n\nworktree ${reviewPath(fixture)}\nHEAD def\ndetached\n\n`;
+    state.workspaces = [repoWorkspace({ worktree: { checkout_path: fixture.repoRoot, repo_root: fixture.repoRoot, is_linked_worktree: false } })];
+    state.panes = [{ pane_id: "p-review", workspace_id: "w-primary", tab_id: "w-primary:t2", cwd: reviewPath(fixture), agent_status: "working" }];
+  });
+
+  const result = invoke(["cleanup-pr", "20"], { ...fixture.env, HERDR_ENV: "1" });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /refusing to close review pane p-review while its agent is working/);
+  const log = await commandLog(fixture.logPath);
+  assert.equal(log.some((entry) => entry.program === "git" && entry.args.includes("remove")), false);
+});
+
+test("cleanup-pr closes a dedicated review workspace from before reviews moved into tabs", async (t) => {
+  const fixture = await mockEnvironment(t);
+  await patchState(fixture, (state) => {
+    state.worktreePorcelain = `worktree ${fixture.repoRoot}\nHEAD abc\nbranch refs/heads/main\n\nworktree ${reviewPath(fixture)}\nHEAD def\ndetached\n\n`;
+    state.workspaces = [{
+      workspace_id: "w-legacy-review",
+      label: "repo · PR #20 · review/claude",
+      agent_status: "idle",
+      worktree: { checkout_path: reviewPath(fixture), repo_root: fixture.repoRoot, is_linked_worktree: true }
+    }];
+    state.panes = [{ pane_id: "p-legacy", workspace_id: "w-legacy-review", tab_id: "w-legacy-review:t1", cwd: reviewPath(fixture), agent_status: "idle" }];
+  });
+
+  const result = invoke(["cleanup-pr", "20"], { ...fixture.env, HERDR_ENV: "1" });
+  assert.equal(result.status, 0, result.stderr);
+  const log = await commandLog(fixture.logPath);
+  assert.ok(findCommand(log, "herdr", ["workspace", "close", "w-legacy-review"]));
+  assert.equal(log.some((entry) => entry.program === "herdr" && entry.args[0] === "tab" && entry.args[1] === "close"), false);
+});
+
+test("finish-issue refuses to strand a review hosted in the issue workspace", async (t) => {
+  const fixture = await mockEnvironment(t);
+  await patchState(fixture, (state) => {
+    state.worktreePorcelain = existingIssuePorcelain(fixture.repoRoot, fixture.issuePath);
+    state.workspaces = [{
+      workspace_id: "w-issue",
+      label: "#10 · Native worktree",
+      agent_status: "idle",
+      worktree: { checkout_path: fixture.issuePath, repo_root: fixture.repoRoot, is_linked_worktree: true }
+    }];
+    state.panes = [
+      { pane_id: "p-author", workspace_id: "w-issue", tab_id: "w-issue:t1", cwd: fixture.issuePath, agent_status: "idle" },
+      { pane_id: "p-review", workspace_id: "w-issue", tab_id: "w-issue:t2", cwd: reviewPath(fixture), agent_status: "idle" }
+    ];
+  });
+
+  const result = invoke(["finish-issue", "10"], { ...fixture.env, HERDR_ENV: "1" });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /hosts review checkout .*review-claude in pane p-review/);
+  const log = await commandLog(fixture.logPath);
+  assert.equal(log.some((entry) => entry.program === "herdr" && entry.args[1] === "remove"), false);
+});
 
 test("managed start opens and reuses an existing issue worktree", async (t) => {
   const fixture = await mockEnvironment(t);
@@ -306,7 +590,7 @@ test("finish-issue removes a linked issue workspace through Herdr without force"
   state.worktreePorcelain = existingIssuePorcelain(fixture.repoRoot, fixture.issuePath);
   state.workspaces = [{
     workspace_id: "w-linked",
-    label: "repo · #10 · Native worktree",
+    label: "#10 · Native worktree",
     agent_status: "idle",
     worktree: { checkout_path: fixture.issuePath, is_linked_worktree: true }
   }];
@@ -330,6 +614,7 @@ test("finish-issue safely falls back for a legacy generic Herdr workspace", asyn
     label: "repo · #10 · Native worktree",
     agent_status: "idle"
   }];
+  state.panes = [{ pane_id: "p-legacy", workspace_id: "w-legacy", tab_id: "w-legacy:t1", cwd: fixture.issuePath, agent_status: "idle" }];
   await writeFile(fixture.statePath, JSON.stringify(state));
 
   const result = invoke(["finish-issue", "10"], { ...fixture.env, HERDR_ENV: "1" });
@@ -346,7 +631,7 @@ test("finish-issue refuses an active linked Herdr workspace", async (t) => {
   state.worktreePorcelain = existingIssuePorcelain(fixture.repoRoot, fixture.issuePath);
   state.workspaces = [{
     workspace_id: "w-linked",
-    label: "repo · #10 · Native worktree",
+    label: "#10 · Native worktree",
     agent_status: "working",
     worktree: { checkout_path: fixture.issuePath, is_linked_worktree: true }
   }];

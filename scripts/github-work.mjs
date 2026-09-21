@@ -2,7 +2,7 @@
 
 import { appendFile, mkdir } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
@@ -18,6 +18,7 @@ import {
 } from "./agent-profiles.mjs";
 
 const AGENTS = new Set(["pi", "claude", "codex", "none"]);
+const AUTHOR_TAB_LABEL = "Implementation";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -94,8 +95,8 @@ async function startIssue(number, options) {
     throw new Error(`branch ${branch} is already checked out outside the managed worktree: ${branchEntry.path}`);
   }
 
-  const labelPrefix = `${context.repoName} · #${issue.number} ·`;
-  const label = `${labelPrefix} ${truncate(issue.title, 42)}`;
+  // The parent workspace already names the repository; a child says what it is.
+  const label = `#${issue.number} · ${truncate(issue.title, 42)}`;
   const prompt = issueAgentPrompt(agent, issue.number, context.nameWithOwner);
   const launchEnvironment = flightdeckLaunchEnvironment({
     workId,
@@ -180,6 +181,13 @@ async function reviewPr(number, options) {
   const path = resolve(worktreeRoot(), "github.com", context.nameWithOwner, "prs", String(pr.number), `review-${reviewer}`);
   const reviewRef = `refs/remotes/${context.remote}/pr/${pr.number}`;
 
+  // Read placement and live agent state before touching the checkout: refreshing a worktree that a
+  // reviewer is still reading would change the tree under it.
+  const placement = findReviewPlacement(path);
+  if (placement && ["working", "blocked"].includes(placement.agentStatus)) {
+    throw new Error(`refusing to refresh review worktree while its agent is ${placement.agentStatus}: ${placement.paneId} in ${placement.workspaceLabel ?? placement.workspaceId}`);
+  }
+
   run("git", ["-C", context.repoRoot, "fetch", context.remote, `pull/${pr.number}/head:${reviewRef}`, "--force"]);
   const existing = worktreeEntries(context.repoRoot).find((entry) => entry.path === path);
   const createdWorktree = !existing;
@@ -192,14 +200,16 @@ async function reviewPr(number, options) {
     run("git", ["-C", path, "checkout", "--detach", reviewRef]);
   }
 
-  const label = `${context.repoName} · PR #${pr.number} · review/${reviewer}`;
-  const runtime = createHerdrWorkspace(
+  const tabLabel = reviewTabLabel(pr.number, reviewer, path);
+  const runtime = placeReviewTab({
     path,
-    label,
+    tabLabel,
     reviewer,
-    reviewAgentPrompt(reviewer, pr.number, context.nameWithOwner),
-    label,
-    flightdeckLaunchEnvironment({
+    placement,
+    hostWorkspaceId: options.workspace,
+    repoRoot: context.repoRoot,
+    prompt: reviewAgentPrompt(reviewer, pr.number, context.nameWithOwner),
+    launchEnvironment: flightdeckLaunchEnvironment({
       workId,
       projectSlug: context.repoName,
       repoRoot: context.repoRoot,
@@ -208,10 +218,10 @@ async function reviewPr(number, options) {
       role: "reviewer",
       reviewer,
       runtime: "herdr",
-      workspaceLabel: label,
+      workspaceLabel: tabLabel,
       branch: pr.headRefName
     })
-  );
+  });
 
   if (createdWorktree) await emit("worktree.created", "Pull request review worktree created", {
     worktreeId: workId,
@@ -225,7 +235,8 @@ async function reviewPr(number, options) {
     role: "reviewer",
     reviewer,
     runtime: runtime.runtime,
-    workspaceLabel: runtime.workspaceLabel
+    workspaceLabel: runtime.workspaceLabel,
+    tabLabel: runtime.herdrTabLabel
   });
   if (runtime.agentStarted) await emit("agent.run.started", "Pull request review agent started", {
     agentId: `${workId}:${reviewer}`,
@@ -239,7 +250,8 @@ async function reviewPr(number, options) {
     prNumber: pr.number,
     role: "reviewer",
     worktreePath: path,
-    workspaceLabel: runtime.workspaceLabel
+    workspaceLabel: runtime.workspaceLabel,
+    tabLabel: runtime.herdrTabLabel
   });
 
   return { ok: true, kind: "pr-review", workId, repository: context.nameWithOwner, pullRequest: pr, reviewer, worktreePath: path, createdWorktree, ...runtime };
@@ -263,9 +275,9 @@ async function cleanup(kind, number, options) {
   }
 
   const nativeIssueWorkspaces = kind === "issue"
-    ? prepareIssueHerdrRemoval(context.repoName, number, matches)
+    ? prepareIssueHerdrRemoval(number, matches, managedRoot)
     : new Map();
-  if (kind === "pr") closeHerdrWorkspaces(context.repoName, kind, number);
+  if (kind === "pr") closeReviewPlacements(matches);
 
   const removed = [];
   for (const entry of matches) {
@@ -322,18 +334,33 @@ function repoContext() {
   };
 }
 
-function prepareIssueHerdrRemoval(repoName, number, entries) {
+function prepareIssueHerdrRemoval(number, entries, managedRoot) {
   const nativeByPath = new Map();
   if (process.env.HERDR_ENV !== "1") return nativeByPath;
 
-  const prefix = `${repoName} · #${number} ·`;
   const entryPaths = new Set(entries.map((entry) => resolve(entry.path)));
   const workspaces = herdrWorkspaces();
+  const panes = herdrPanes();
+  // Provenance, never the label: a renamed workspace and an old repository-prefixed one are the
+  // same workspace, and `#43` means a different issue in a different repository.
   const relevant = workspaces.filter((workspace) => {
     const checkoutPath = workspace.worktree?.checkout_path;
-    return workspace.label?.startsWith(prefix)
-      || (checkoutPath && entryPaths.has(resolve(checkoutPath)));
+    if (typeof checkoutPath === "string" && entryPaths.has(resolve(checkoutPath))) return true;
+    return [...entryPaths].some((path) => workspaceIsDedicatedTo(workspace, path, panes));
   });
+
+  // An issue workspace can host review tabs. Removing it would take those sessions and their
+  // checkouts with it, so refuse and name the review to clean up or move first.
+  const reviewRoot = join(resolve(managedRoot), "prs");
+  const relevantIds = new Set(relevant.map((workspace) => workspace.workspace_id));
+  for (const pane of panes) {
+    if (!relevantIds.has(pane.workspace_id)) continue;
+    if (typeof pane.cwd !== "string") continue;
+    const cwd = resolve(pane.cwd);
+    if (cwd === reviewRoot || cwd.startsWith(`${reviewRoot}${sep}`)) {
+      throw new Error(`refusing to remove issue #${number} workspace while it hosts review checkout ${cwd} in pane ${pane.pane_id}; clean up or move that review first`);
+    }
+  }
 
   for (const workspace of relevant) {
     if (["working", "blocked"].includes(workspace.agent_status)) {
@@ -350,23 +377,58 @@ function prepareIssueHerdrRemoval(repoName, number, entries) {
 
   const nativeIds = new Set(nativeByPath.values());
   for (const workspace of relevant) {
-    if (workspace.label?.startsWith(prefix) && !nativeIds.has(workspace.workspace_id)) {
+    if (!nativeIds.has(workspace.workspace_id)) {
       run("herdr", ["workspace", "close", workspace.workspace_id], { capture: true });
     }
   }
   return nativeByPath;
 }
 
-function closeHerdrWorkspaces(repoName, kind, number) {
+/**
+ * Closes only what belongs to these review worktrees: the panes whose directory is one of them,
+ * their tab when it held nothing else, and a workspace only when that workspace's own checkout is
+ * the review worktree. A host workspace, the author's tab, another review, a preview, and any
+ * unrelated pane are left alone.
+ */
+function closeReviewPlacements(entries) {
   if (process.env.HERDR_ENV !== "1") return;
-  const prefix = kind === "issue" ? `${repoName} · #${number} ·` : `${repoName} · PR #${number} ·`;
-  while (true) {
-    const match = herdrWorkspaces().find((workspace) => workspace.label.startsWith(prefix));
-    if (!match) return;
-    if (["working", "blocked"].includes(match.agent_status)) {
-      throw new Error(`refusing to close active Herdr workspace ${match.label} (${match.agent_status})`);
+  const targets = new Set(entries.map((entry) => resolve(entry.path)));
+  const panes = herdrPanes();
+  const reviewPanes = panes.filter((pane) => typeof pane.cwd === "string" && targets.has(resolve(pane.cwd)));
+  const dedicated = herdrWorkspaces().filter((workspace) => {
+    const checkoutPath = workspace.worktree?.checkout_path;
+    return typeof checkoutPath === "string" && targets.has(resolve(checkoutPath));
+  });
+
+  for (const pane of reviewPanes) {
+    if (["working", "blocked"].includes(pane.agent_status)) {
+      throw new Error(`refusing to close review pane ${pane.pane_id} while its agent is ${pane.agent_status}`);
     }
-    run("herdr", ["workspace", "close", match.workspace_id], { capture: true });
+  }
+  for (const workspace of dedicated) {
+    if (["working", "blocked"].includes(workspace.agent_status)) {
+      throw new Error(`refusing to close active Herdr workspace ${workspace.label} (${workspace.agent_status})`);
+    }
+  }
+
+  const dedicatedIds = new Set(dedicated.map((workspace) => workspace.workspace_id));
+  const reviewPaneIds = new Set(reviewPanes.map((pane) => pane.pane_id));
+  const byTab = new Map();
+  for (const pane of reviewPanes) {
+    if (dedicatedIds.has(pane.workspace_id)) continue;
+    if (!byTab.has(pane.tab_id)) byTab.set(pane.tab_id, []);
+    byTab.get(pane.tab_id).push(pane);
+  }
+
+  for (const [tabId, tabReviewPanes] of byTab) {
+    const tabPanes = panes.filter((pane) => pane.tab_id === tabId);
+    const onlyReviews = tabPanes.length > 0 && tabPanes.every((pane) => reviewPaneIds.has(pane.pane_id));
+    if (onlyReviews) run("herdr", ["tab", "close", tabId], { capture: true });
+    else for (const pane of tabReviewPanes) run("herdr", ["pane", "close", pane.pane_id], { capture: true });
+  }
+
+  for (const workspace of dedicated) {
+    run("herdr", ["workspace", "close", workspace.workspace_id], { capture: true });
   }
 }
 
@@ -396,11 +458,14 @@ function createOrOpenHerdrIssueWorktree({ repoRoot, path, branch, base, label, a
 
   const reusedWorkspace = existingWorktree && result.already_open === true;
   const createdWorkspace = !reusedWorkspace;
+  const tabId = pane.tab_id ?? result.tab?.tab_id;
+  if (createdWorkspace && tabId) run("herdr", ["tab", "rename", tabId, AUTHOR_TAB_LABEL], { capture: true });
   const agentStarted = createdWorkspace && launchAgentInHerdrPane(paneId, agent, prompt, launchEnvironment);
   return {
     runtime: "herdr",
     herdrWorkspaceId: workspaceId,
     herdrPaneId: paneId,
+    ...(tabId ? { herdrTabId: tabId, herdrTabLabel: AUTHOR_TAB_LABEL } : {}),
     workspaceLabel: workspace.label ?? label,
     createdWorkspace,
     agentStarted,
@@ -470,40 +535,171 @@ function profileLaunchCommand(options) {
   return launchCommand({ profile: options.profile, effort: options.effort, prompt: options.prompt });
 }
 
-function createHerdrWorkspace(path, label, agent, prompt, labelPrefix = label, launchEnvironment = {}) {
-  if (process.env.HERDR_ENV !== "1") {
-    if (agent && agent !== "none") throw new Error("HERDR_ENV=1 is required to start an agent; pass --agent none to create only the worktree");
-    return { runtime: "none", workspaceLabel: label, createdWorkspace: false, agentStarted: false };
+function herdrPanes() {
+  const listed = jsonCommand("herdr", ["pane", "list"]);
+  return listed.result?.panes ?? listed.panes ?? [];
+}
+
+function herdrTabs() {
+  const listed = jsonCommand("herdr", ["tab", "list"]);
+  return listed.result?.tabs ?? listed.tabs ?? [];
+}
+
+/**
+ * A review is identified by the working directory of a pane, not by a label or a remembered ID, so
+ * a review someone has moved is still recognised where it now sits.
+ */
+function findReviewPlacement(path) {
+  if (process.env.HERDR_ENV !== "1") return null;
+  const target = resolve(path);
+  const workspaces = herdrWorkspaces();
+  const panes = herdrPanes();
+  const pane = panes.find((entry) => typeof entry.cwd === "string" && resolve(entry.cwd) === target);
+  if (pane) {
+    const workspace = workspaces.find((entry) => entry.workspace_id === pane.workspace_id);
+    return {
+      kind: "tab",
+      paneId: pane.pane_id,
+      tabId: pane.tab_id,
+      workspaceId: pane.workspace_id,
+      workspaceLabel: workspace?.label,
+      agentStatus: pane.agent_status
+    };
+  }
+  // A workspace created for a review before reviews moved into tabs. Recognised, never recreated.
+  const dedicated = workspaces.find((entry) => workspaceIsDedicatedTo(entry, target, panes));
+  if (!dedicated) return null;
+  return {
+    kind: "workspace",
+    workspaceId: dedicated.workspace_id,
+    workspaceLabel: dedicated.label,
+    agentStatus: dedicated.agent_status
+  };
+}
+
+/**
+ * A workspace belongs to one checkout when Herdr records it as that workspace's checkout, or when
+ * every pane in it sits there. Labels are never consulted: `#43` means a different issue in a
+ * different repository.
+ */
+function workspaceIsDedicatedTo(workspace, target, panes) {
+  const checkoutPath = workspace.worktree?.checkout_path;
+  if (typeof checkoutPath === "string" && resolve(checkoutPath) === target) return true;
+  const workspacePanes = panes.filter((pane) => pane.workspace_id === workspace.workspace_id);
+  return workspacePanes.length > 0
+    && workspacePanes.every((pane) => typeof pane.cwd === "string" && resolve(pane.cwd) === target);
+}
+
+/**
+ * `PR #12 · Review`, and `PR #12 · Review (codex)` only when another reviewer of the same pull
+ * request is already placed, so the common case stays short.
+ */
+function reviewTabLabel(number, reviewer, path) {
+  const base = `PR #${number} · Review`;
+  if (process.env.HERDR_ENV !== "1") return base;
+  const siblings = dirname(resolve(path));
+  const mine = resolve(path);
+  const others = herdrPanes().some((pane) => {
+    if (typeof pane.cwd !== "string") return false;
+    const cwd = resolve(pane.cwd);
+    return cwd !== mine && dirname(cwd) === siblings && basename(cwd).startsWith("review-");
+  });
+  return others ? `${base} (${reviewer})` : base;
+}
+
+/**
+ * Host selection: an explicit workspace, else the caller's own workspace, else the repository's
+ * primary workspace. Never creates a workspace; an unresolvable host is an error that names the
+ * candidates.
+ */
+function selectReviewHost(repoRoot, requestedWorkspaceId) {
+  const root = resolve(repoRoot);
+  const workspaces = herdrWorkspaces();
+  const candidates = workspaces.filter((workspace) => {
+    const workspaceRoot = workspace.worktree?.repo_root;
+    return typeof workspaceRoot === "string" && resolve(workspaceRoot) === root;
+  });
+
+  if (requestedWorkspaceId) {
+    const requested = candidates.find((workspace) => workspace.workspace_id === requestedWorkspaceId);
+    if (!requested) {
+      const known = workspaces.some((workspace) => workspace.workspace_id === requestedWorkspaceId);
+      throw new Error(known
+        ? `--workspace ${requestedWorkspaceId} does not belong to ${repoRoot}`
+        : `--workspace ${requestedWorkspaceId} does not exist`);
+    }
+    return requested;
   }
 
-  const listed = jsonCommand("herdr", ["workspace", "list"]);
-  const workspaces = listed.result?.workspaces ?? listed.workspaces ?? [];
-  const existing = workspaces.find((workspace) => workspace.label === label || workspace.label.startsWith(labelPrefix));
-  if (existing) {
+  const current = jsonCommand("herdr", ["pane", "current"]).result?.pane;
+  const callerWorkspaceId = current?.workspace_id;
+  const caller = candidates.find((workspace) => workspace.workspace_id === callerWorkspaceId);
+  if (caller) return caller;
+
+  const primary = candidates.filter((workspace) => workspace.worktree?.is_linked_worktree === false);
+  if (primary.length === 1) return primary[0];
+  if (primary.length > 1) {
+    throw new Error(`several workspaces claim ${repoRoot} as a primary checkout (${primary.map((workspace) => workspace.workspace_id).join(", ")}); pass --workspace <id>`);
+  }
+  if (candidates.length > 0) {
+    throw new Error(`no primary workspace for ${repoRoot}; pass --workspace <id> to choose one of ${candidates.map((workspace) => `${workspace.workspace_id} (${workspace.label})`).join(", ")}`);
+  }
+  throw new Error(`no Herdr workspace belongs to ${repoRoot}; open the repository in Herdr or pass --workspace <id>`);
+}
+
+function placeReviewTab({ path, tabLabel, reviewer, placement, hostWorkspaceId, repoRoot, prompt, launchEnvironment }) {
+  if (process.env.HERDR_ENV !== "1") {
+    throw new Error("HERDR_ENV=1 is required to place a pull request review");
+  }
+
+  if (placement?.kind === "tab") {
     return {
       runtime: "herdr",
-      herdrWorkspaceId: existing.workspace_id,
-      workspaceLabel: existing.label,
+      herdrWorkspaceId: placement.workspaceId,
+      herdrTabId: placement.tabId,
+      herdrPaneId: placement.paneId,
+      herdrTabLabel: tabLabel,
+      workspaceLabel: placement.workspaceLabel,
       createdWorkspace: false,
+      createdTab: false,
       agentStarted: false,
-      reusedWorkspace: true
+      reusedPlacement: true
+    };
+  }
+  if (placement?.kind === "workspace") {
+    return {
+      runtime: "herdr",
+      herdrWorkspaceId: placement.workspaceId,
+      herdrTabLabel: tabLabel,
+      workspaceLabel: placement.workspaceLabel,
+      createdWorkspace: false,
+      createdTab: false,
+      agentStarted: false,
+      reusedPlacement: true,
+      dedicatedWorkspace: true
     };
   }
 
-  const created = jsonCommand("herdr", ["workspace", "create", "--cwd", path, "--label", label, "--no-focus"]);
-  const workspace = created.result?.workspace ?? created.workspace;
-  const pane = created.result?.root_pane ?? created.root_pane;
-  const workspaceId = workspace?.workspace_id;
+  const host = selectReviewHost(repoRoot, hostWorkspaceId);
+  const created = jsonCommand("herdr", [
+    "tab", "create", "--workspace", host.workspace_id, "--cwd", path, "--label", tabLabel, "--no-focus"
+  ]);
+  const result = created.result ?? created;
+  const pane = result.root_pane;
   const paneId = pane?.pane_id;
-  if (!workspaceId || !paneId) throw new Error("herdr did not return workspace and pane IDs");
+  const tabId = result.tab?.tab_id ?? pane?.tab_id;
+  if (!paneId || !tabId) throw new Error("herdr did not return tab and pane IDs for the review tab");
 
-  const agentStarted = launchAgentInHerdrPane(paneId, agent, prompt, launchEnvironment);
+  const agentStarted = launchAgentInHerdrPane(paneId, reviewer, prompt, launchEnvironment);
   return {
     runtime: "herdr",
-    herdrWorkspaceId: workspaceId,
+    herdrWorkspaceId: host.workspace_id,
+    herdrTabId: tabId,
     herdrPaneId: paneId,
-    workspaceLabel: label,
-    createdWorkspace: true,
+    herdrTabLabel: tabLabel,
+    workspaceLabel: host.label,
+    createdWorkspace: false,
+    createdTab: true,
     agentStarted
   };
 }
@@ -563,7 +759,7 @@ function verifyTools(agent, requiresHerdr) {
 function allowedOptions(command) {
   switch (command) {
     case "start-issue": return new Map([["agent", "value"], ["branch", "value"], ["allow-closed", "boolean"]]);
-    case "review-pr": return new Map([["reviewer", "value"], ["allow-closed", "boolean"]]);
+    case "review-pr": return new Map([["reviewer", "value"], ["workspace", "value"], ["allow-closed", "boolean"]]);
     case "finish-issue": return new Map([["delete-branch", "boolean"]]);
     case "launch-command": return new Map([["profile", "value"], ["effort", "value"], ["prompt", "value"]]);
     case "cleanup-pr":
@@ -652,7 +848,7 @@ function output(value) {
 }
 
 function printHelp(code) {
-  console.log(`github-work — isolated GitHub issue and PR work in Herdr\n\nUsage:\n  github-work start-issue <number> [--agent claude|codex|pi|none]   (default: ${DEFAULT_ISSUE_AGENT})\n  github-work review-pr <number> [--reviewer claude|codex|pi]      (default: ${DEFAULT_REVIEWER})\n  github-work status\n  github-work finish-issue <number> [--delete-branch]\n  github-work cleanup-pr <number>\n  github-work profiles\n  github-work launch-command --profile <id> [--effort <level>] --prompt <text>\n\nLaunch profiles (docs/agent-launch-profiles.md):\n  ${profileIds().join(", ")}\n\nEnvironment:\n  GITHUB_WORKTREE_ROOT       default: ~/.local/share/agent-worktrees\n  GITHUB_WORK_REMOTE         default: origin\n  FLIGHTDECK_TELEMETRY_FILE  optional Flightdeck-compatible JSONL sink\n`);
+  console.log(`github-work — isolated GitHub issue and PR work in Herdr\n\nUsage:\n  github-work start-issue <number> [--agent claude|codex|pi|none]   (default: ${DEFAULT_ISSUE_AGENT})\n  github-work review-pr <number> [--reviewer claude|codex|pi] [--workspace <id>]\n                                                                  (default reviewer: ${DEFAULT_REVIEWER}; default host: this workspace, else the primary one)\n  github-work status\n  github-work finish-issue <number> [--delete-branch]\n  github-work cleanup-pr <number>\n  github-work profiles\n  github-work launch-command --profile <id> [--effort <level>] --prompt <text>\n\nLaunch profiles (docs/agent-launch-profiles.md):\n  ${profileIds().join(", ")}\n\nEnvironment:\n  GITHUB_WORKTREE_ROOT       default: ~/.local/share/agent-worktrees\n  GITHUB_WORK_REMOTE         default: origin\n  FLIGHTDECK_TELEMETRY_FILE  optional Flightdeck-compatible JSONL sink\n`);
   process.exitCode = code;
 }
 

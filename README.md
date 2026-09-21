@@ -29,7 +29,7 @@ Choose the delegation boundary by risk:
 - When delegating from inside an issue worktree, keep the delegate in that worktree's existing workspace as a sibling pane or a named tab. One worktree has one semantic workspace, so never open a second one for the same checkout.
 - Keep one writer at a time in a shared worktree. Read-only delegates may run alongside the writer; a writing delegate takes that role exclusively while the coordinator holds still.
 - For a new issue's implementation, or any mutation of another checkout, use `scripts/github-work.mjs start-issue` so the agent receives an isolated linked worktree and workspace.
-- For independent pull-request review, use `scripts/github-work.mjs review-pr` so the reviewer receives a detached review worktree and separate workspace.
+- For independent pull-request review, use `scripts/github-work.mjs review-pr` so the reviewer receives a detached review worktree in a named tab of a workspace this repository already has.
 
 Keep delegated agents visible. First observe the pane reach `working`; a pane that never does may not have launched correctly. After that, treat either `done` or `idle` as settled, read the pane output, and surface `blocked` for operator attention. Viewing a completed pane acknowledges Herdr's ephemeral unread `done` state and may change it to `idle`, so never wait only for `done`. The operator can focus the pane at any time to guide, interrupt, or resume the agent.
 
@@ -37,7 +37,7 @@ The `interactive-agent-sessions` skill defines the current version-verified non-
 
 ## GitHub issue and pull request workflow
 
-GitHub issues are the durable mental model for work. Each implementation uses one bounded issue, one managed worktree, one semantic Herdr workspace, and independent or human review. That worktree delivers one pull request, or a stack of layer pull requests when the change is worth reading in several units.
+GitHub issues are the durable mental model for work. Each implementation uses one bounded issue, one managed worktree, one semantic Herdr workspace, and independent or human review. A review keeps its own detached checkout but lives in a tab of that workspace, so one issue stays in one place on screen. That worktree delivers one pull request, or a stack of layer pull requests when the change is worth reading in several units.
 
 Agents stop for Martin's judgment at consequential UI/UX decisions and bring a running preview to the question, rather than presenting a finished surface at the end. Accepting a design lets the agent keep implementing; committing, publishing, and merging stay separate authorizations. See [Reviewable delivery](docs/reviewable-delivery.md).
 

@@ -196,6 +196,18 @@ One author worktree belongs to one issue, and so does its Herdr workspace. That 
 issue branch, plus any layer branches when the change is delivered as a stack. Reviewers use separate
 detached worktrees. Do not modify an author's worktree during independent review.
 
+A review's separate filesystem does not mean a separate workspace. `review-pr` places the reviewer in
+a named tab of a workspace this repository already has: the one you are in, or the primary checkout's
+workspace. It never creates a workspace, and it fails and names the candidates rather than guessing.
+A review that someone has since moved is recognised by the working directory of its pane and reused
+where it now sits.
+
+Labels say what a child is, not which repository it belongs to, because the parent workspace already
+carries that: `#<number> · <short title>` for an issue workspace, `Implementation` for its author
+tab, `PR #<number> · Review` for a review tab. Never identify a workspace or a review by its label;
+`#43` means a different issue in another repository. Branches, worktree paths and work IDs are
+unaffected.
+
 If `FLIGHTDECK_TELEMETRY_FILE` is configured, the helper emits best-effort Flightdeck-compatible
 `worktree.created`, `agent.run.started`, and `worktree.removed` events only when those transitions
 actually occur. Flightdeck remains observational and must not control GitHub, Git, Herdr, or agents.

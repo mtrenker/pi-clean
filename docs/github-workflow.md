@@ -87,9 +87,9 @@ they may compact after workspaces or panes close.
 
 Pi-clean does not provide non-interactive Claude or Codex subprocess delegation. Delegated work must remain visible in Herdr. The externally managed `herdr` skill discovered from `~/.agents/skills/` describes response shapes, but verify its commands against `herdr --help`: the installed copy predates Herdr 0.8.2 and still documents the removed `herdr wait`. `herdr --skill` prints the current version; refreshing that personal file is an operator action, and this repository never edits it.
 
-Use a split pane in the current workspace only for a bounded read-only investigation where sharing the checkout is safe. Starting another issue, or mutating any other checkout, uses `start-issue` and its isolated linked-worktree workspace. Independent review uses `review-pr` and its detached review worktree and workspace.
+Use a split pane in the current workspace only for a bounded read-only investigation where sharing the checkout is safe. Starting another issue, or mutating any other checkout, uses `start-issue` and its isolated linked-worktree workspace. Independent review uses `review-pr`, which gives the reviewer a detached worktree in a named tab of a workspace this repository already has.
 
-Placement follows the checkout, not the agent. One worktree has exactly one semantic Herdr workspace, so an agent delegated from inside an issue worktree stays in that worktree's workspace as a sibling pane or a named tab. Read the live `workspace_id` from `herdr pane current` and add to it; do not call `herdr workspace create` for a checkout that already has a workspace. A second workspace on one issue worktree fragments issue context and blocks `finish-issue`, which refuses cleanup with `multiple Herdr workspaces represent issue worktree`. Panes and tabs are placement inside a shared checkout, never a substitute for worktree isolation.
+Placement follows the checkout, not the agent. One worktree has exactly one semantic Herdr workspace, so an agent delegated from inside an issue worktree stays in that worktree's workspace as a sibling pane or a named tab. Read the live `workspace_id` from `herdr pane current` and add to it; do not call `herdr workspace create` for a checkout that already has a workspace. A second workspace on one issue worktree fragments issue context and blocks `finish-issue`, which refuses cleanup with `multiple Herdr workspaces represent issue worktree`. A hosted review tab is not a second workspace; it is a separate checkout sharing the window. Panes and tabs are placement inside a shared checkout, never a substitute for worktree isolation.
 
 Keep one writer at a time in a shared worktree. Read-only delegates may run alongside the writer, and a writing delegate takes that role exclusively while the coordinator stops editing. Concurrent writers require separate worktrees.
 
@@ -151,10 +151,15 @@ unsupported native commands produce a compatibility error rather than a generic 
 node /path/to/pi-clean/scripts/github-work.mjs review-pr 456 --reviewer claude
 ```
 
-The reviewer must be `pi`, `claude`, or `codex`; the default is `claude`. The helper fetches
+The reviewer must be `pi`, `claude`, or `codex`; the default is `claude`. `--workspace <id>` picks
+the host explicitly; otherwise the helper uses the caller's workspace when it belongs to this
+repository, then the repository's primary workspace, and fails naming the candidates if neither
+resolves. Tab and pane placement is verified on Herdr 0.9.1; an older Herdr without `tab create`,
+`tab close`, `pane list` or `pane close` reports its own error rather than falling back to a
+workspace. The helper fetches
 GitHub's pull-request head ref and creates a detached review worktree. Every reviewer receives a
-separate directory and Herdr workspace, preventing test artifacts and dependency installs from
-colliding.
+separate directory, preventing test artifacts and dependency installs from colliding, and runs as a
+named tab in an existing workspace of the repository.
 
 A reused review worktree is refreshed only when clean. Reviewers should not modify the author's
 issue worktree or publish a review without authorization.

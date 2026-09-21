@@ -173,7 +173,7 @@ Neither profile authorizes publishing a review, approving or merging a PR, pushi
 
 ## Placement policy
 
-Workspace identity follows the checkout, not the agent. One worktree has exactly one semantic Herdr workspace, and any agent whose working directory is an existing issue or review worktree belongs in that worktree's workspace. Placement inside a workspace is a pane or tab choice; isolation is a worktree choice. Never trade one for the other.
+Workspace identity follows the repository, not the agent. An issue worktree has exactly one semantic Herdr workspace, and a detached review checkout runs as a named tab inside a workspace that repository already has rather than a workspace of its own. Placement inside a workspace is a pane or tab choice; isolation is a worktree choice. Never trade one for the other.
 
 Decide placement in this order:
 
@@ -187,7 +187,7 @@ Decide placement in this order:
 | Separate read-only subcontext in the same worktree | Named tab in the current workspace | Still shares the worktree; a tab is not isolation |
 | Delegated subtask of the current issue, including a coding subtask | Sibling pane or named tab in the current issue workspace | Same worktree, one writer at a time; never a second workspace |
 | Starting another issue, or mutating any other checkout | Dedicated issue worktree and semantic Herdr workspace | Use `scripts/github-work.mjs start-issue`; never mutate from a sibling pane |
-| Independent PR review | Detached review worktree and semantic Herdr workspace | Use `scripts/github-work.mjs review-pr`; never review in the author worktree |
+| Independent PR review | Detached review worktree, named tab in an existing workspace | Use `scripts/github-work.mjs review-pr`; never review in the author worktree |
 | Preview for a UI checkpoint | Named tab or sibling pane in the current issue workspace | Visible and interruptible; never a background job |
 
 Read the current placement rather than assuming it. `herdr pane current` returns the running session's `workspace_id`, `tab_id`, and `pane_id`. Split from that pane, or create a tab with `herdr tab create --workspace "$WORKSPACE" --cwd "$PWD"`. Do not call `herdr workspace create` for a checkout that already has a workspace, and do not rename the issue workspace for a subtask; name the tab or pane instead.
@@ -196,7 +196,7 @@ A second workspace on the same issue worktree is not merely untidy. Herdr report
 
 If the current pane is not in the issue's semantic workspace, for example after `--agent none` or a manually opened folder, look for an existing workspace whose `worktree.checkout_path` is this worktree and place the delegate there. If none exists, rename the current workspace to the semantic label and use it.
 
-Use workspace labels such as `pi-clean · #26 · interactive sessions` and `pi-clean · PR #42 · review/codex`, tab labels such as `impl/opus`, `review/codex`, or `investigate/opus`, and pane labels such as `Codex · review`. Tabs are only subcontexts within one worktree, never substitutes for worktree isolation.
+A label says what a child is; the parent workspace already names the repository. Use `#26 · interactive sessions` for an issue workspace, `Implementation` for its author tab, `PR #42 · Review` for a review tab, and names such as `investigate/opus` or `Codex · review` for other tabs and panes. Never identify a workspace by its label, because `#26` means a different issue in a different repository. A tab is a subcontext in one window, never a substitute for worktree isolation.
 
 Start the TUI with its initial prompt in the created terminal. Focus the new pane, tab, or workspace for direct interaction unless Martin asks to keep the current focus. Report the semantic workspace, tab, and pane label after launch; IDs may be included only as current routing handles.
 
@@ -260,7 +260,7 @@ herdr pane rename "$NEW_PANE" 'Fable · review'
 herdr pane run "$NEW_PANE" "$LAUNCH"
 ```
 
-For an independent PR review, do not use the shared-checkout recipe. Run the helper with the requested reviewer so it creates the detached review worktree and dedicated semantic workspace:
+For an independent PR review, do not use the shared-checkout recipe. Run the helper with the requested reviewer so it creates the detached review worktree and places it as a named tab in this repository's workspace:
 
 ```bash
 node "$WORK_HELPER" review-pr 42 --reviewer codex

@@ -57,13 +57,16 @@ profiles. Delegate as a visible Herdr pane or tab.
 
 - Worktrees live under `~/.local/share/agent-worktrees/github.com/<owner>/<repo>/`.
 - Use one author worktree per issue and detached worktrees for independent PR reviews.
-- Use one Herdr workspace per active issue or independent review.
+- Use one Herdr workspace per active issue. An independent review keeps its own detached
+  worktree and runs as a named tab in a workspace of this repository, never in a new one.
 - Agents delegated from inside an issue worktree stay in that worktree's workspace as sibling
   panes or named tabs. Create a separate worktree and workspace only when a subtask needs a
   checkout the current one must not disturb; a tab is placement, not isolation.
 - Keep one writer at a time in a shared worktree. Read-only delegates may run alongside it.
-- Use semantic workspace labels such as `pi-clean · #123 · description`; do not persist Herdr's
-  ephemeral workspace or pane IDs as durable identity.
+- Labels name what a child is, not which repository it belongs to: `#123 · short title` for an
+  issue workspace, `Implementation` for its author tab, `PR #456 · Review` for a review tab. Never
+  identify a workspace by its label; use the repository root and checkout Herdr reports. Do not
+  persist Herdr's ephemeral workspace or pane IDs as durable identity.
 - Never remove a dirty worktree or use `rm -rf` for worktree cleanup.
 
 ## Validation

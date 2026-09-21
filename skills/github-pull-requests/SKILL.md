@@ -166,7 +166,8 @@ One branch at a time, never `-D`, and never in a loop without reading the list f
 
 ## Independent review
 
-Create a detached, isolated review worktree and Herdr workspace:
+Create a detached, isolated review worktree. The reviewer runs in a named tab of a workspace this
+repository already has, so the review sits beside the work it reviews without a new workspace:
 
 ```bash
 node /resolved/pi-clean/scripts/github-work.mjs review-pr <number> --reviewer claude
@@ -209,6 +210,12 @@ After merge or intentional abandonment, clean review worktrees first and the iss
 node /resolved/pi-clean/scripts/github-work.mjs cleanup-pr <pr-number>
 node /resolved/pi-clean/scripts/github-work.mjs finish-issue <issue-number> --delete-branch
 ```
+
+`cleanup-pr` closes the panes whose directory is that review's worktree, closes their tab only when
+it held nothing else, and closes a workspace only when that workspace's own checkout is the review
+worktree. The host workspace, the author's tab, another review and any unrelated pane are left alone.
+It refuses while a review agent is working or blocked. `finish-issue` refuses while its workspace
+still hosts a review checkout, and names the review to clean up or move first.
 
 Stop the preview and any dependency processes you started for it, and close their panes, before
 cleaning up the worktree. The helper refuses a dirty worktree and a working or blocked agent; it says
