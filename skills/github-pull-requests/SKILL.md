@@ -97,36 +97,46 @@ gh pr checks <number>
 ### Change a lower layer
 
 A change to a lower layer makes the stack non-linear, and the layers above it have to move. Inspect
-every layer branch before touching anything:
-
-```bash
-git status --porcelain
-git stash list
-git log --oneline <remote>/<branch>..<branch>
-git log --oneline <branch>..<remote>/<branch>
-```
-
-Stop and report if a tree is dirty, holds untracked files or stashes, or has commits the remote does
-not. Preserving that work is the operator's call, not yours.
-
-GitHub's **Rebase stack** button runs a server-side cascading rebase, which rewrites the remote layer
-branches. Local branches then diverge from their remotes, so a fast-forward-only update is a check
-that reports divergence rather than a way to sync:
+first, with commands that only read:
 
 ```bash
 git fetch <remote>
-git merge --ff-only <remote>/<branch>   # succeeds only while that branch has not been rewritten
+git status --porcelain                                   # this worktree: empty means clean
+git log --oneline <remote>/<branch>..<branch>            # commits only the local branch has
+git log --oneline <branch>..<remote>/<branch>            # commits only the remote has
+git merge-base --is-ancestor <branch> <remote>/<branch>  # 0 yes, 1 no, anything else is an error
 ```
 
-When it refuses, stop and report what each side holds. Reconciling a rewritten stack locally means
-rewriting local history and pushing with `--force-with-lease`, which is a destructive operation: it
-needs explicit authorization naming the branch, and you show what would be lost first. Never do it
-speculatively, and never fall back to `git reset --hard`, `git checkout --force`, or `git clean`.
+Read `--is-ancestor` by exit status, and treat a status other than 0 or 1 as a failed check rather
+than an answer. Stop and report when a tree is dirty, holds untracked files, or has commits the
+remote does not; preserving that work is the operator's call, not yours.
+
+`git stash list` is worth reading too, but it does not decide anything on its own: the stash lives in
+the shared directory `git rev-parse --git-common-dir` reports, so it lists entries from every
+worktree of this repository. An entry that belongs to other work is not a reason to stop.
+
+GitHub's **Rebase stack** button runs a server-side cascading rebase, which rewrites the remote layer
+branches, so the local branches diverge from their remotes. Adopting a rewritten remote locally
+pushes nothing: where the local branch has no commits of its own it only has to be moved onto the new
+remote tip, and where it has commits of its own they are replayed onto that tip and pushed normally.
+Both are the operator's call. Report what each side holds, leave the local refs in place so the old
+tips stay reachable, and do not reset, check out with `--force`, or clean anything to get there.
+
+`git merge --ff-only <remote>/<branch>` is not part of that inspection. It moves the branch and the
+working tree when it can, so it belongs only in an update the operator has authorized, after
+`--is-ancestor` says a fast-forward is possible.
+
+Force-push is a different thing: it rewrites a branch other people already have, and is needed only
+when the remote has to take a history it does not contain. It requires explicit authorization naming
+the branch, after you show what would be lost, and it pins the lease to the tip you inspected rather
+than trusting a bare lease against a remote-tracking ref that `git fetch` has just moved:
+
+```bash
+git push --force-with-lease=<branch>:<sha you inspected and showed> <remote> <branch>
+```
 
 Commits created by a server-side rebase are not signed, so a repository that requires signed commits
-cannot use that button. A repository that forbids force-push should plan a stack so published lower
-layers are not rewritten; where a lower-layer change is unavoidable there, stop and hand the
-reconciliation to the operator.
+cannot use that button.
 
 ### Merge and clean up a stack
 
@@ -199,6 +209,12 @@ After merge or intentional abandonment, clean review worktrees first and the iss
 node /resolved/pi-clean/scripts/github-work.mjs cleanup-pr <pr-number>
 node /resolved/pi-clean/scripts/github-work.mjs finish-issue <issue-number> --delete-branch
 ```
+
+Stop the preview and any dependency processes you started for it, and close their panes, before
+cleaning up the worktree. The helper refuses a dirty worktree and a working or blocked agent; it says
+nothing about other processes, and whether removing the worktree stops a process running in a pane is
+not documented in `herdr worktree remove --help` and was not tested here. Confirm yours are gone, and
+never stop a service you did not start or that something else shares.
 
 The helper must refuse dirty worktrees. Remote branch deletion is a separate consequential action.
 `--delete-branch` handles one branch; a stack's other layer branches are removed deliberately, as

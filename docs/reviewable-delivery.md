@@ -1,8 +1,10 @@
 # Reviewable delivery: checkpoints, previews, and stacked pull requests
 
 Design owner: Claude Opus 5, recorded 2026-09-21 for issue #43. This is the durable design record
-that `AGENTS.md` requires before dependent implementation. It states the decisions and the reasons.
-The rules agents follow live in the skills; the last section maps each rule to its file.
+that `AGENTS.md` requires before dependent implementation. It keeps the decisions, the reasons, and
+the evidence. The rules themselves live in the skills, stated once, and the last section maps each
+rule to its file. When this record and a skill disagree, the skill is what agents load and the
+record is out of date.
 
 Nothing here has been exercised in a live trial. Martin will try this branch from a consuming
 repository before it merges.
@@ -18,107 +20,46 @@ This optimizes for his ability to understand and redirect work before facing the
 costs wall-clock time and some of his attention on purpose. Diff size is the evidence behind it.
 Merge timing says nothing about review quality and is not used as evidence anywhere in this work.
 
-## Four concepts
+## Decisions
 
-Conflating any two of these produces either a workflow that pauses constantly or one that commits
-and publishes without authorization.
+Each decision links to the file that carries its rule. The rules are not repeated here.
 
-| Concept | What it is | What it is not |
-| --- | --- | --- |
-| Checkpoint | A pause where the agent shows a consequential UI/UX decision and waits for Martin's judgment | Not a commit, not a pull request, not permission for either |
-| Preview | A running instance the agent has loaded itself, with the route to open and what to look at | Not a deliverable, deployment, or durable environment |
-| Commit | One coherent local step in a branch's history | Not implied by an accepted checkpoint |
-| Layer | A pull request whose diff is one reviewable unit, based on the layer below it | Not implied by a checkpoint, and not created or published on its own |
+**Keep the checkpoint, the commit, and the pull request layer separate.** Conflating any two of them
+produces either a workflow that pauses constantly or one that commits and publishes without
+authorization. The concepts and their consequences are in
+[the shared policy](../skills/_shared/github-workflow.md#reviewable-delivery).
 
-Accepting a design at a checkpoint authorizes continuing to implement in that direction and nothing
-else. A checkpoint may be followed by a commit, a layer boundary, both, or neither. A layer boundary
-is a good moment to offer a checkpoint but does not require one. Preparing a pull request means
-drafting its title, body, base, and head and showing them.
+**Keep design acceptance out of the authorization chain, without turning an authorized task into a
+question per commit.** Accepting a design says the direction is right and says nothing about
+publishing. Implementing a task you were asked to implement still includes committing its steps on
+its branch; what needs a grant of its own is committing where the target repository requires
+approval first, and that stricter rule always wins.
 
-## Authorization
+**Pause for a short, named list of decisions, and bring something running to each one.** A workflow
+that pauses at every layer is worse than the problem it solves, so the list is deliberately short. It
+includes an early renderable composition for consequential UI work, because redirecting is cheap
+before the surface is built out and expensive afterwards.
 
-Five kinds of authorization, none implied by another: experience acceptance, commit, publication
-(push, open a pull request, mark a draft ready, request or publish a review), merge, and destructive
-operation (rewriting or discarding work, force-push, branch or worktree deletion).
+**Let each target repository own its preview commands.** Start commands, port selection, data
+isolation, and teardown depend on the repository. pi-clean owns the shape of the handoff, not the
+commands. Managed worktrees isolate files, not ports or shared databases.
 
-Martin grants an authorization either at the moment of the action or in advance for a bounded task,
-which is how the existing policy already works: confirm a consequential action unless the current
-request explicitly authorizes that exact action. An advance grant covers the actions it names for
-that task and nothing above them in the list. "Implement this issue and commit as you go" authorizes
-those commits without a separate question per commit; it authorizes no push, no pull request, and no
-merge. Accepting a design at a checkpoint is not an authorization of any kind, and never substitutes
-for a commit authorization where a repository requires one.
+**Use GitHub's native stacked pull requests by hand, and automate nothing.** They have been in public
+preview since 2026-07-30 and give one issue several small review units without splitting the feature
+across issues. No stack manager, no new helper lifecycle commands, no `gh stack` install: the
+workflow has to be exercised before anything is built on it. Layer branches take a flat suffix
+because a nested name is impossible while the parent branch ref exists. On git 2.55.0,
+`git branch issue/43-slug/layer2` fails with `cannot lock ref`, while `issue/43-slug--layer2`
+succeeds.
 
-A stricter rule in the consuming repository still binds, and this design never relaxes it. Merging
-always needs authorization refreshed against live state. The rule that the authoring agent must not
-be the sole independent reviewer is unchanged.
+**Do not let layers buy review capacity.** A layer awaiting review counts as a pull request awaiting
+review, so splitting one issue into more layers does not widen the repository's WIP or admission
+gates.
 
-## Checkpoints
-
-The must-pause list is deliberately short, because a workflow that pauses at every layer is worse
-than the problem it solves: an unresolved design decision, an unspecified composition about to be
-decided, a milestone the issue itself names, a material deviation found during implementation, and,
-for consequential UI/UX work, an early renderable composition or vertical slice while redirection is
-still cheap. Routine implementation inside an accepted direction does not pause: a rename, a prop, an
-obvious control, a test, a refactor with no visible consequence.
-
-An early checkpoint may use a bounded prototype to make an unresolved visual choice inspectable. A
-prototype shown for a decision is not accepted production design, and the checkpoint has to say so.
-
-While a checkpoint is open the preview is frozen: the agent changes nothing that could alter what
-Martin is looking at. This is stronger than not committing, and it covers writes from tests and
-tools, not only edits. It is a rule about agent conduct, not a guarantee about the filesystem, so the
-agent re-checks state when work resumes.
-
-## Previews
-
-A UI/UX checkpoint without a running instance the agent has loaded itself is incomplete. The process
-runs in a visible Herdr pane or named tab in the issue's existing workspace, never as a background
-job and never in a second workspace for the same checkout.
-
-pi-clean owns the shape of the handoff. Each consuming repository owns the start command, the
-port-selection rule, any data or fixture isolation, and the teardown, and documents them. Managed
-worktrees isolate files, not ports or shared databases. When a repository does not document how to
-start a surface, the agent says so and asks instead of improvising a command.
-
-## Stacked pull requests
-
-GitHub's native stacked pull requests, in public preview since 2026-07-30, give one issue several
-small review units without splitting the feature across issues. The decision is to document a
-bounded manual workflow and add no automation: no stack manager, no helper lifecycle commands, no
-`gh stack` install. The workflow has to be exercised by hand before anything is automated.
-
-Layer 1 is the branch `start-issue` already creates. Further layers branch from the layer below
-inside the same worktree, with a flat suffix, because Git refuses a nested name while the parent
-branch ref exists. Verified locally on git 2.55.0: `git branch issue/43-slug/layer2` fails with
-`cannot lock ref`, while `issue/43-slug--layer2` succeeds.
-
-A layer awaiting Martin's review counts as a pull request awaiting review. Splitting one issue into
-more layers creates no extra review capacity and does not bypass the repository's admission gates.
-
-The one part most likely to surprise: GitHub's server-side "Rebase stack" rewrites the remote layer
-branches, so the local branches in the worktree diverge from their remotes. A fast-forward-only
-update is therefore a safe check that reports whether divergence happened; it is not a rebase
-workflow and will refuse once the remote has been rewritten. Reconciling a rewritten stack locally
-means rewriting local history and force-pushing with lease, which is a destructive operation needing
-its own authorization. A repository that forbids force-push, or that requires signed commits, should
-plan the trial around not rewriting a published stack rather than assume a safe automatic path
-exists.
-
-## Worktrees and lifecycle
-
-One issue keeps one managed author worktree and one Herdr workspace. Layer branches live inside that
-worktree. Independent review keeps using detached review worktrees, which are unaffected.
-
-Two helper behaviors matter when a worktree holds several branches, and neither changes in this work:
-
-- On a rerun, `start-issue` derives the branch from whatever the worktree currently has checked out,
-  so it reports the current layer, and passing a different `--branch` throws.
-- `finish-issue --delete-branch` deletes exactly one branch, the one attached to the worktree at
-  removal time, with `git branch -d`, which refuses an unmerged branch. Other layer branches remain
-  and are removed deliberately, one at a time.
-
-Check out the canonical issue branch and leave the worktree clean before `finish-issue`.
+**Keep one author worktree and one Herdr workspace per issue.** Layer branches live inside that
+worktree, and independent review keeps using detached review worktrees. No helper behavior changed;
+what `start-issue` and `finish-issue` do when a worktree holds several branches is recorded in
+[the workflow guide](github-workflow.md#prerequisites).
 
 ## Tradeoffs
 
@@ -127,6 +68,11 @@ forward, and bottom-up review contains that cost without removing it. If feedbac
 the bottom layer after the top exists, a stack will feel worse than one pull request. More pull
 requests also mean more check runs and more merge-box states, and CI cost multiplies per layer where
 a repository's `pull_request` workflows fire for layer branches.
+
+A server-side rebase is the sharpest edge. It rewrites the remote layer branches, so the local
+branches diverge and bringing them back into line becomes an operator step rather than a routine one.
+Nothing about that requires pushing to the remote again; it requires someone deciding what the local
+branches should hold.
 
 The fallback is ordinary single-pull-request delivery. Checkpoints and previews are worth having on
 their own and do not depend on stacking.
@@ -145,8 +91,8 @@ their own and do not depend on stacking.
 
 ## Trying this branch
 
-Everything below except the last option leaves personal settings untouched. The branch is `issue/43-add-a-trial-workflow-for-stacked-prs-and-human-ui-`
-in the managed worktree:
+Nothing below changes personal settings. The branch is
+`issue/43-add-a-trial-workflow-for-stacked-prs-and-human-ui-` in the managed worktree:
 
 ```bash
 BRANCH_PACKAGE=~/.local/share/agent-worktrees/github.com/mtrenker/pi-clean/issues/43-add-a-trial-workflow-for-stacked-prs-and-human-ui-
@@ -179,19 +125,15 @@ This repository is a pi package, not a Claude Code plugin, so Claude Code has no
 per-session flag. Give a Claude session the absolute paths instead: the skills are plain Markdown and
 the helper runs from the branch path above.
 
-Installing the branch is the alternative, and it writes settings. pi documents git refs as pinned
-tags or commits, so pass the commit rather than the branch name, and remove it when the trial ends:
-
-```bash
-pi install git:git@github.com:mtrenker/pi-clean@<commit>
-pi remove git:git@github.com:mtrenker/pi-clean
-```
+Installing the branch as a pinned git ref is the other way to reach it, and it writes settings. The
+local trial does not need it, so it is left to pi's own packages documentation rather than written
+out here as a recipe nobody has run.
 
 Signals that the process is working: each diff is small enough to read in one sitting, every UI
 question arrives with a preview already loaded, and nothing was committed, published, or merged
 without a separate authorization. Signals to stop and fall back to a single pull request with
-checkpoints only: a lower-layer fix cannot be propagated without rewriting published branches, upper
-layer diffs stop being interpretable, more than two layers queue for review, CI cost is
+checkpoints only: reconciling a lower-layer fix keeps landing on the operator, upper layer diffs stop
+being interpretable, more than two layers queue for review, CI cost is
 disproportionate, or pauses arrive for decisions that were never consequential.
 
 ## Where each rule lives

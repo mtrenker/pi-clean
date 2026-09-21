@@ -445,7 +445,7 @@ function launchAgentInHerdrPane(paneId, agent, prompt, launchEnvironment = {}) {
 
 function issueAgentPrompt(agent, number, repository) {
   const task = `Work on GitHub issue #${number} in ${repository}. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge.`
-    + " Follow the repository's checkpoint and preview contract: pause at a consequential or unspecified UI/UX decision and bring a running preview you opened yourself, and change nothing that alters it while you wait. Accepting a design lets you keep implementing in that direction; it does not authorize committing, pushing, publishing, or merging, and preparing a pull request means showing its title, body, base, and head.";
+    + " Follow the repository's checkpoint and preview contract: pause at a consequential or unspecified UI/UX decision and bring a running preview you opened yourself, and change nothing that alters it while you wait. Accepting a design lets you keep implementing in that direction; it is not authorization to push, open or publish a pull request, or merge, and it never overrides a repository rule that requires approval before committing. Preparing a pull request means showing its title, body, base, and head.";
   if (agent === "claude") {
     return `${task} As Claude Opus 5, own and document any unresolved product, UX, interaction, visual, architecture, API, or data-model design before implementing it.`;
   }

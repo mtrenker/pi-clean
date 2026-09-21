@@ -211,8 +211,9 @@ const ISSUE_TASK = "Work on GitHub issue #10 in owner/repo. Read the repository 
   + " implement it in this worktree, validate the changes, and prepare a pull request. Do not merge."
   + " Follow the repository's checkpoint and preview contract: pause at a consequential or unspecified"
   + " UI/UX decision and bring a running preview you opened yourself, and change nothing that alters it"
-  + " while you wait. Accepting a design lets you keep implementing in that direction; it does not"
-  + " authorize committing, pushing, publishing, or merging, and preparing a pull request means showing"
+  + " while you wait. Accepting a design lets you keep implementing in that direction; it is not"
+  + " authorization to push, open or publish a pull request, or merge, and it never overrides a"
+  + " repository rule that requires approval before committing. Preparing a pull request means showing"
   + " its title, body, base, and head.";
 const OPUS_DESIGN_SUFFIX = " As Claude Opus 5, own and document any unresolved product, UX, interaction,"
   + " visual, architecture, API, or data-model design before implementing it.";
@@ -237,7 +238,8 @@ for (const [agent, profile, designSuffix] of [
     assert.equal(command, expectedLaunch);
     assert.match(command, /pause at a consequential or unspecified UI\/UX decision/);
     assert.match(command, /bring a running preview you opened yourself/);
-    assert.match(command, /does not authorize committing, pushing, publishing, or merging/);
+    assert.match(command, /not authorization to push, open or publish a pull request, or merge/);
+    assert.match(command, /never overrides a repository rule that requires approval before committing/);
     if (agent === "codex") assert.doesNotMatch(launch.args[3], /danger-full-access/);
   });
 }

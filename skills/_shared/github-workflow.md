@@ -82,19 +82,23 @@ drafting its title, body, base, and head and showing them, not running `gh pr cr
 Five kinds, none implied by another:
 
 1. **Experience acceptance:** continue implementing the accepted direction.
-2. **Commit:** commit a described step in this worktree.
+2. **Commit:** commit a described step in this worktree. A task you were asked to implement
+   includes committing its coherent steps on its branch, so this needs a grant of its own only where
+   the target repository requires approval before committing.
 3. **Publication:** push a branch, open a pull request, mark a draft ready, request a review, or
    publish a review or comment.
 4. **Merge:** merge a pull request or a stack.
 5. **Destructive operation:** rewrite or discard work, force-push, delete a branch or worktree.
 
 The user grants one either at the moment of the action or in advance for a bounded task. Confirm a
-consequential action unless the current request explicitly authorizes that exact action, and do not
-re-ask for each commit when the task's commits are already authorized. An advance grant covers the
-actions it names for that task and nothing above them in the list.
+consequential action unless the current request explicitly authorizes that exact action, and never
+turn an authorized task into a question per commit. An advance grant covers the actions it names for
+that task and nothing above them in the list.
 
-Design acceptance is never one of these grants. A stricter rule in the target repository still binds.
-Merging always needs authorization refreshed against live state immediately beforehand.
+Design acceptance is never one of these grants. It does not make a commit acceptable where the
+repository requires approval first, and it authorizes no publication and no merge. A stricter rule in
+the target repository still binds. Merging always needs authorization refreshed against live state
+immediately beforehand.
 
 ### Checkpoints
 
@@ -121,6 +125,9 @@ and what you are explicitly not asking about. A bounded prototype is a legitimat
 unresolved visual choice inspectable; say that it is a prototype, because showing one does not make
 it accepted production design.
 
+Silence never resumes a checkpoint. Wait for an explicit answer; a quiet pane, a timeout, or your own
+conclusion that the direction has become obvious is not one.
+
 Ask in your own session so Herdr can raise `blocked`, and raise an operator-visible signal as well.
 [`interactive-agent-sessions`](../interactive-agent-sessions/SKILL.md) has the commands and the
 placement rules.
@@ -140,13 +147,19 @@ exact route or story to open, the viewports and themes worth checking, and confi
 it render. Run it in a visible Herdr pane or named tab in this worktree's existing workspace, never
 as a background job and never in a second workspace for this checkout.
 
+Every process the surface needs runs the same way. An API, database, worker, or watcher it depends on
+gets its own visible pane or tab, started from the repository's documented commands, in the
+foreground. The checkpoint is not ready until all of them are up and you have opened the route
+yourself.
+
 Start commands belong to the target repository, not to these skills. Each repository documents, for
 every previewable surface, how to start it, how to pick a port that does not collide with another
 worktree, what data or fixture isolation it needs, and how to tear it down. Managed worktrees isolate
 files, not ports or shared databases. Verify the port is free before binding, and record the URL in
 the checkpoint and in the pull request body. When the repository documents none of this, say
-so and ask rather than improvising a start command. Tearing down a preview and removing per-worktree
-data is a separate step, and a destructive one where it deletes data.
+so and ask rather than improvising a start command. Stop what you started before the worktree is
+cleaned up, and never stop a service you did not start or that something else shares. Removing
+per-worktree data is a separate step, and a destructive one.
 
 ### Review capacity
 
