@@ -106,6 +106,17 @@ author's tab, another review, a preview, and any unrelated pane are never closed
 removing it would take live review sessions and their checkouts with it. `finish-issue` refuses while
 a review checkout is hosted there and says which one to clean up or move first.
 
+**Labels say what a child is, not which repository it belongs to.** The parent workspace already
+carries the repository name, so repeating it in every child is noise. An issue workspace is
+`#<number> · <short title>`, its author tab is `Implementation`, and a review tab is
+`PR #<number> · Review`, with the reviewer added only when a second reviewer needs distinguishing.
+Branches, worktree paths, work IDs and repository roots do not change; this is display only.
+
+A compact label cannot identify anything, because `#43` means a different issue in a different
+repository. Nothing the helper reuses or closes is selected by label. Reuse and cleanup match on the
+repository root Herdr reports for a workspace and on the working directory of a pane, so a workspace
+someone renamed, and one still carrying the old repository-prefixed label, both keep working.
+
 The rules are in [the shared policy](../skills/_shared/github-workflow.md#reviewable-delivery) and
 [`github-pull-requests`](../skills/github-pull-requests/SKILL.md#independent-review); the commands
 are in `scripts/github-work.mjs`.
