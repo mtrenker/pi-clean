@@ -1,8 +1,12 @@
 # Agent launch profiles
 
-Owner: Claude Opus 5. This document is the durable design for how this repository starts
+Owner: Claude Opus 5, recorded 2026-09-09 for issue #41. Model pins revised 2026-09-24 by Claude
+Opus 5 for issue #45. This document is the durable design for how this repository starts
 interactive Claude, Codex, and Pi sessions. Implementation follows it; when the two disagree, the
 code is wrong until this document is revised.
+
+Which model each profile names, and the evidence behind that choice, is decided in
+[Model selection](model-selection.md).
 
 ## Problem
 
@@ -32,10 +36,11 @@ A recipe that hand-writes `claude --model ...` is a defect, not a shortcut.
 
 | Profile | Program | Model | Default effort | Execution | Native delegation |
 | --- | --- | --- | --- | --- | --- |
-| `claude-opus` | `claude` | `claude-opus-5` | `high` | `--permission-mode bypassPermissions` | disabled |
+| `claude-opus` | `claude` | `claude-opus-5-5` | `high` | `--permission-mode bypassPermissions` | disabled |
 | `claude-fable` | `claude` | `claude-fable-5-1` | `high` | `--permission-mode bypassPermissions` | disabled |
-| `codex-sol-write` | `codex` | `gpt-5.6-sol` | `high` | `--ask-for-approval never --sandbox workspace-write` | disabled |
-| `codex-sol-read` | `codex` | `gpt-5.6-sol` | `medium` | `--ask-for-approval never --sandbox read-only` | disabled |
+| `codex-sol-write` | `codex` | `gpt-6-sol` | `high` | `--ask-for-approval never --sandbox workspace-write` | disabled |
+| `codex-sol-read` | `codex` | `gpt-6-sol` | `medium` | `--ask-for-approval never --sandbox read-only` | disabled |
+| `codex-astra-write` | `codex` | `gpt-6-astra` | `medium` | `--ask-for-approval never --sandbox workspace-write` | disabled |
 | `pi-ambient` | `pi` | ambient | ambient | ambient | uncontrolled |
 
 Helper defaults:
@@ -47,9 +52,12 @@ Helper defaults:
 - Managed launches use the profile's default effort. For a different effort, create the worktree with
   `--agent none` and launch the root pane with `launch-command --effort <level>`.
 
-`claude-fable` is reachable through `launch-command` only. Coordination is a selective choice for
-parallel or long-running work, so no helper command defaults to it, and no launch path assigns work
-to both vendors by default.
+`claude-fable` and `codex-astra-write` are reachable through `launch-command` only. Coordination is
+a selective choice for parallel or long-running work, so no helper command defaults to Fable, and no
+launch path assigns work to both vendors by default. `codex-astra-write` is the opt-in escalation to
+OpenAI's frontier model for a task Sol has already failed or is plainly unsuited to; `--agent codex`
+and `--reviewer codex` still resolve to Sol. See [Model selection](model-selection.md) for why Astra
+is a profile rather than a default, and why its effort starts at `medium`.
 
 Model and effort are pinned per launch. Fable is pinned to `claude-fable-5-1`; the bare `fable`
 alias is rejected because it resolves differently through the apps gateway.
@@ -58,6 +66,12 @@ alias is rejected because it resolves differently through the apps gateway.
 
 Claude accepts `low`, `medium`, `high`, `xhigh`, `max`. Codex accepts those plus `ultra`. Pi is
 ambient and takes no effort argument from this repository.
+
+OpenAI documents `ultra` as maximum reasoning with automatic task delegation, which runs subagents,
+and every Codex profile here disables native delegation. Do not select `ultra` for a Codex profile
+until that contradiction is resolved in its own issue; the effort remains accepted so this refresh
+changes no control. Reasoning efforts do not map exactly between model generations, so a level is a
+starting point to adjust, not a constant across a model change.
 
 The profile module validates the requested effort against the profile's own set and fails before
 launch. Handling of an unrecognized value inside each CLI is version-dependent, so an unsupported
@@ -141,9 +155,9 @@ These are boundaries, not guarantees. State them this way in any report:
 
 ## Non-goals
 
-Model benchmarks or promotions, including Astra, Sonnet, and Terra/Luna. Host sandboxing. A
-scheduler, agent framework, schema ecosystem, or telemetry service. Changes to personal settings or
-external skills. Non-interactive subprocess delegation.
+Benchmark campaigns, automatic model selection, and default promotions, including Astra, Sonnet,
+and Terra/Luna. Host sandboxing. A scheduler, agent framework, schema ecosystem, or telemetry
+service. Changes to personal settings or external skills. Non-interactive subprocess delegation.
 
 ## Acceptance criteria
 

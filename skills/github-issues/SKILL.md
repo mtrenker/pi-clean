@@ -111,7 +111,7 @@ Use the shared helper rather than editing the primary checkout:
 node /resolved/pi-clean/scripts/github-work.mjs start-issue <number>
 ```
 
-The default agent is `claude`, which launches Claude Opus 5 at effort `high`. Before choosing a
+The default agent is `claude`, which launches Claude Opus 5.5 at effort `high`. Before choosing a
 different one, inspect whether the issue contains unresolved design. Design work stays with Opus.
 Pass `--agent codex` or `--agent pi` only when the Opus direction is already durable and the issue is
 bounded to investigation, implementation within it, or validation.

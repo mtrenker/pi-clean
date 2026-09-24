@@ -94,8 +94,8 @@ Placement follows the checkout, not the agent. One worktree has exactly one sema
 Keep one writer at a time in a shared worktree. Read-only delegates may run alongside the writer, and a writing delegate takes that role exclusively while the coordinator stops editing. Concurrent writers require separate worktrees.
 
 Any delegated work that establishes or materially changes product, UX, interaction, visual,
-architecture, API, or data-model direction must assign that design to Claude Opus 5
-(`claude-opus-5`). Fable may coordinate, but it must not edit implementation files or delegate
+architecture, API, or data-model direction must assign that design to Claude Opus 5.5
+(`claude-opus-5-5`). Fable may coordinate, but it must not edit implementation files or delegate
 coding to another Fable instance unless Martin explicitly requests Fable implementation for that
 specific task. Use Opus or Codex as coding workers. Pi and Codex may investigate constraints,
 implement the durable Opus direction, and validate it. If implementation reveals a material design
@@ -108,7 +108,7 @@ When coordinating with a delegated agent:
 2. After `working` has been observed, accept either `done` or `idle` as settled and read the final pane output. Herdr's `done` means completed but unread; focusing or reading the completed pane can acknowledge that ephemeral state and return it to `idle`, so a waiter must never require only `done`.
 3. Keep the pane available so the operator can focus it to inspect, guide, interrupt, or resume the agent.
 
-Launch settings come from `scripts/agent-profiles.mjs`. Managed Claude authors and reviewers run the `claude-opus` profile: `claude-opus-5`, effort `high`, `--permission-mode bypassPermissions`. Managed Codex authors and reviewers run `codex-sol-write`: `gpt-5.6-sol`, effort `high`, `--ask-for-approval never --sandbox workspace-write`. The removed `--full-auto` alias is gone, and no profile uses `danger-full-access`. Managed Pi and Codex prompts require an Opus handoff instead of inventing unresolved design.
+Launch settings come from `scripts/agent-profiles.mjs`, and [Model selection](model-selection.md) records which model each profile pins and why. Managed Claude authors and reviewers run the `claude-opus` profile: `claude-opus-5-5`, effort `high`, `--permission-mode bypassPermissions`. Managed Codex authors and reviewers run `codex-sol-write`: `gpt-6-sol`, effort `high`, `--ask-for-approval never --sandbox workspace-write`. `codex-astra-write` pins OpenAI's frontier model `gpt-6-astra` as an opt-in escalation reachable only through `launch-command`; no managed command routes to it. The removed `--full-auto` alias is gone, and no profile uses `danger-full-access`. Managed Pi and Codex prompts require an Opus handoff instead of inventing unresolved design.
 
 Every rendered launch appends a delegation boundary to its prompt, and the vendor profiles add a flag at every effort level: Codex passes `--disable multi_agent`, Claude passes `--disallowed-tools Agent,Workflow` for its two documented spawning tools. `pi-ambient` has no such flag, because Pi loads extensions from personal settings that this repository does not control. These are boundaries, not guarantees. Each session still has a shell, the flags are not verified end to end, and neither profile sandboxes the host. A detached worktree isolates Git state rather than untrusted repository code; stronger sandboxing is separate follow-up work.
 
@@ -124,7 +124,7 @@ From any checkout of the target repository, while running inside Herdr:
 node /path/to/pi-clean/scripts/github-work.mjs start-issue 123
 ```
 
-Supported agents are `claude`, `codex`, `pi`, and `none`. The default is `claude`, which pins Opus 5 at
+Supported agents are `claude`, `codex`, `pi`, and `none`. The default is `claude`, which pins Opus 5.5 at
 effort `high`; `pi` remains available but takes its model, effort, and tool policy from personal
 settings, so its runs are not reproducible from this repository. Inside Herdr,
 issue-author checkouts use Herdr's linked-worktree API even with `--agent none`. Outside Herdr,

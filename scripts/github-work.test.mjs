@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { flightdeckLaunchEnvironment } from "./github-work.mjs";
-import { AGENT_PROFILES, DELEGATION_BOUNDARY, launchCommand, profileIds } from "./agent-profiles.mjs";
+import { AGENT_PROFILE_IDS, AGENT_PROFILES, DELEGATION_BOUNDARY, launchCommand, profileIds } from "./agent-profiles.mjs";
 
 const script = fileURLToPath(new URL("./github-work.mjs", import.meta.url));
 
@@ -214,7 +214,7 @@ test("managed start creates a native Herdr issue worktree and launches in its ro
   ]);
   const launch = findCommand(log, "herdr", ["pane", "run", "p-create"]);
   assert.ok(launch);
-  assert.match(launchedAgentCommand(launch), /required Claude Opus 5 handoff/);
+  assert.match(launchedAgentCommand(launch), /required Claude Opus 5\.5 handoff/);
   assert.equal(log.some((entry) => entry.program === "git" && entry.args.includes("add")), false);
 
   const telemetry = (await readFile(fixture.telemetryPath, "utf8")).trim().split("\n").map(JSON.parse);
@@ -231,11 +231,11 @@ const ISSUE_TASK = "Work on GitHub issue #10 in owner/repo. Read the repository 
   + " authorization to push, open or publish a pull request, or merge, and it never overrides a"
   + " repository rule that requires approval before committing. Preparing a pull request means showing"
   + " its title, body, base, and head.";
-const OPUS_DESIGN_SUFFIX = " As Claude Opus 5, own and document any unresolved product, UX, interaction,"
+const OPUS_DESIGN_SUFFIX = " As Claude Opus 5.5, own and document any unresolved product, UX, interaction,"
   + " visual, architecture, API, or data-model design before implementing it.";
 const WORKER_DESIGN_SUFFIX = " Do not originate or materially change unresolved product, UX, interaction,"
   + " visual, architecture, API, or data-model design. If such design is required and is not already"
-  + " approved, stop and report the required Claude Opus 5 handoff.";
+  + " approved, stop and report the required Claude Opus 5.5 handoff.";
 
 for (const [agent, profile, designSuffix] of [
   ["claude", "claude-opus", OPUS_DESIGN_SUFFIX],
@@ -279,13 +279,13 @@ function repoWorkspace(overrides = {}) {
 for (const [reviewer, expectedProfile, designMarker] of [
   [
     "claude",
-    "claude --model claude-opus-5 --effort high --disallowed-tools Agent,Workflow --permission-mode bypassPermissions -- ",
-    /As Claude Opus 5, evaluate any new or materially changed/,
+    "claude --model claude-opus-5-5 --effort high --disallowed-tools Agent,Workflow --permission-mode bypassPermissions -- ",
+    /As Claude Opus 5\.5, evaluate any new or materially changed/,
   ],
   [
     "codex",
-    "codex --model gpt-5.6-sol -c 'model_reasoning_effort=\"high\"' --disable multi_agent --ask-for-approval never --sandbox workspace-write -- ",
-    /flag those for Claude Opus 5/,
+    "codex --model gpt-6-sol -c 'model_reasoning_effort=\"high\"' --disable multi_agent --ask-for-approval never --sandbox workspace-write -- ",
+    /flag those for Claude Opus 5\.5/,
   ],
 ]) {
   test(`managed ${reviewer} PR reviewers use the exact non-prompting profile and maintainability contract`, async (t) => {
@@ -772,9 +772,44 @@ test("profiles reports the pinned models, defaults, and verified CLI versions", 
   const listed = JSON.parse(result.stdout);
   assert.equal(listed.defaults.issueAgent, "claude");
   assert.equal(listed.defaults.reviewer, "claude");
-  assert.equal(listed.profiles.find((profile) => profile.id === "claude-fable").model, "claude-fable-5-1");
+  const model = (id) => listed.profiles.find((profile) => profile.id === id).model;
+  assert.equal(model("claude-opus"), "claude-opus-5-5");
+  assert.equal(model("claude-fable"), "claude-fable-5-1");
+  assert.equal(model("codex-sol-write"), "gpt-6-sol");
+  assert.equal(model("codex-sol-read"), "gpt-6-sol");
+  assert.equal(model("codex-astra-write"), "gpt-6-astra");
   assert.equal(listed.profiles.find((profile) => profile.id === "pi-ambient").nativeDelegation, "uncontrolled");
   assert.equal(listed.verifiedClis.claude, "2.1.266");
+});
+
+// Astra is the opt-in frontier escalation. Reaching it must stay a typed choice: no agent name
+// resolves to it, and its default effort follows OpenAI's Astra starting effort rather than Sol's.
+test("the Astra profile is opt-in, not routed, and renders the frontier model", () => {
+  assert.equal(Object.values(AGENT_PROFILE_IDS).includes("codex-astra-write"), false);
+  assert.equal(AGENT_PROFILES["codex-astra-write"].defaultEffort, "medium");
+
+  const printed = invoke(["launch-command", "--profile", "codex-astra-write", "--prompt", "escalated task"]);
+  assert.equal(printed.status, 0, printed.stderr);
+  assert.equal(
+    printed.stdout.trim(),
+    `codex --model gpt-6-astra -c 'model_reasoning_effort="medium"' --disable multi_agent`
+      + ` --ask-for-approval never --sandbox workspace-write -- 'escalated task ${DELEGATION_BOUNDARY}'`
+  );
+
+  const raised = invoke(["launch-command", "--profile", "codex-astra-write", "--effort", "max", "--prompt", "task"]);
+  assert.equal(raised.status, 0, raised.stderr);
+  assert.match(raised.stdout, /model_reasoning_effort="max"/);
+
+  const unsupported = invoke(["launch-command", "--profile", "codex-astra-write", "--effort", "light", "--prompt", "task"]);
+  assert.equal(unsupported.status, 1);
+  assert.match(
+    unsupported.stderr,
+    /unsupported effort light for profile codex-astra-write; supported: low, medium, high, xhigh, max, ultra/
+  );
+
+  const unknownAgent = invoke(["start-issue", "10", "--agent", "astra"], { ...process.env, HERDR_ENV: "1" });
+  assert.equal(unknownAgent.status, 1);
+  assert.match(unknownAgent.stderr, /agent must be pi, claude, codex, or none/);
 });
 
 test("generated commands parse into the intended argv under a real shell", async (t) => {
@@ -792,10 +827,12 @@ test("generated commands parse into the intended argv under a real shell", async
   const prompt = "-h Review only: PR #42's diff. Don't merge.";
   const task = `${prompt} ${DELEGATION_BOUNDARY}`;
   const expected = {
-    "claude-opus": ["--model", "claude-opus-5", "--effort", "high", "--disallowed-tools", "Agent,Workflow",
+    "claude-opus": ["--model", "claude-opus-5-5", "--effort", "high", "--disallowed-tools", "Agent,Workflow",
       "--permission-mode", "bypassPermissions", "--", task],
-    "codex-sol-read": ["--model", "gpt-5.6-sol", "-c", 'model_reasoning_effort="medium"', "--disable", "multi_agent",
+    "codex-sol-read": ["--model", "gpt-6-sol", "-c", 'model_reasoning_effort="medium"', "--disable", "multi_agent",
       "--ask-for-approval", "never", "--sandbox", "read-only", "--", task],
+    "codex-astra-write": ["--model", "gpt-6-astra", "-c", 'model_reasoning_effort="medium"', "--disable", "multi_agent",
+      "--ask-for-approval", "never", "--sandbox", "workspace-write", "--", task],
     "pi-ambient": ["--", task]
   };
 

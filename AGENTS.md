@@ -36,8 +36,8 @@ and reviews.
 
 ## Delegation and design ownership
 
-When delegating work that establishes or materially changes a solution direction, Claude Opus 5
-(`claude-opus-5`) must own the design. This includes product, UX, interaction, visual, architecture,
+When delegating work that establishes or materially changes a solution direction, Claude Opus 5.5
+(`claude-opus-5-5`) must own the design. This includes product, UX, interaction, visual, architecture,
 API, and data-model design. Other models may investigate constraints, implement an approved Opus
 design, and validate it, but must not invent or materially revise unresolved design. Fable may
 coordinate the work, but it must assign the design phase to Opus. Fable is not a code implementation
@@ -47,7 +47,8 @@ workers. Make the Opus design durable in the issue, an artifact, or repository d
 dependent implementation proceeds.
 
 Launch settings for delegated sessions live in `scripts/agent-profiles.mjs` and are documented in
-[`docs/agent-launch-profiles.md`](docs/agent-launch-profiles.md). Get a command from
+[`docs/agent-launch-profiles.md`](docs/agent-launch-profiles.md); which model each profile pins, and
+the evidence behind it, is in [`docs/model-selection.md`](docs/model-selection.md). Get a command from
 `node scripts/github-work.mjs launch-command`; never write a model, effort, or permission flag into
 a recipe. Every launch carries a prompt instruction against native worker spawning, and the Claude
 and Codex profiles add a vendor flag for it; Pi's extension surface is not controlled by these

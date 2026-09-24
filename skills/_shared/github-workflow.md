@@ -46,7 +46,7 @@ When a repository defines Ready and agent-ready states, start implementation onl
 ## Delegated design ownership
 
 Any delegated work that establishes or materially changes a solution direction must assign the
-design to Claude Opus 5 (`claude-opus-5`). Design includes product, UX, interaction, visual,
+design to Claude Opus 5.5 (`claude-opus-5-5`). Design includes product, UX, interaction, visual,
 architecture, API, and data-model decisions. Fable may coordinate, and Pi or Codex may investigate
 constraints, implement an approved design, or validate it, but they must not originate or materially
 revise unresolved design. Fable must not edit implementation files or assign coding to another Fable
@@ -187,7 +187,7 @@ Worktrees live under:
 ~/.local/share/agent-worktrees/github.com/<owner>/<repo>/prs/<number>/review-<reviewer>/
 ```
 
-Issue authors and reviewers default to the `claude-opus` profile: `claude-opus-5` at effort `high`,
+Issue authors and reviewers default to the `claude-opus` profile: `claude-opus-5-5` at effort `high`,
 prompting suppressed, native subagents disabled. Pass `--agent codex`, `--agent pi`, or `--agent none`
 to change that. `launch-command --profile <id> --prompt <text>` prints the exact command for any other
 session, so no recipe repeats a model or permission flag.

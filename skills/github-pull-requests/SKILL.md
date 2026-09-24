@@ -173,7 +173,7 @@ repository already has, so the review sits beside the work it reviews without a 
 node /resolved/pi-clean/scripts/github-work.mjs review-pr <number> --reviewer claude
 ```
 
-`claude` is the default reviewer and launches Claude Opus 5; `--reviewer codex` launches GPT-5.6-sol
+`claude` is the default reviewer and launches Claude Opus 5.5; `--reviewer codex` launches GPT-6 Sol
 under a `workspace-write` sandbox. Both instruct the reviewer not to spawn native subagents and pass
 their vendor's flag for it, so a reviewer that needs help asks for a second visible session.
 
@@ -188,7 +188,7 @@ layer's own diff against its base branch, with the stack map for context, not th
 
 The authoring agent must not be the sole independent reviewer. When correctness depends on a new
 or materially changed product, UX, interaction, visual, architecture, API, or data-model direction,
-use Claude Opus 5 for the design review. Pi or Codex may review implementation fidelity and code
+use Claude Opus 5.5 for the design review. Pi or Codex may review implementation fidelity and code
 quality against an approved design, but must flag unresolved design judgment for Opus rather than
 approving or redesigning it themselves. Do not edit the author worktree. Do not publish comments,
 approval, or requested changes until authorized.
