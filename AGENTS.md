@@ -21,9 +21,14 @@ and reviews.
 - Parent issues describe outcomes; independently deliverable child issues carry bounded scope and testable acceptance criteria.
 - Start agent implementation only from unblocked Ready child issues explicitly marked `agent-ready` when the repository uses that gate.
 - Respect repository WIP and human review limits; do not parallelize work with likely file or architecture-boundary overlap.
+- Follow the reviewable delivery contract in `skills/_shared/github-workflow.md`: pause for a
+  consequential UI/UX decision with a running preview, and keep design acceptance separate from
+  commit, publication, and merge authorization. Each stack layer awaiting review counts against
+  the review limit.
 - Implement issues only in worktrees created by `scripts/github-work.mjs`; keep the primary
   checkout clean as the control plane.
-- Branch names use `issue/<number>-<slug>`.
+- Branch names use `issue/<number>-<slug>`; extra review layers for the same issue use
+  `issue/<number>-<slug>--<layer-slug>` in that same worktree.
 - Every non-trivial pull request links an issue.
 - Use `Closes #<number>` only when the PR fully resolves that issue.
 - The authoring agent must not be the sole independent reviewer.

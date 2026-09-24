@@ -208,7 +208,13 @@ test("managed start creates a native Herdr issue worktree and launches in its ro
 });
 
 const ISSUE_TASK = "Work on GitHub issue #10 in owner/repo. Read the repository instructions and issue,"
-  + " implement it in this worktree, validate the changes, and prepare a pull request. Do not merge.";
+  + " implement it in this worktree, validate the changes, and prepare a pull request. Do not merge."
+  + " Follow the repository's checkpoint and preview contract: pause at a consequential or unspecified"
+  + " UI/UX decision and bring a running preview you opened yourself, and change nothing that alters it"
+  + " while you wait. Accepting a design lets you keep implementing in that direction; it is not"
+  + " authorization to push, open or publish a pull request, or merge, and it never overrides a"
+  + " repository rule that requires approval before committing. Preparing a pull request means showing"
+  + " its title, body, base, and head.";
 const OPUS_DESIGN_SUFFIX = " As Claude Opus 5, own and document any unresolved product, UX, interaction,"
   + " visual, architecture, API, or data-model design before implementing it.";
 const WORKER_DESIGN_SUFFIX = " Do not originate or materially change unresolved product, UX, interaction,"
@@ -228,7 +234,12 @@ for (const [agent, profile, designSuffix] of [
     const log = await commandLog(fixture.logPath);
     const launch = findCommand(log, "herdr", ["pane", "run", "p-create"]);
     assert.ok(launch, "expected the author agent to launch in the worktree root pane");
-    assert.equal(launchedAgentCommand(launch), expectedLaunch);
+    const command = launchedAgentCommand(launch);
+    assert.equal(command, expectedLaunch);
+    assert.match(command, /pause at a consequential or unspecified UI\/UX decision/);
+    assert.match(command, /bring a running preview you opened yourself/);
+    assert.match(command, /not authorization to push, open or publish a pull request, or merge/);
+    assert.match(command, /never overrides a repository rule that requires approval before committing/);
     if (agent === "codex") assert.doesNotMatch(launch.args[3], /danger-full-access/);
   });
 }
@@ -259,6 +270,7 @@ for (const [reviewer, expectedProfile, designMarker] of [
     assert.match(command, /A blocker needs a concrete failure path in a supported environment/);
     assert.match(command, /Martin is one developer responsible for many projects/);
     assert.match(command, /reasoning that exists only in an agent transcript/);
+    assert.match(command, /review the diff of that layer against its own base branch/);
     assert.match(command, designMarker);
     if (reviewer === "codex") {
       assert.doesNotMatch(command, /--full-auto/);

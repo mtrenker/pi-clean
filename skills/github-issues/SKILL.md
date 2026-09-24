@@ -119,6 +119,16 @@ bounded to investigation, implementation within it, or validation.
 The primary checkout is a control plane. Implementation belongs in the returned worktree. Reuse
 an existing issue worktree when the helper reports one.
 
+One issue keeps one managed worktree and one Herdr workspace. That worktree delivers one pull
+request, or a stack of layer pull requests when the change is worth reading in several units; see
+[`github-pull-requests`](../github-pull-requests/SKILL.md) for the layer workflow. Layers create no
+extra capacity, because each layer awaiting review counts as a pull request awaiting review.
+
+Implementation also follows the checkpoint and preview contract in
+[the shared workflow policy](../_shared/github-workflow.md): pause for a consequential or unspecified
+UI/UX decision with something running for the user to look at, and treat design acceptance as
+permission to keep implementing, not to commit, publish, or merge.
+
 ## Completion
 
 Do not close an issue merely because code was written. It is complete only when its acceptance
