@@ -8,7 +8,7 @@ description: Use for React pages, components, features, props, and hooks. Guides
 No folder-structure doctrine. Preserve project conventions. Optimize for readable, owner-friendly React.
 
 When React work is delegated and requires a new or materially changed product, UX, interaction,
-visual, architecture, API, or data-model direction, Claude Opus 5 must establish that design first.
+visual, architecture, API, or data-model direction, Claude Opus 5.5 must establish that design first.
 Pi or Codex may implement and validate the approved direction; they must not quietly turn component
 composition decisions into an unreviewed redesign. Routine refactoring within the approved behavior
 and experience does not require a new design pass.

@@ -24,7 +24,7 @@ Pi-clean intentionally does not ship a subprocess delegation tool or duplicate H
 
 Choose the delegation boundary by risk:
 
-- Assign any product, UX, interaction, visual, architecture, API, or data-model design exclusively to Claude Opus 5. Fable may coordinate but must not implement code or delegate coding to another Fable unless Martin explicitly requests Fable implementation for that specific task. Use Opus or Codex as coding workers. Pi and Codex may investigate constraints, implement the durable Opus direction, and validate it, but must not originate or materially revise unresolved design.
+- Assign any product, UX, interaction, visual, architecture, API, or data-model design exclusively to Claude Opus 5.5. Fable may coordinate but must not implement code or delegate coding to another Fable unless Martin explicitly requests Fable implementation for that specific task. Use Opus or Codex as coding workers. Pi and Codex may investigate constraints, implement the durable Opus direction, and validate it, but must not originate or materially revise unresolved design.
 - For bounded read-only investigation, split a pane in the current Herdr workspace only when sharing the checkout is safe.
 - When delegating from inside an issue worktree, keep the delegate in that worktree's existing workspace as a sibling pane or a named tab. One worktree has one semantic workspace, so never open a second one for the same checkout.
 - Keep one writer at a time in a shared worktree. Read-only delegates may run alongside the writer; a writing delegate takes that role exclusively while the coordinator holds still.
@@ -72,7 +72,7 @@ node scripts/github-work.mjs profiles
 node scripts/github-work.mjs launch-command --profile codex-sol-read --prompt 'Investigate the parser.'
 ```
 
-Issue authors and reviewers default to the `claude-opus` profile. `scripts/agent-profiles.mjs` holds every model, effort, permission, and delegation setting; `launch-command` prints the exact command so skills and recipes do not retype flags. See [Agent launch profiles](docs/agent-launch-profiles.md).
+Issue authors and reviewers default to the `claude-opus` profile. `scripts/agent-profiles.mjs` holds every model, effort, permission, and delegation setting; `launch-command` prints the exact command so skills and recipes do not retype flags. See [Agent launch profiles](docs/agent-launch-profiles.md) for how a launch is rendered and [Model selection](docs/model-selection.md) for which model each profile pins.
 
 Worktrees are stored outside project folders under `~/.local/share/agent-worktrees/github.com/<owner>/<repo>/`. Outside Herdr, `start-issue --agent none` retains a direct-Git fallback; Herdr-managed issue work requires native worktree support in Herdr 0.7.3 or newer.
 

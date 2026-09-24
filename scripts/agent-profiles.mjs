@@ -1,6 +1,8 @@
 // Single source of truth for interactive agent launch settings.
-// Design: docs/agent-launch-profiles.md. Do not spell a model name, permission flag, or
-// delegation control anywhere else; read them from here or from `github-work.mjs launch-command`.
+// Design: docs/agent-launch-profiles.md for how a launch is rendered, docs/model-selection.md for
+// which model each profile pins and the evidence behind it. Do not spell a model name, permission
+// flag, or delegation control anywhere else; read them from here or from
+// `github-work.mjs launch-command`.
 
 const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 const CODEX_EFFORTS = [...CLAUDE_EFFORTS, "ultra"];
@@ -26,7 +28,7 @@ export const VERIFIED_CLIS = {
 export const AGENT_PROFILES = {
   "claude-opus": {
     program: "claude",
-    model: "claude-opus-5",
+    model: "claude-opus-5-5",
     efforts: CLAUDE_EFFORTS,
     defaultEffort: "high",
     execution: "bypassPermissions",
@@ -44,7 +46,7 @@ export const AGENT_PROFILES = {
   },
   "codex-sol-write": {
     program: "codex",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     efforts: CODEX_EFFORTS,
     defaultEffort: "high",
     execution: "workspace-write",
@@ -53,10 +55,23 @@ export const AGENT_PROFILES = {
   },
   "codex-sol-read": {
     program: "codex",
-    model: "gpt-5.6-sol",
+    model: "gpt-6-sol",
     efforts: CODEX_EFFORTS,
     defaultEffort: "medium",
     execution: "read-only",
+    nativeDelegation: "disabled",
+    designOwner: false
+  },
+  // Opt-in escalation for work Sol has already failed or is plainly unsuited to. Deliberately
+  // absent from AGENT_PROFILE_IDS, so no helper command can route to it. Its default effort follows
+  // OpenAI's Astra starting effort of low, one step up, because OpenAI states that efforts do not
+  // map exactly between model generations. See docs/model-selection.md.
+  "codex-astra-write": {
+    program: "codex",
+    model: "gpt-6-astra",
+    efforts: CODEX_EFFORTS,
+    defaultEffort: "medium",
+    execution: "workspace-write",
     nativeDelegation: "disabled",
     designOwner: false
   },

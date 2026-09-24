@@ -9,7 +9,7 @@ Design the right experience, not a fashionable one. Emotion is a functional requ
 
 ## Delegated design ownership
 
-When this work is delegated to another agent, Claude Opus 5 (`claude-opus-5`) must own the design
+When this work is delegated to another agent, Claude Opus 5.5 (`claude-opus-5-5`) must own the design
 direction. This covers the experience brief, information and interaction structure, visual language,
 responsive behavior, state model, and any material revision to them. Fable may coordinate, but it
 must not edit implementation files or delegate coding to another Fable unless Martin explicitly
