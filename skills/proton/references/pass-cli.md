@@ -237,8 +237,9 @@ included. When you need a custom field's name, ask the operator instead of dumpi
 
 ## Use secrets without reading them
 
-Prefer these two paths for any task that needs a secret. The value reaches the process or file that
-needs it and stays out of your context.
+Prefer these two paths for any task that needs a secret. pass-cli hands the value to the process
+or file that needs it without printing it. Whether it then stays out of your context depends on
+what that process prints and where the file goes.
 
 ### Run a command with secrets in its environment
 
@@ -263,6 +264,8 @@ pass-cli run --env-file "<references.env>" -- "<command>"
   arguments. Avoid both.
 - The child inherits the whole environment, including `PROTON_PASS_SESSION_DIR` and any exported
   token, so it can call pass-cli with the same session. Run only commands the operator authorized.
+- The child's stdout and stderr come back to you. Choose a command you know does not print, log, or
+  echo the secret it reads, such as one whose output you have seen before without it.
 - Masking is on by default. It replaces exact resolved values of five or more characters with
   `<concealed by Proton Pass>`, line by line. Encoded, split, or transformed values pass through.
   Masking is not a security boundary, so keep commands that print secrets out of `run`, and never
@@ -304,8 +307,9 @@ pass-cli item view "pass://<vault-share-id>/<item-id>/url"
 - Options: `[URI]`, or `--share-id` or `--vault-name` with `--item-id` or `--item-title`, plus
   `--field` and `--output human|json`. `item get` and `item show` are aliases.
 - Without `--field`, the output includes every field of the item, secrets included.
-- If you are told to capture a secret for a later step, write it to a file with mode `0600`
-  created under `umask 077`, never to a shell variable you echo, and say where the file is.
+- If you are told to capture a secret for a later step, write it to a new file, never to a shell
+  variable you echo, and say where the file is. Use the same `set -C` and `umask 077` pattern as
+  the [token recipe](#lifecycle-and-grants) so an existing file is refused rather than reused.
 
 ## TOTP and password generation
 
@@ -313,7 +317,7 @@ pass-cli item view "pass://<vault-share-id>/<item-id>/url"
 |---|---|---|
 | Current code from an item | `pass-cli item totp "pass://<share>/<item>/<totp-field>"` | Prints the code |
 | All codes on an item | `pass-cli item totp --share-id "<share>" --item-id "<item>" --output json` | JSON map from field name to code |
-| Code into a process | `OTP='pass://<share>/<item>/totp' pass-cli run -- "<command>"` | Code stays in the child |
+| Code into a process | `OTP='pass://<share>/<item>/totp' pass-cli run -- "<command>"` | Code goes to the child's environment |
 | Code from a raw secret | `pass-cli totp generate "<secret-or-otpauth-uri>"` | Secret sits in the arguments |
 | Random password | `pass-cli password generate random --length 24 --symbols true` | Prints the password |
 | Passphrase | `pass-cli password generate passphrase --count 6 --separator hyphens` | Prints the passphrase |
@@ -400,15 +404,23 @@ pass-cli item delete --share-id "<vault-share-id>" --item-id "<item-id>"
 ## Attachments and aliases
 
 ```bash
-pass-cli item attachment download --share-id "<vault-share-id>" --item-id "<item-id>" \
-  --attachment-id "<attachment-id>" --output "<destination-path>"
+(umask 077; test ! -e "<private-dir>/<new-file>" && \
+  pass-cli item attachment download --share-id "<vault-share-id>" --item-id "<item-id>" \
+    --attachment-id "<attachment-id>" --output "<private-dir>/<new-file>")
+ls -l "<private-dir>/<new-file>"
 pass-cli item alias create --share-id "<vault-share-id>" --prefix "<prefix>" --output json
 ```
 
-- For `attachment download`, `--output` is the destination file path, not a format. Attachments can
-  hold secrets, so treat the file like `inject` output: set restrictive permissions, keep it out of
-  commits, and remove it after use. The verified docs name no metadata-only way to list attachment
-  IDs, so ask the operator for the ID.
+- For `attachment download`, `--output` is the destination file path, not a format. In the 2.3.3
+  source the CLI creates it with a plain create call: an existing file is truncated and keeps its
+  old mode, and a new file takes its mode from the umask. Attachments can hold secrets, so:
+  - Download to a path that does not exist yet, in a directory only the operator's user can read,
+    such as `$XDG_RUNTIME_DIR` or a `0700` directory outside the repository.
+  - Set `umask 077` before the download, as above. Changing the mode afterwards leaves a window
+    in which the file was readable.
+  - Confirm with `ls -l` that the file is `-rw-------` before using it, and remove it after use.
+- The command prints the attachment's name, size, and type before downloading. The verified docs
+  name no metadata-only way to list attachment IDs, so ask the operator for the ID.
 - `alias create` makes a new email alias named `<prefix>.<suffix>` and changes the account. The
   alias address is printed.
 
@@ -523,11 +535,16 @@ pass-cli personal-access-token delete --personal-access-token-id "<pat-id>"
 - `agent create`, `agent renew`, `personal-access-token create`, and `personal-access-token renew`
   print a new token, and it is shown only once. Renewal stops the old token immediately and keeps
   its grants. Let the operator run these commands. If they direct you to run one, send stdout to a
-  file they name, created under `umask 077`, and do not read it back:
+  new file at a path they name, and never read it back:
 
   ```bash
-  (umask 077; pass-cli agent create "<agent-name>" --expiration 1d > "<operator-path>")
+  (set -C; umask 077; pass-cli agent create "<agent-name>" --expiration 1d > "<new-operator-path>")
   ```
+
+  `set -C` (noclobber) makes the shell refuse a path that already exists before pass-cli starts,
+  so no token is created. `umask 077` gives the new file mode `0600`. A umask cannot tighten an
+  existing file, which is why the path must be new. If the shell refuses, report it and ask for a
+  new path; do not remove or reuse the existing file.
 
 - `personal-access-token delete` takes only `--personal-access-token-id`. Renew, access grant,
   access revoke, and list-access take the ID or `--personal-access-token-name`.

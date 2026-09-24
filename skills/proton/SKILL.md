@@ -85,8 +85,9 @@ For every change or admin command:
 | Default vault or format, session lock, updates | [Settings, session lock, and maintenance](references/pass-cli.md#settings-session-lock-and-maintenance) |
 | Exact syntax for any command | [Command index](references/pass-cli.md#command-index) |
 
-The most common secret task looks like this. The value reaches the child process and never appears
-in your context:
+The most common secret task looks like this. pass-cli puts the value in the child's environment
+without printing it. The child's stdout and stderr still come back to you, so choose a command you
+know does not print the secret. Masking catches only exact matches and is not a guarantee.
 
 ```bash
 PROTON_PASS_SESSION_DIR="<session-dir>" \
