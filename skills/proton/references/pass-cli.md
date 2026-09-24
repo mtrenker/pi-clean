@@ -406,9 +406,8 @@ pass-cli item delete --share-id "<vault-share-id>" --item-id "<item-id>"
 ```bash
 (umask 077; test ! -e "<private-dir>/<new-file>" && \
   pass-cli item attachment download --share-id "<vault-share-id>" --item-id "<item-id>" \
-    --attachment-id "<attachment-id>" --output "<private-dir>/<new-file>")
-ls -l "<private-dir>/<new-file>"
-pass-cli item alias create --share-id "<vault-share-id>" --prefix "<prefix>" --output json
+    --attachment-id "<attachment-id>" --output "<private-dir>/<new-file>") && \
+  ls -l "<private-dir>/<new-file>"
 ```
 
 - For `attachment download`, `--output` is the destination file path, not a format. In the 2.3.3
@@ -421,6 +420,11 @@ pass-cli item alias create --share-id "<vault-share-id>" --prefix "<prefix>" --o
   - Confirm with `ls -l` that the file is `-rw-------` before using it, and remove it after use.
 - The command prints the attachment's name, size, and type before downloading. The verified docs
   name no metadata-only way to list attachment IDs, so ask the operator for the ID.
+
+```bash
+pass-cli item alias create --share-id "<vault-share-id>" --prefix "<prefix>" --output json
+```
+
 - `alias create` makes a new email alias named `<prefix>.<suffix>` and changes the account. The
   alias address is printed.
 
