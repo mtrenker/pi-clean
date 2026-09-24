@@ -48,6 +48,7 @@ The package includes reusable skills:
 - `github-issues` for Projects, issue hierarchy, dependencies, milestones, grooming, and human/agent readiness.
 - `github-pull-requests` for opening PRs, independent reviews, checks, merge preparation, and cleanup.
 - `prose-quality` for direct, natural human-facing prose that keeps technical meaning exact.
+- `proton` for Proton Pass CLI (`pass-cli`) work that keeps secrets out of agent context: session isolation, `run` and `inject` secret delivery, items, sharing, agent tokens, and the SSH agent. It covers pass-cli only.
 - `react-composition-quality` for maintainable React composition, render-ready data, and simple UI contracts.
 
 The package also provides deterministic, read-only cross-repository issue grooming. User portfolio configuration lives in `~/.pi/agent/github-workflow.json` (override with `PI_GITHUB_WORKFLOW_CONFIG`); the package never creates it during inspection. Use `/github-add`, `/github-groom`, or `/github-daily`, or run:
@@ -85,7 +86,7 @@ pi-clean/
 ├── extensions/agent-guard/ # Shell, path, and output safety guardrails
 ├── extensions/visual-design/ # PlateJS visual artifact relay
 ├── designs/                # Example repo-native visual artifacts
-├── skills/                 # GitHub workflow and code-quality skills
+├── skills/                 # GitHub workflow, code-quality, and Proton Pass skills
 ├── scripts/                # GitHub issue/worktree helpers
 └── prompts/                # GitHub issue-grooming shortcuts
 ```
