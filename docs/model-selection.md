@@ -60,10 +60,9 @@ assertion, and it keeps the single-source rule intact.
   Astra, not before.
 - Its default effort is `medium`, not `high`. OpenAI states that reasoning efforts do not map
   between model generations, and names Astra's recommended starting effort as Light, which is `low`
-  in configuration, against Medium for Sol. This repository's write profiles already sit one step
-  above the vendor's starting effort and its read profile sits at it, so the same rule puts Astra at
-  `medium`. Copying the literal word `high` across generations would apply the rule the vendor
-  warns against.
+  in configuration, against Medium for Sol. The Codex write profile already sits one step above the
+  vendor's starting effort and the read profile sits at it, so the same rule puts Astra at `medium`.
+  Copying the literal word `high` across generations would apply the rule the vendor warns against.
 
 Astra is an escalation for a task Sol has already failed or is plainly unsuited to, chosen per
 launch with `--profile codex-astra-write`. It is not a capability tier the repository defaults into.
@@ -108,8 +107,8 @@ Artificial Analysis, all figures at max effort:
   level only because the price fell.
 - GPT-6 Sol and Luna (https://artificialanalysis.ai/articles/gpt-6-sol-and-luna-push-the-cost-efficiency-frontier).
   GPT-6 Sol scores 57 on the Coding Agent Index in OpenAI's Codex harness, 2 points over GPT-5.6
-  Sol, with Terminal-Bench 4.0 43% against 37% and SWE-Atlas-QnA 58% against 54%, at $2.99 per task
-  against $5.98. Reported regressions: GDPval-AA v2.1 drops about 100 Elo; AA-Omniscience accuracy
+  Sol, with Terminal-Bench 4.0 43% against 37% and SWE-Atlas-QnA 58% against 54%, at $2.99 per task,
+  which Artificial Analysis reports as about half the cost of GPT-5.6 Sol at max. Reported regressions: GDPval-AA v2.1 drops about 100 Elo; AA-Omniscience accuracy
   falls from 59% to 54% because Sol now attempts 83% of questions instead of 99%, which is also what
   cuts its hallucination rate from 92% to 60%. AA-Briefcase v1.1 is level.
 
