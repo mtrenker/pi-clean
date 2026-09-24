@@ -63,7 +63,7 @@ appropriately scoped, and implementable without guessing. A ready issue has:
 - architecture constraints and validation expectations;
 - enough context for an agent starting in a fresh worktree.
 
-Treat `agent-ready` as a strict admission gate when the repository uses it: a cold agent must not need to reconstruct chat history or make unresolved product, architecture, visual, security, or migration decisions. Any delegated product, UX, interaction, visual, architecture, API, or data-model design must be completed by Claude Opus 5 and captured durably before dependent implementation can be agent-ready. Represent a substantial design pass as an Opus-owned blocking child issue or an explicit dependency; do not ask Pi or Codex to fill the gap during implementation. Use `needs-human` when human judgment is the next work. Never move work into Ready solely because it exists.
+Treat `agent-ready` as a strict admission gate when the repository uses it: a cold agent must not need to reconstruct chat history or make unresolved product, architecture, visual, security, or migration decisions. Any delegated product, UX, interaction, visual, architecture, API, or data-model design must be completed by Claude Opus 5.5 and captured durably before dependent implementation can be agent-ready. Represent a substantial design pass as an Opus-owned blocking child issue or an explicit dependency; do not ask Pi or Codex to fill the gap during implementation. Use `needs-human` when human judgment is the next work. Never move work into Ready solely because it exists.
 
 Propose issue, relationship, label, milestone, and Project-field changes before applying them. Preserve useful original context rather than silently replacing it.
 

@@ -64,8 +64,8 @@ export const AGENT_PROFILES = {
   },
   // Opt-in escalation for work Sol has already failed or is plainly unsuited to. Deliberately
   // absent from AGENT_PROFILE_IDS, so no helper command can route to it. Its default effort follows
-  // OpenAI's Astra starting effort of low, one step up, because efforts do not map between model
-  // generations. See docs/model-selection.md.
+  // OpenAI's Astra starting effort of low, one step up, because OpenAI states that efforts do not
+  // map exactly between model generations. See docs/model-selection.md.
   "codex-astra-write": {
     program: "codex",
     model: "gpt-6-astra",

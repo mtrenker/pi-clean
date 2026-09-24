@@ -59,7 +59,7 @@ assertion, and it keeps the single-source rule intact.
   profile is a maintenance cost with no evidence behind it. Add one when a real read-only task needs
   Astra, not before.
 - Its default effort is `medium`, not `high`. OpenAI states that reasoning efforts do not map
-  between model generations, and names Astra's recommended starting effort as Light, which is `low`
+  exactly between model generations, and names Astra's recommended starting effort as Light, `low`
   in configuration, against Medium for Sol. The Codex write profile already sits one step above the
   vendor's starting effort and the read profile sits at it, so the same rule puts Astra at `medium`.
   Copying the literal word `high` across generations would apply the rule the vendor warns against.
@@ -69,14 +69,17 @@ launch with `--profile codex-astra-write`. It is not a capability tier the repos
 
 ### Why Opus 5.5 is a straight replacement
 
-Anthropic's models overview tells readers to start with Claude Opus 5.5 for most workloads, prices
-it at $4/$20 per 1M input/output tokens against Opus 5's $5/$25, and gives it the same 1M-token
-context window. Artificial Analysis measured it at the top of its Intelligence Index at max effort.
-It occupies the same role in this repository as Opus 5 did: design owner, default issue author, and
-default reviewer. Nothing about the role changes, so nothing but the model ID changes.
+Anthropic's models overview tells readers to start with Claude Opus 5.5 for most workloads, and
+lists it at $4/$20 per 1M input/output tokens with a 1M-token context window. The comparison with
+Opus 5 comes from Artificial Analysis, not that table: it reports the price cut from $5/$25 and an
+unchanged context window, and measures Opus 5.5 at the top of its Intelligence Index at max effort.
 
-The Opus default effort stays `high`. Anthropic lists `medium` as the model's own default, and this
-repository has pinned one step above the vendor default since the profiles were introduced.
+Opus 5.5 occupies the same role in this repository as Opus 5 did: design owner, default issue
+author, and default reviewer. Nothing about the role changes, so nothing but the model ID changes.
+
+The `claude-opus` default effort stays `high`, one step above the `medium` that Anthropic lists as
+Opus 5.5's own default. This is the current profile's setting, carried over unchanged; it is not a
+claim about what any earlier pin was one step above.
 
 ## Evidence
 
@@ -97,7 +100,7 @@ Vendor documentation:
   retirement not sooner than 2027-09-22. `claude-fable-5-1` is for demanding reasoning and
   long-horizon agentic work at $10/$50, default effort `high`.
 
-Artificial Analysis, all figures at max effort:
+Artificial Analysis, all figures at max effort unless the source states otherwise:
 
 - Claude Opus 5.5 (https://artificialanalysis.ai/articles/claude-opus-5-5). Intelligence Index 58,
   the highest measured, leading six of ten component evaluations. Terminal-Bench 4.0 59.6%, level
@@ -107,15 +110,17 @@ Artificial Analysis, all figures at max effort:
   level only because the price fell.
 - GPT-6 Sol and Luna (https://artificialanalysis.ai/articles/gpt-6-sol-and-luna-push-the-cost-efficiency-frontier).
   GPT-6 Sol scores 57 on the Coding Agent Index in OpenAI's Codex harness, 2 points over GPT-5.6
-  Sol, with Terminal-Bench 4.0 43% against 37% and SWE-Atlas-QnA 58% against 54%, at $2.99 per task,
-  which Artificial Analysis reports as about half the cost of GPT-5.6 Sol at max. Reported regressions: GDPval-AA v2.1 drops about 100 Elo; AA-Omniscience accuracy
+  Sol, with Terminal-Bench 4.0 43% against 37% and SWE-Atlas-QnA 58% against 54%, at $2.99 per
+  task, which Artificial Analysis reports as about half the cost of GPT-5.6 Sol at max. Reported
+  regressions: GDPval-AA v2.1 drops about 100 Elo; AA-Omniscience accuracy
   falls from 59% to 54% because Sol now attempts 83% of questions instead of 99%, which is also what
   cuts its hallucination rate from 92% to 60%. AA-Briefcase v1.1 is level.
 
 ### What this evidence does not establish
 
-- Every Artificial Analysis figure above is a max-effort result. This repository runs `high` for
-  write profiles and `medium` for read profiles. Opus 5.5's medium, high, and xhigh efforts are
+- Every Artificial Analysis figure above is a max-effort result, except the GPT-6 Astra
+  Terminal-Bench comparison, which the source gives at xhigh. This repository runs `high` for write
+  profiles and `medium` for read profiles. Opus 5.5's medium, high, and xhigh efforts are
   reported on the Intelligence-versus-cost frontier, which is a cost-efficiency claim, not a score
   at our settings. No Sol figure at `high` is available to us.
 - Benchmark scores are not local behaviour. None of these evaluations ran on this repository's
@@ -169,3 +174,16 @@ Revisit when a vendor ships a model that changes a profile's role, retires a pin
 publishes evaluation results at the efforts this repository runs. A refresh updates the pins, the
 evidence section with new fetch dates, and this document's recorded owner and date. It does not
 rewrite an earlier revision's attribution.
+
+These files carry an active model reference, so a refresh checks each one:
+
+- `scripts/agent-profiles.mjs`, the only file naming a model ID for execution
+- `scripts/github-work.mjs` and `scripts/github-work.test.mjs`, for the managed prompts and the
+  assertions that pin them
+- `AGENTS.md`, `README.md`, `docs/agent-launch-profiles.md`, `docs/github-workflow.md`
+- `skills/_shared/github-workflow.md` and the `SKILL.md` of `github-issues`, `github-pull-requests`,
+  `interactive-agent-sessions`, `experience-design-quality`, and `react-composition-quality`
+
+A model name inside a recorded design, a dated evidence citation, or a problem statement about an
+earlier state is history and stays as written. Grepping this list for `Opus`, `Sol`, `claude-`, and
+`gpt-` finds both kinds, so read the sentence to tell them apart.

@@ -34,7 +34,7 @@ Profiles resolve to exact commands in `scripts/agent-profiles.mjs`; see [Agent l
 
 Claude Opus 5.5 is the default and preferred development model. Use a different direct-development model only when Martin names it or repository policy requires it.
 
-No intent routes to `codex-astra-write`. It pins OpenAI's frontier model as an opt-in escalation for a Codex task Sol has already failed or is plainly unsuited to, and Martin decides that escalation. Launch it with `--profile codex-astra-write`, and expect its default effort `medium` rather than Sol's `high`, because reasoning efforts do not map between model generations.
+No intent routes to `codex-astra-write`. It pins OpenAI's frontier model as an opt-in escalation for a Codex task Sol has already failed or is plainly unsuited to, and Martin decides that escalation. Launch it with `--profile codex-astra-write`, and expect its default effort `medium` rather than Sol's `high`, because OpenAI states that reasoning efforts do not map exactly between model generations.
 
 Route serial work directly to one session. Reach for a Fable coordinator when Martin asks for one, when bounded subtasks can genuinely run in parallel, or when the work runs long enough that a single session would lose the thread. Coordination is a choice, not a step: narrow or strictly sequential work goes straight to `claude-opus` or `codex-sol-write`, and `high` effort alone is not a reason to orchestrate. A coordinator assigns each subtask to the vendor that fits it; using both Claude and Codex on one task is useful for independent review or complementary investigation, never a quota to fill.
 
