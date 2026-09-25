@@ -26,7 +26,6 @@
                     {
                       "id": "hero-kicker",
                       "type": "text",
-                      "className": "text-signal",
                       "variant": "eyebrow",
                       "children": [
                         {

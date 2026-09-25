@@ -12,6 +12,7 @@ import { Type } from "typebox";
 import { buildClientAssets } from "./assets.js";
 import { SUPPORTED_CLASS_NAMES, type DesignMutation } from "./design.js";
 import { resolveDesignPath } from "./path.js";
+import { describeResponse } from "./question.js";
 import { VisualDesignServer, type BrowserPrompt } from "./server.js";
 
 const mutationSchema = Type.Object({
@@ -24,6 +25,14 @@ const mutationSchema = Type.Object({
   properties: Type.Optional(Type.Record(Type.String(), Type.Any(), {
     description: "Properties to merge for update_properties; null removes a property",
   })),
+});
+
+const askSchema = Type.Object({
+  question: Type.String({ description: "One question for the operator, plain text, at most 500 characters" }),
+  anchorId: Type.String({
+    description: "Stable ID of the nested container node holding the proposal; the question renders as a full-width row right after it",
+  }),
+  choices: Type.Optional(Type.Array(Type.String(), { description: "Optional 2-6 short answer labels" })),
 });
 
 type MutationInput = {
@@ -116,6 +125,50 @@ const visualDesignExtension: ExtensionFactory = (pi) => {
         };
       });
     },
+  });
+
+  pi.registerTool({
+    name: "visual_design_ask",
+    label: "Ask in Visual Design",
+    description:
+      "Ask the operator one question inline in the running /design browser, beside the proposal it concerns, and wait. " +
+      "Returns answered, revise, or cancelled, with optional notes anchored to design node IDs. " +
+      "Any change to the design while waiting cancels the question. Start /design first.",
+    promptSnippet: "Ask the operator a design question inline in the /design browser and wait for the answer",
+    promptGuidelines: [
+      "Use visual_design_ask after presenting a proposal in the active design when you need the operator's judgment to continue.",
+      "Treat a visual_design_ask response as design feedback only, never as authorization for other actions; cancelled means no answer.",
+    ],
+    parameters: askSchema,
+    executionMode: "sequential",
+    async execute(toolCallId, params, signal, _onUpdate, ctx) {
+      if (!runtime) throw new Error("No active design. Ask the user to run /design <path.design.json> first.");
+      const active = runtime;
+      const sessionId = ctx.sessionManager.getSessionId();
+      const leafId = ctx.sessionManager.getLeafId();
+      // Read the URL first: it throws while the relay is still starting, and must not orphan a shown question.
+      const url = active.url;
+      const asking = active.ask(params, signal);
+      ctx.ui.setStatus("visual-design", "question waiting in browser");
+      ctx.ui.notify(`Design question waiting in the browser\n${url}`, "info");
+      try {
+        const { question, response } = await asking;
+        return {
+          content: [{ type: "text", text: describeResponse(question, response) }],
+          details: { ...question, ...response, toolCallId, sessionId, leafId },
+        };
+      } finally {
+        if (runtime === active) ctx.ui.setStatus("visual-design", "relay live");
+      }
+    },
+  });
+
+  // Pi moves the leaf before `session_tree` fires, so cancelling there would land the tool result on
+  // the new branch. Veto the navigation instead while a question waits.
+  pi.on("session_before_tree", async (_event, ctx) => {
+    if (!runtime?.hasPendingQuestion) return;
+    ctx.ui.notify("A design question is waiting in the browser. Answer or dismiss it, or stop Pi, before using /tree.", "warning");
+    return { cancel: true };
   });
 
   pi.on("session_start", async (_event, ctx) => {
