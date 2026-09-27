@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Plate,
@@ -7,19 +7,24 @@ import {
 } from "@platejs/core/react";
 
 import type { DesignDocument, DesignNode, DesignText } from "./design.js";
+import type { QuestionState } from "./question.js";
+import { QuestionContext, withQuestionRow, useQuestionDesk, type QuestionPlacement } from "./question-card.js";
 
 type RenderElementProps = Parameters<
   NonNullable<React.ComponentProps<typeof PlateContent>["renderElement"]>
 >[0];
-type DesignPayload = { path: string; document: DesignDocument };
+type DesignPayload = { path: string; document: DesignDocument; revision: string };
 type TimelineItem = { id: number; kind: "user" | "status" | "agent" | "error"; text: string };
 type RelayEvent =
   | { type: "chat-user"; text: string }
   | { type: "design-error"; message: string }
   | { type: "agent-status"; status: string; message?: string }
-  | { type: "agent-output"; text: string };
+  | { type: "agent-output"; text: string }
+  | { type: "question-asked"; text: string }
+  | { type: "question-closed"; outcome: string; reason?: string; text: string };
 type ServerEvent =
-  | { type: "design"; document: DesignDocument; source: string }
+  | { type: "design"; document: DesignDocument; revision: string; source: string }
+  | { type: "question"; state: QuestionState }
   | { type: "history"; events: RelayEvent[] }
   | RelayEvent;
 
@@ -34,6 +39,7 @@ function App() {
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [connection, setConnection] = useState<"connecting" | "live" | "offline">("connecting");
   const [sending, setSending] = useState(false);
+  const [question, setQuestion] = useState<QuestionState>();
 
   useEffect(() => {
     void fetch(withToken("/api/design"))
@@ -49,8 +55,10 @@ function App() {
     events.onmessage = (message) => {
       const event = JSON.parse(message.data) as ServerEvent;
       if (event.type === "design") {
-        setPayload((current) => current ? { ...current, document: event.document } : current);
+        setPayload((current) => current ? { ...current, document: event.document, revision: event.revision } : current);
         setSelectedId((current) => current && findNode(event.document.root, current) ? current : undefined);
+      } else if (event.type === "question") {
+        setQuestion(event.state);
       } else if (event.type === "history") {
         setTimeline(timelineFromHistory(event.events));
       } else {
@@ -61,6 +69,12 @@ function App() {
   }, []);
 
   const selected = payload && selectedId ? findNode(payload.document.root, selectedId) : undefined;
+  const desk = useQuestionDesk(question, selectedId, postAnswer);
+  const questionPlacement = useMemo<QuestionPlacement>(() => {
+    const ancestors = desk && !desk.hidden && payload ? pathTo(payload.document.root, desk.state.anchorId).slice(0, -1) : [];
+    return { desk, ancestors: new Set(ancestors), hostId: ancestors.at(-1) };
+  }, [desk, payload?.document]);
+  const waitingForAnswer = question?.status === "waiting";
   const editor = useMemo(
     () => payload ? createPlateEditor({ value: payload.document.root as never }) : null,
     [payload?.document],
@@ -94,6 +108,16 @@ function App() {
     }
   }
 
+  async function postAnswer(body: unknown) {
+    const response = await fetch(withToken("/api/answer"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const result = await response.json() as { error?: string };
+    if (!response.ok) throw new Error(result.error ?? `Answer failed (${response.status})`);
+  }
+
   if (!payload || !editor) {
     return <main className="loading-state"><span className="pulse" /> Loading the design relay…</main>;
   }
@@ -118,9 +142,11 @@ function App() {
           <span>schema v{payload.document.schemaVersion}</span>
         </div>
         <div className="plate-frame">
-          <Plate editor={editor} readOnly>
-            <PlateContent className="plate-content" readOnly renderElement={renderElement} />
-          </Plate>
+          <QuestionContext.Provider value={questionPlacement}>
+            <Plate editor={editor} readOnly>
+              <PlateContent className="plate-content" readOnly renderElement={renderElement} />
+            </Plate>
+          </QuestionContext.Provider>
         </div>
       </section>
 
@@ -137,6 +163,7 @@ function App() {
           )}
         </div>
 
+        <p className="exposure-note">This page mirrors all output of the Pi session that opened it.</p>
         <div className="timeline" aria-live="polite" aria-label="Agent progress">
           {timeline.length === 0 ? (
             <div className="empty-timeline">
@@ -151,6 +178,12 @@ function App() {
           ))}
         </div>
 
+        {waitingForAnswer ? (
+          <div className="prompt-form prompt-paused" role="status">
+            <p>Pi is waiting for your answer in the canvas. Chat resumes after you answer or dismiss it.</p>
+            <button type="button" onClick={focusQuestion}>Go to question</button>
+          </div>
+        ) : (
         <form className="prompt-form" onSubmit={submit}>
           <label htmlFor="design-instruction">Describe the visual change</label>
           <textarea
@@ -174,6 +207,7 @@ function App() {
             </button>
           </div>
         </form>
+        )}
       </aside>
     </main>
   );
@@ -186,11 +220,16 @@ type DesignElementProps = RenderElementProps & {
 
 function DesignElement({ attributes, children, element, selectedId, onSelect }: DesignElementProps) {
   const node = element as DesignNode;
+  const { desk, ancestors, hostId } = useContext(QuestionContext);
+  // Nodes that contain the question card must not be buttons: a form inside button semantics is unreachable.
+  const containsQuestion = ancestors.has(node.id);
   const className = [
     "design-node",
     `design-${node.type}`,
     node.className,
     selectedId === node.id ? "is-selected" : "",
+    hostId === node.id ? "hosts-question" : "",
+    desk && hostId && desk.state.anchorId === node.id ? "is-question-anchor" : "",
   ].filter(Boolean).join(" ");
 
   return (
@@ -206,19 +245,39 @@ function DesignElement({ attributes, children, element, selectedId, onSelect }: 
         event.stopPropagation();
         onSelect(node.id);
       }}
-      role="button"
+      role={containsQuestion ? "group" : "button"}
       tabIndex={0}
       aria-label={`Select ${node.type} ${node.id}`}
       onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           onSelect(node.id);
         }
       }}
     >
-      {children}
+      {desk && hostId === node.id ? withQuestionRow(children, node.children.map(childId), desk) : children}
     </div>
   );
+}
+
+function childId(child: DesignNode | DesignText): string | undefined {
+  return isNode(child) ? child.id : undefined;
+}
+
+function pathTo(nodes: DesignNode[], id: string): string[] {
+  for (const node of nodes) {
+    if (node.id === id) return [id];
+    const below = pathTo(node.children.filter(isNode), id);
+    if (below.length > 0) return [node.id, ...below];
+  }
+  return [];
+}
+
+function focusQuestion() {
+  const field = document.querySelector<HTMLElement>("[data-question-card] input, [data-question-card] textarea");
+  field?.scrollIntoView({ block: "center" });
+  field?.focus({ preventScroll: true });
 }
 
 function findNode(nodes: DesignNode[], id: string): DesignNode | undefined {
@@ -261,6 +320,13 @@ function applyRelayEvent(items: TimelineItem[], event: RelayEvent): TimelineItem
     const last = items.at(-1);
     if (last?.kind === "agent") return [...items.slice(0, -1), { ...last, text: event.text }];
     return [...items.slice(-99), { id: Date.now() + Math.random(), kind: "agent", text: event.text }];
+  }
+  if (event.type === "question-asked") {
+    return [...items.slice(-99), { id: Date.now() + Math.random(), kind: "agent", text: `Asked in the canvas: ${event.text}` }];
+  }
+  if (event.type === "question-closed") {
+    const kind = event.outcome === "cancelled" && event.reason !== "operator" ? "status" : "user";
+    return [...items.slice(-99), { id: Date.now() + Math.random(), kind, text: event.text }];
   }
   const kind = event.type === "chat-user" ? "user" : event.type === "design-error" ? "error" : "status";
   const text = event.type === "chat-user"

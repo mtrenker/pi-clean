@@ -25,10 +25,15 @@ and reviews.
   consequential UI/UX decision with a running preview, and keep design acceptance separate from
   commit, publication, and merge authorization. Each stack layer awaiting review counts against
   the review limit.
-- Implement issues only in worktrees created by `scripts/github-work.mjs`; keep the primary
-  checkout clean as the control plane.
+- For this repository (`mtrenker/pi-clean`) only, work on a feature branch in the primary
+  checkout unless Martin explicitly requests a worktree. Pi loads extensions from this checkout,
+  so this lets Martin test the branch directly. This exception overrides worktree-only placement
+  rules in the workflow skills and instructions below; it does not apply to other repositories.
+  Preserve unrelated local changes and keep one writer at a time. Do not run `start-issue` or
+  `review-pr` merely to create a worktree under this exception. Issue readiness, independent
+  review, validation, and authorization requirements still apply.
 - Branch names use `issue/<number>-<slug>`; extra review layers for the same issue use
-  `issue/<number>-<slug>--<layer-slug>` in that same worktree.
+  `issue/<number>-<slug>--<layer-slug>` in that same checkout.
 - Every non-trivial pull request links an issue.
 - Use `Closes #<number>` only when the PR fully resolves that issue.
 - The authoring agent must not be the sole independent reviewer.
@@ -55,6 +60,12 @@ and Codex profiles add a vendor flag for it; Pi's extension surface is not contr
 profiles. Delegate as a visible Herdr pane or tab.
 
 ## Worktrees and Herdr
+
+For pi-clean's default branch-based workflow, reuse the checkout's existing Herdr workspace.
+Independent reviewers may inspect the shared checkout read-only while the author pauses changes;
+review independence does not require a separate checkout. If isolation is needed, ask Martin for a
+worktree rather than creating one automatically. The worktree placement rules below apply when a
+worktree is requested, or when working in another repository.
 
 - Worktrees live under `~/.local/share/agent-worktrees/github.com/<owner>/<repo>/`.
 - Use one author worktree per issue and detached worktrees for independent PR reviews.

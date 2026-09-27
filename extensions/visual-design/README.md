@@ -73,12 +73,33 @@ The renderer supports structural properties such as `tone`, `direction`, `column
 
 Mutations participate in Pi's per-file mutation queue so parallel built-in writes cannot race the tool's read/validate/write window.
 
+## Inline questions
+
+`visual_design_ask` shows one question in the browser, right after the proposal node it names, as
+a full-width row of the surrounding layout, and waits. The operator can pick a choice, write an
+answer, attach notes to selected blocks, ask for a revision, or dismiss it. The call returns
+`answered`, `revise`, or `cancelled` to exactly that tool call.
+
+- The anchor must be a nested container (`viewport`, `section`, `stack`, `grid`, or `surface`),
+  not a root node.
+- Answers never enter the `.design.json` file. The tool result tells Pi they are design feedback
+  for this question only, not authorization, and that a cancellation means no answer.
+- Any document change, abort, `/design stop`, session change, or shutdown cancels a waiting
+  question. `/tree` is refused while a question waits, so the answer stays on the asking branch.
+  Stale or repeated submissions get HTTP 409.
+- Chat is paused while a question waits, because a queued message cannot resolve a waiting call.
+- Drafts survive re-rendering the design but not a page reload.
+
+The contract, invalidation rules, and tradeoffs are in [docs/rich-feedback.md](../../docs/rich-feedback.md).
+
 ## Security boundary
 
 - The server listens on ephemeral port `127.0.0.1` only.
 - Every page, asset, API, and SSE request requires a cryptographically random session capability.
 - The active file must already exist, end in `.design.json`, and resolve inside the trusted current repository (including symlink resolution).
 - Browser clients can request agent work but cannot directly mutate files.
+- `POST` requests must carry the relay's own `Host`. `/api/answer` also requires a matching
+  `Origin` and a JSON content type. `/api/chat` rejects a mismatched `Origin`.
 - Request bodies and context depth are bounded; the server derives node context from its validated document rather than trusting browser-supplied JSON.
 - The page uses a restrictive same-origin Content Security Policy.
 - While the relay is open, its token-bearing tabs receive all Pi assistant status/output, not only turns initiated from the design browser. Close or stop the relay before unrelated sensitive work.

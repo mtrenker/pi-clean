@@ -1,6 +1,6 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
-import { createServer, type Server, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { relative } from "node:path";
 import type { AddressInfo } from "node:net";
 
@@ -14,6 +14,16 @@ import {
   type DesignDocument,
   type DesignMutation,
 } from "./design.ts";
+import {
+  parseResponse,
+  summarizeResponse,
+  validateAsk,
+  type CancelReason,
+  type PublicQuestion,
+  type QuestionAsk,
+  type QuestionResponse,
+  type QuestionState,
+} from "./question.ts";
 
 export type BrowserPrompt = {
   packet: DesignContextPacket;
@@ -24,11 +34,27 @@ export type RelayHistoryEvent =
   | { type: "chat-user"; text: string }
   | { type: "design-error"; message: string }
   | { type: "agent-status"; status: "idle" | "working" | "queued"; message?: string }
-  | { type: "agent-output"; text: string };
+  | { type: "agent-output"; text: string }
+  | { type: "question-asked"; text: string }
+  | { type: "question-closed"; outcome: QuestionResponse["outcome"]; reason?: CancelReason; text: string };
 
 export type DesignServerEvent =
-  | { type: "design"; document: DesignDocument; source: "initial" | "mutation" | "external" }
+  | { type: "design"; document: DesignDocument; revision: string; source: "initial" | "mutation" | "external" }
+  | { type: "question"; state: QuestionState }
   | RelayHistoryEvent;
+
+export type AskedQuestion = { question: PublicQuestion; response: QuestionResponse };
+
+type PendingQuestion = { question: PublicQuestion; settle: (response: QuestionResponse) => void };
+
+class HttpError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
 
 export type VisualDesignServerOptions = {
   root: string;
@@ -58,6 +84,11 @@ export class DesignStore {
     return structuredClone(this.documentValue);
   }
 
+  /** Content hash of the canonical serialization; identical content keeps the same revision. */
+  get revision(): string {
+    return createHash("sha256").update(this.lastWritten).digest("hex").slice(0, 16);
+  }
+
   async start(): Promise<void> {
     this.documentValue = await readDesign(this.path);
     this.lastWritten = serializeDesign(this.documentValue);
@@ -77,7 +108,7 @@ export class DesignStore {
     await writeDesign(this.path, next);
     this.documentValue = next;
     this.lastWritten = serialized;
-    this.emit({ type: "design", document: this.document, source: "mutation" });
+    this.emit({ type: "design", document: this.document, revision: this.revision, source: "mutation" });
     return this.document;
   }
 
@@ -106,7 +137,7 @@ export class DesignStore {
       if (serialized === this.lastWritten) return;
       this.documentValue = document;
       this.lastWritten = serialized;
-      this.emit({ type: "design", document: this.document, source: "external" });
+      this.emit({ type: "design", document: this.document, revision: this.revision, source: "external" });
     } catch (error) {
       this.emit({ type: "design-error", message: errorMessage(error) });
     }
@@ -126,6 +157,8 @@ export class VisualDesignServer {
   private server: Server | undefined;
   private unsubscribeStore: (() => void) | undefined;
   private urlValue: string | undefined;
+  private pending: PendingQuestion | undefined;
+  private questionState: QuestionState | undefined;
 
   constructor(options: VisualDesignServerOptions) {
     this.options = options;
@@ -141,10 +174,16 @@ export class VisualDesignServer {
   async start(): Promise<string> {
     if (this.server) return this.url;
     await this.store.start();
-    this.unsubscribeStore = this.store.subscribe((event) => this.broadcast(event));
+    this.unsubscribeStore = this.store.subscribe((event) => {
+      // Any change to the artifact, including a rejected malformed edit, invalidates a waiting question.
+      if (event.type === "design-error" || (event.type === "design" && event.revision !== this.pending?.question.revision)) {
+        this.cancelQuestion("document-changed");
+      }
+      this.broadcast(event);
+    });
     this.server = createServer((request, response) => {
       void this.handleRequest(request.url ?? "/", request.method ?? "GET", request, response).catch((error) => {
-        if (!response.headersSent) sendJson(response, 500, { error: errorMessage(error) });
+        if (!response.headersSent) sendJson(response, error instanceof HttpError ? error.status : 500, { error: errorMessage(error) });
         else response.end();
       });
     });
@@ -162,8 +201,60 @@ export class VisualDesignServer {
     return this.url;
   }
 
+  /**
+   * Shows a question inline in the browser and resolves with the operator's response, or with a
+   * cancellation when the relay stops, the document changes, or `signal` aborts.
+   */
+  ask(input: QuestionAsk, signal?: AbortSignal): Promise<AskedQuestion> {
+    if (!this.server) throw new Error("Design relay is not running");
+    if (this.pending) throw new Error("Another design question is already waiting for the operator");
+    if (signal?.aborted) throw new Error("Question aborted before it was shown");
+    const question: PublicQuestion = {
+      requestId: randomBytes(16).toString("base64url"),
+      revision: this.store.revision,
+      ...validateAsk(input, this.store.document),
+    };
+    return new Promise((resolve) => {
+      const onAbort = () => this.cancelQuestion("aborted");
+      signal?.addEventListener("abort", onAbort, { once: true });
+      this.pending = {
+        question,
+        settle: (response) => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve({ question, response });
+        },
+      };
+      this.questionState = { ...question, status: "waiting" };
+      this.broadcast({ type: "question", state: this.questionState });
+      this.broadcast({ type: "question-asked", text: question.question });
+    });
+  }
+
+  get hasPendingQuestion(): boolean {
+    return this.pending !== undefined;
+  }
+
+  cancelQuestion(reason: CancelReason): void {
+    this.closeQuestion({ outcome: "cancelled", reason, notes: [] });
+  }
+
+  private closeQuestion(response: QuestionResponse): void {
+    const pending = this.pending;
+    if (!pending) return;
+    this.pending = undefined;
+    this.questionState = { ...pending.question, status: "closed", response };
+    this.broadcast({ type: "question", state: this.questionState });
+    this.broadcast({
+      type: "question-closed",
+      outcome: response.outcome,
+      ...(response.reason ? { reason: response.reason } : {}),
+      text: summarizeResponse(response),
+    });
+    pending.settle(response);
+  }
+
   broadcast(event: DesignServerEvent): void {
-    if (event.type !== "design") this.recordHistory(event);
+    if (event.type !== "design" && event.type !== "question") this.recordHistory(event);
     const payload = `data: ${JSON.stringify(event)}\n\n`;
     for (const client of this.clients) {
       if (client.destroyed || client.writableEnded) {
@@ -189,6 +280,7 @@ export class VisualDesignServer {
   }
 
   async stop(): Promise<void> {
+    this.cancelQuestion("relay-stopped");
     this.unsubscribeStore?.();
     this.unsubscribeStore = undefined;
     this.store.stop();
@@ -206,7 +298,7 @@ export class VisualDesignServer {
   private async handleRequest(
     rawUrl: string,
     method: string,
-    request: NodeJS.ReadableStream,
+    request: IncomingMessage,
     response: ServerResponse,
   ): Promise<void> {
     const url = new URL(rawUrl, "http://127.0.0.1");
@@ -231,6 +323,7 @@ export class VisualDesignServer {
       sendJson(response, 200, {
         path: relative(this.options.root, this.options.designPath),
         document: this.store.document,
+        revision: this.store.revision,
       });
       return;
     }
@@ -241,8 +334,10 @@ export class VisualDesignServer {
         "Content-Type": "text/event-stream",
         "X-Content-Type-Options": "nosniff",
       });
-      response.write(`data: ${JSON.stringify({ type: "design", document: this.store.document, source: "initial" })}\n\n`);
+      const initial = { type: "design", document: this.store.document, revision: this.store.revision, source: "initial" };
+      response.write(`data: ${JSON.stringify(initial)}\n\n`);
       response.write(`data: ${JSON.stringify({ type: "history", events: this.history })}\n\n`);
+      if (this.questionState) response.write(`data: ${JSON.stringify({ type: "question", state: this.questionState })}\n\n`);
       this.clients.add(response);
       const removeClient = () => this.clients.delete(response);
       request.once("close", removeClient);
@@ -250,6 +345,8 @@ export class VisualDesignServer {
       return;
     }
     if (method === "POST" && url.pathname === "/api/chat") {
+      this.assertSameOrigin(request, false);
+      if (this.pending) throw new HttpError(409, "Answer or dismiss the waiting design question first");
       const body = await readJsonBody(request);
       const selectedId = readString(body, "selectedId");
       const instruction = readString(body, "instruction");
@@ -267,7 +364,41 @@ export class VisualDesignServer {
       return;
     }
 
+    if (method === "POST" && url.pathname === "/api/answer") {
+      this.assertSameOrigin(request, true);
+      if (!request.headers["content-type"]?.startsWith("application/json")) {
+        throw new HttpError(415, "Answers must be sent as application/json");
+      }
+      const body = await readJsonBody(request);
+      const pending = this.pending;
+      if (!pending || body.requestId !== pending.question.requestId) {
+        throw new HttpError(409, "This question is no longer waiting for an answer");
+      }
+      if (body.revision !== pending.question.revision || this.store.revision !== pending.question.revision) {
+        throw new HttpError(409, "The design changed after this question was asked");
+      }
+      let answer: QuestionResponse;
+      try {
+        answer = parseResponse(body, pending.question, this.store.document);
+      } catch (error) {
+        throw new HttpError(400, errorMessage(error));
+      }
+      this.closeQuestion(answer);
+      sendJson(response, 200, { accepted: true, outcome: answer.outcome });
+      return;
+    }
+
     sendJson(response, 404, { error: "Not found" });
+  }
+
+  /** Rejects DNS-rebinding hosts and cross-site browser posts. Browsers always send Origin on POST. */
+  private assertSameOrigin(request: IncomingMessage, requireOrigin: boolean): void {
+    const own = new URL(this.url);
+    if (request.headers.host !== own.host) throw new HttpError(403, "Unexpected Host header");
+    const origin = request.headers.origin;
+    if (origin === undefined ? requireOrigin : origin !== own.origin) {
+      throw new HttpError(403, "Cross-origin request rejected");
+    }
   }
 
   private authorized(candidate: string | null): boolean {
@@ -284,16 +415,16 @@ async function readJsonBody(stream: NodeJS.ReadableStream): Promise<Record<strin
   for await (const chunk of stream) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += buffer.length;
-    if (size > 16_384) throw new Error("Request body is too large");
+    if (size > 16_384) throw new HttpError(413, "Request body is too large");
     chunks.push(buffer);
   }
   let value: unknown;
   try {
     value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
   } catch {
-    throw new Error("Request body must be valid JSON");
+    throw new HttpError(400, "Request body must be valid JSON");
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Request body must be an object");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new HttpError(400, "Request body must be an object");
   return value as Record<string, unknown>;
 }
 
