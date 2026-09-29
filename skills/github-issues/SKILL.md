@@ -136,7 +136,7 @@ extra capacity, because each layer awaiting review counts as a pull request awai
 
 Implementation also follows the increment, checkpoint, and preview contract in
 [the shared workflow policy](../_shared/github-workflow.md): deliver the issue's next increment, show
-it, and stop; pause for a consequential or unspecified UI/UX decision with something running for the
+it, and stop, unless the issue or the user explicitly asks for the whole issue to be finished; pause for a consequential or unspecified UI/UX decision with something running for the
 user to look at; and treat design acceptance as permission to keep implementing, not to commit,
 publish, or merge.
 

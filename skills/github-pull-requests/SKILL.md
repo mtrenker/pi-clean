@@ -25,7 +25,7 @@ or one layer branch of a stack. Draft a PR using the local pull request template
 
 - linked issue (`Closes #N` only for complete resolution);
 - concise explanation of behavior and design decisions;
-- validation outcomes, including failures, linked rather than pasted;
+- each validation command and its result on one short line, including failures, linking lengthy output;
 - risks, limitations, migrations, or screenshots where relevant.
 
 Show the final title/body/base/head before `gh pr create` unless the user explicitly authorized
