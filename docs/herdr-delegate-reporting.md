@@ -78,40 +78,60 @@ editor, a Claude Code or Codex parent, and a Pi delegate.
 paying attention. For a longer run, it asks for a callback and ends its turn. A callback is never
 the default; the handoff says which one was chosen.
 
-**Handing over the identity.** From its own shell, the parent runs
-`node <pi-clean>/scripts/github-work.mjs callback-handoff`. It reads `HERDR_PANE_ID`, runs `herdr
-pane get` on it, and prints a `Report back:` line for the handoff. That line holds the exact
-`callback` command, with the parent's pane and its `agent_session` kind, source, and value. The pane
-ID is only the routing handle. The session identity is what makes the callback land in the same
-conversation.
+**Handing over the identity and the assignment.** From its own shell, the parent runs
+`node <pi-clean>/scripts/github-work.mjs callback-handoff` and pastes the printed block into the
+handoff. The helper reads `HERDR_PANE_ID`, runs `herdr pane get` on it, and generates an 8-character
+random assignment ID. The block names that ID and holds the exact `callback` command, with the ID,
+the parent's pane, and its `agent_session` kind, source, and value. The pane ID is only the routing
+handle. The session identity makes the callback land in the same conversation. The assignment ID
+lets the parent match the callback to the handoff it wrote, which is still in its own transcript,
+so no state is stored anywhere.
 
-**Calling back.** The delegate runs that command once, adding `--status completed|failed|needs-input`
-and a one-paragraph `--message` with its Result, Check, and Your turn. `github-work.mjs callback`:
+The command takes its status and message from `"$STATUS"` and `"$MESSAGE"`. The block tells the
+delegate to set `MESSAGE` with a quoted heredoc, so apostrophes, `$`, and backticks stay literal. If
+the command is copied before the variables are set, it fails as a usage error and sends nothing.
+The block also tells the delegate to put no environment values, credentials, tokens, or transcript
+excerpts in the message, and to name files and commands instead.
+
+**Calling back.** The delegate sets `STATUS` to `completed`, `failed`, or `needs-input`, sets
+`MESSAGE` to one paragraph with its Result, Check, and Your turn, and runs the command once.
+`github-work.mjs callback`:
 
 1. Runs `herdr pane get <pane>` and requires `agent_session` kind, source, and value to equal the
    expected ones.
-2. Sends one `herdr agent prompt <pane> 'Delegate callback · <status> · from pane <HERDR_PANE_ID> ·
-   <message>' --wait --until working --until blocked --timeout 10000`, collapsed to one line and
-   limited to 2000 characters.
+2. Sends one `herdr agent prompt <pane> 'Delegate callback · assignment <id> · <status> · from pane
+   <HERDR_PANE_ID> · <message>' --wait --until working --until blocked --timeout 10000`, collapsed to
+   one line and limited to 2000 characters.
 3. Exits `0` when Herdr reports the parent working or blocked after the prompt, and says so.
-4. Otherwise runs `herdr notification show 'Delegate callback not sent' --body '<reason> · full report
-   in pane <HERDR_PANE_ID>' --sound request` once and exits `3` or `4`:
+4. Otherwise runs `herdr notification show 'Delegate callback not sent'` once, with a body that names
+   the assignment, the reason, and the recovery step `herdr pane read <delegate pane> --source
+   recent-unwrapped --lines 200`. It then prints a JSON error with `sent` (`no` or `maybe`),
+   `recovery`, and `notified`, adding `notificationError` when the notification itself failed, and
+   exits `3` or `4`. When `HERDR_PANE_ID` is unset, the recovery step says the report is in the
+   delegate's own pane.
 
 | Exit | Meaning | The delegate may |
 | --- | --- | --- |
 | `0` | Prompt accepted and the parent became, or already was, active | stop |
 | `3` | Not sent: identity mismatch, pane or agent not found, `agent_blocked`, or `pane get` failed | run it once more, only after the cause is cleared |
 | `4` | May have been sent: `agent_prompt_stalled`, timeout, or another error during the prompt | not run it again |
-| `1` | Invalid arguments; nothing was sent | fix them and run it |
+| `1` | Invalid or missing arguments, including unset `STATUS` or `MESSAGE`; nothing was sent | fix them and run it |
+
+A Codex delegate cannot reach Herdr at all, so its callback exits `3` and its notification fails
+too, with `notified: false`. The printed JSON in its own pane is then the only signal, which is why
+the parent must watch a Codex delegate instead.
 
 The helper exists because the check is several steps of JSON comparison and error classification.
 Written as a shell one-liner in each handoff, it would drift.
 
-**On receipt**, the parent treats the callback as evidence. It re-runs the stated checks and reads
-the diff or file named. It continues only with work Martin has already authorized for the current
-increment, then reports in Result / Check / Your turn form. For `failed`, it does not retry or
-reassign. For `needs-input`, it relays the question to Martin and stops, because the callback is not
-his consent. It does not prompt the delegate in reply unless Martin tells it to.
+**On receipt**, the parent first matches the assignment ID against the handoffs it wrote. It does
+not act on a callback whose ID it did not issue, or on a second callback for an assignment it has
+already handled. Instead it tells Martin. Otherwise it treats the callback as evidence. It re-runs
+the stated checks and reads the diff or file named. It continues only with work Martin has already
+authorized for the current increment, then reports in Result / Check / Your turn form. For
+`failed`, it does not retry or reassign. For `needs-input`, it relays the question to Martin and
+stops, because the callback is not his consent. It does not prompt the delegate in reply unless
+Martin tells it to.
 
 ## Supported and unsupported
 
@@ -140,11 +160,24 @@ Where this direction cannot meet a criterion as written, the gap is stated rathe
   transcript records the callback as `role: user`, indistinguishable from Martin's typing except by
   that prefix. Authority separation is a rule the parent follows, not something the transport
   enforces.
+- **Unrelated assignment.** A second delegate of the same unchanged parent passes the session check.
+  What keeps it from resuming the wrong assignment is the assignment ID in the fixed prefix, which the
+  parent matches against the handoff it wrote. That match is a rule the parent follows, not something
+  the helper can check, because the direction stores no assignment state. A parent that ignores the
+  ID can act on the wrong callback.
+- **Privacy (criterion 6).** The message is text the delegate writes, and it enters the parent's
+  transcript as `role: user` without redaction. The handoff block and the skill tell the delegate to
+  leave out environment values, credentials, tokens, and transcript excerpts, and the 2000-character
+  limit keeps it to a summary. Nothing checks this. Redacting in the helper was rejected: it would
+  couple the helper to agent-guard's TypeScript internals, it only catches known secret shapes, and
+  the same text is already in the delegate's own pane.
 - **Real round trip (criterion 1).** Met once, live: a Pi parent launched a Claude delegate through
   `launch-command` with the `Report back:` line and ended its turn. The delegate called back through
   the helper with exit `0`, and the parent verified the result and stated a bounded next step
   without Martin relaying anything. The parent was a demo session with scripted instructions, and
-  its model came from personal settings (`pi-ambient`).
+  its model came from personal settings (`pi-ambient`). That run predates the assignment ID and the
+  `STATUS`/`MESSAGE` template; they are covered by automated tests, including a test that runs the
+  printed block in a real shell with quotes and shell metacharacters.
 - **Focused checks and a live trial (criterion 7).** Met: the helper's routing, exit codes, and
   notification are covered by automated tests with a fake `herdr`, and the round trip and the
   duplicate above ran live. Not observed live: `agent_blocked`, `agent_prompt_stalled`, and a

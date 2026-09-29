@@ -547,42 +547,61 @@ const CALLBACK_ACTIVITY_TIMEOUT_MS = 10000;
 const NOT_SENT = 3;
 const MAYBE_SENT = 4;
 
-// Run by the parent in its own shell; prints the handoff line naming this pane and session.
+// Run by the parent in its own shell. Prints the handoff block: a fresh assignment ID, and a
+// callback command bound to this pane and session whose status and message come from shell
+// variables, so copying it before substitution fails as a usage error instead of misparsing.
 function callbackHandoff() {
   if (process.env.HERDR_ENV !== "1" || !process.env.HERDR_PANE_ID) throw new Error("callback-handoff must run inside a Herdr pane (HERDR_ENV=1 and HERDR_PANE_ID)");
   const pane = jsonCommand("herdr", ["pane", "get", process.env.HERDR_PANE_ID]).result?.pane;
   const session = pane?.agent_session;
   if (!session?.kind || !session.source || !session.value) throw new Error(`Herdr reports no agent session for pane ${process.env.HERDR_PANE_ID}; the parent must be a recognized agent`);
+  const assignment = randomUUID().slice(0, 8);
   const command = [
     "node", shellQuote(fileURLToPath(import.meta.url)), "callback",
+    "--assignment", shellQuote(assignment),
     "--pane", shellQuote(pane.pane_id),
     "--session-kind", shellQuote(session.kind),
     "--session-source", shellQuote(session.source),
     "--session-value", shellQuote(session.value),
-    "--status", "<completed|failed|needs-input>",
-    "--message", "'<Result: … Check: … Your turn: …>'"
+    "--status", '"$STATUS"',
+    "--message", '"$MESSAGE"'
   ].join(" ");
-  return `Report back: when you stop, send exactly one callback to the parent that launched you: ${command}`
-    + " Use needs-input when you need Martin's decision, then wait in your pane."
-    + " Exit 0: delivered. Exit 3: not sent; you may run it once more, only after the printed cause is cleared."
-    + " Exit 4: it may have been sent; do not run it again."
-    + " Whatever the exit, keep your full completion block as your final message in this pane.";
+  return [
+    `Report back (assignment ${assignment}): when you stop, send exactly one callback to the parent that launched you.`
+      + " Set STATUS to completed, failed, or needs-input, and MESSAGE to one paragraph with Result, Check, and Your turn."
+      + " Put no environment values, credentials, tokens, or transcript excerpts in MESSAGE; name files and commands instead."
+      + " Use the quoted heredoc so quotes and $ stay literal, then run the last line unchanged:",
+    "STATUS=completed",
+    "MESSAGE=$(cat <<'CALLBACK'",
+    "Result: … Check: … Your turn: …",
+    "CALLBACK",
+    ")",
+    command,
+    "Use needs-input when you need Martin's decision, then wait in your pane."
+      + " Exit 0: delivered. Exit 3: not sent; you may run it once more, only after the printed cause is cleared."
+      + " Exit 4: it may have been sent; do not run it again."
+      + " Whatever the exit, keep your full completion block as your final message in this pane."
+  ].join("\n");
 }
 
 // Run by the delegate. Verifies the parent's identity, prompts once, and notifies on failure.
 function callback(options) {
-  for (const name of ["pane", "sessionKind", "sessionSource", "sessionValue", "status", "message"]) {
+  for (const name of ["assignment", "pane", "sessionKind", "sessionSource", "sessionValue", "status", "message"]) {
     if (!options[name]) throw new Error(`--${name.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)} is required`);
   }
+  if (!/^[A-Za-z0-9-]{4,40}$/.test(options.assignment)) throw new Error("--assignment must be the ID from the handoff");
   if (!CALLBACK_STATUSES.includes(options.status)) throw new Error(`--status must be ${CALLBACK_STATUSES.join(", ")}`);
-  const from = process.env.HERDR_PANE_ID || "unknown";
-  const text = `Delegate callback · ${options.status} · from pane ${from} · ${options.message}`.replace(/\s+/g, " ").trim();
+  const from = process.env.HERDR_PANE_ID;
+  const text = `Delegate callback · assignment ${options.assignment} · ${options.status} · from pane ${from || "unidentified"} · ${options.message}`.replace(/\s+/g, " ").trim();
   if (text.length > CALLBACK_MAX_LENGTH) throw new Error(`callback is ${text.length} characters; the limit is ${CALLBACK_MAX_LENGTH}. Keep the full report in your pane and send a summary`);
 
   const fail = (code, reason) => {
-    const body = `${reason} · full report in pane ${from}`;
-    command("herdr", ["notification", "show", "Delegate callback not sent", "--body", body, "--sound", "request"], { capture: true, allowFailure: true });
-    console.error(JSON.stringify({ ok: false, sent: code === NOT_SENT ? "no" : "maybe", reason }));
+    const recovery = from
+      ? `read the full report with: herdr pane read ${from} --source recent-unwrapped --lines 200`
+      : "the full report is in the delegate's own pane (HERDR_PANE_ID is unset)";
+    const notice = herdrJson(["notification", "show", "Delegate callback not sent", "--body", `Assignment ${options.assignment}: ${reason}. ${recovery}`, "--sound", "request"]);
+    console.error(JSON.stringify({ ok: false, sent: code === NOT_SENT ? "no" : "maybe", assignment: options.assignment, reason, recovery,
+      notified: !notice.error, ...(notice.error ? { notificationError: notice.error } : {}) }));
     process.exitCode = code;
   };
 
@@ -598,7 +617,7 @@ function callback(options) {
     const code = ["agent_blocked", "agent_not_found"].includes(prompted.code) ? NOT_SENT : MAYBE_SENT;
     return fail(code, `herdr agent prompt: ${prompted.error}`);
   }
-  console.log(JSON.stringify({ ok: true, sent: "yes", pane: options.pane, status: options.status }));
+  console.log(JSON.stringify({ ok: true, sent: "yes", assignment: options.assignment, pane: options.pane, status: options.status }));
 }
 
 // Herdr reports server errors as JSON on stderr with exit 1; keep the code for classification.
@@ -845,7 +864,7 @@ function allowedOptions(command) {
     case "review-pr": return new Map([["reviewer", "value"], ["workspace", "value"], ["allow-closed", "boolean"]]);
     case "finish-issue": return new Map([["delete-branch", "boolean"]]);
     case "launch-command": return new Map([["profile", "value"], ["effort", "value"], ["prompt", "value"]]);
-    case "callback": return new Map([["pane", "value"], ["session-kind", "value"], ["session-source", "value"], ["session-value", "value"], ["status", "value"], ["message", "value"]]);
+    case "callback": return new Map([["assignment", "value"], ["pane", "value"], ["session-kind", "value"], ["session-source", "value"], ["session-value", "value"], ["status", "value"], ["message", "value"]]);
     case "callback-handoff":
     case "cleanup-pr":
     case "status":
@@ -933,7 +952,7 @@ function output(value) {
 }
 
 function printHelp(code) {
-  console.log(`github-work — isolated GitHub issue and PR work in Herdr\n\nUsage:\n  github-work start-issue <number> [--agent claude|codex|pi|none]   (default: ${DEFAULT_ISSUE_AGENT})\n  github-work review-pr <number> [--reviewer claude|codex|pi] [--workspace <id>]\n                                                                  (default reviewer: ${DEFAULT_REVIEWER}; default host: this workspace, else the primary one)\n  github-work status\n  github-work finish-issue <number> [--delete-branch]\n  github-work cleanup-pr <number>\n  github-work profiles\n  github-work launch-command --profile <id> [--effort <level>] --prompt <text>\n  github-work callback-handoff                                    (parent: print the Report back line)\n  github-work callback --pane <id> --session-kind <k> --session-source <s> --session-value <v>\n                       --status completed|failed|needs-input --message <text>   (delegate)\n\nLaunch profiles (docs/agent-launch-profiles.md):\n  ${profileIds().join(", ")}\n\nEnvironment:\n  GITHUB_WORKTREE_ROOT       default: ~/.local/share/agent-worktrees\n  GITHUB_WORK_REMOTE         default: origin\n  FLIGHTDECK_TELEMETRY_FILE  optional Flightdeck-compatible JSONL sink\n`);
+  console.log(`github-work — isolated GitHub issue and PR work in Herdr\n\nUsage:\n  github-work start-issue <number> [--agent claude|codex|pi|none]   (default: ${DEFAULT_ISSUE_AGENT})\n  github-work review-pr <number> [--reviewer claude|codex|pi] [--workspace <id>]\n                                                                  (default reviewer: ${DEFAULT_REVIEWER}; default host: this workspace, else the primary one)\n  github-work status\n  github-work finish-issue <number> [--delete-branch]\n  github-work cleanup-pr <number>\n  github-work profiles\n  github-work launch-command --profile <id> [--effort <level>] --prompt <text>\n  github-work callback-handoff                                    (parent: print the Report back block)\n  github-work callback --assignment <id> --pane <id> --session-kind <k> --session-source <s> --session-value <v>\n                       --status completed|failed|needs-input --message <text>   (delegate)\n\nLaunch profiles (docs/agent-launch-profiles.md):\n  ${profileIds().join(", ")}\n\nEnvironment:\n  GITHUB_WORKTREE_ROOT       default: ~/.local/share/agent-worktrees\n  GITHUB_WORK_REMOTE         default: origin\n  FLIGHTDECK_TELEMETRY_FILE  optional Flightdeck-compatible JSONL sink\n`);
   process.exitCode = code;
 }
 
