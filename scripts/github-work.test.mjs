@@ -856,3 +856,94 @@ test("generated commands parse into the intended argv under a real shell", async
     assert.deepEqual(JSON.parse(await readFile(argvPath, "utf8")), argv, profile);
   }
 });
+
+// Delegate callbacks (docs/herdr-delegate-reporting.md). The fake herdr answers each
+// "<group> <verb>" from a scripted table and logs every call.
+const PARENT_SESSION = { agent: "pi", kind: "path", source: "herdr:pi", value: "/sessions/parent.jsonl" };
+const herdrError = (code) => ({ status: 1, stderr: JSON.stringify({ error: { code, message: `fake ${code}` } }) });
+const paneInfo = (session) => ({ stdout: JSON.stringify({ result: { pane: { pane_id: "w1:p2", agent: "pi", agent_session: session } } }) });
+
+async function callbackFixture(t, responses) {
+  const root = await mkdtemp(join(tmpdir(), "github-work-callback-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const bin = join(root, "bin");
+  await mkdir(bin);
+  const logPath = join(root, "herdr.log");
+  await writeFile(join(bin, "herdr"), `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(logPath)}, JSON.stringify(args) + "\\n");
+const reply = (${JSON.stringify(responses)})[args.slice(0, 2).join(" ")] ?? { stdout: "{}" };
+if (reply.stdout) process.stdout.write(reply.stdout);
+if (reply.stderr) process.stderr.write(reply.stderr);
+process.exit(reply.status ?? 0);
+`);
+  await chmod(join(bin, "herdr"), 0o755);
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, HERDR_ENV: "1", HERDR_PANE_ID: "w1:p9" };
+  const calls = async () => (await readFile(logPath, "utf8").catch(() => "")).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  return { env, calls };
+}
+
+const callbackArgs = (overrides = {}) => {
+  const options = { pane: "w1:p2", "session-kind": "path", "session-source": "herdr:pi", "session-value": "/sessions/parent.jsonl",
+    status: "completed", message: "Result: done.\nCheck: docs/x.md. Your turn: nothing.", ...overrides };
+  return ["callback", ...Object.entries(options).flatMap(([key, value]) => [`--${key}`, value])];
+};
+
+test("callback-handoff prints the callback command bound to the caller's pane and session", async (t) => {
+  const { env } = await callbackFixture(t, { "pane get": paneInfo(PARENT_SESSION) });
+  const result = invoke(["callback-handoff"], env);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /^Report back: /);
+  for (const part of ["callback --pane 'w1:p2'", "--session-kind 'path'", "--session-source 'herdr:pi'", "--session-value '/sessions/parent.jsonl'"]) {
+    assert.ok(result.stdout.includes(part), part);
+  }
+  assert.match(result.stdout, /Exit 4: it may have been sent; do not run it again/);
+});
+
+test("callback-handoff refuses a pane without an agent session", async (t) => {
+  const { env } = await callbackFixture(t, { "pane get": paneInfo(undefined) });
+  const result = invoke(["callback-handoff"], env);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /no agent session/);
+});
+
+test("callback verifies the parent session, prompts once on one line, and does not notify", async (t) => {
+  const { env, calls } = await callbackFixture(t, { "pane get": paneInfo(PARENT_SESSION) });
+  const result = invoke(callbackArgs(), env);
+  assert.equal(result.status, 0, result.stderr);
+  const log = await calls();
+  assert.deepEqual(log.map((args) => args.slice(0, 2).join(" ")), ["pane get", "agent prompt"]);
+  assert.deepEqual(log[1], ["agent", "prompt", "w1:p2",
+    "Delegate callback · completed · from pane w1:p9 · Result: done. Check: docs/x.md. Your turn: nothing.",
+    "--wait", "--until", "working", "--until", "blocked", "--timeout", "10000"]);
+});
+
+for (const [name, responses, code] of [
+  ["a replaced parent session", { "pane get": paneInfo({ ...PARENT_SESSION, value: "/sessions/other.jsonl" }) }, 3],
+  ["a missing parent pane", { "pane get": herdrError("pane_not_found") }, 3],
+  ["a blocked parent", { "pane get": paneInfo(PARENT_SESSION), "agent prompt": herdrError("agent_blocked") }, 3],
+  ["a stalled prompt", { "pane get": paneInfo(PARENT_SESSION), "agent prompt": herdrError("agent_prompt_stalled") }, 4]
+]) {
+  test(`callback to ${name} exits ${code}, notifies once, and never retries`, async (t) => {
+    const { env, calls } = await callbackFixture(t, responses);
+    const result = invoke(callbackArgs(), env);
+    assert.equal(result.status, code, result.stderr);
+    assert.equal(JSON.parse(result.stderr).sent, code === 3 ? "no" : "maybe");
+    const log = await calls();
+    assert.ok(log.filter((args) => args[0] === "agent" && args[1] === "prompt").length <= 1);
+    const notices = log.filter((args) => args[0] === "notification");
+    assert.equal(notices.length, 1);
+    assert.match(notices[0][notices[0].indexOf("--body") + 1], /full report in pane w1:p9/);
+    if (name === "a replaced parent session" || name === "a missing parent pane") {
+      assert.equal(log.some((args) => args[0] === "agent"), false);
+    }
+  });
+}
+
+test("callback rejects an unknown status or an oversized message before calling Herdr", async (t) => {
+  const { env, calls } = await callbackFixture(t, {});
+  assert.equal(invoke(callbackArgs({ status: "done" }), env).status, 1);
+  assert.equal(invoke(callbackArgs({ message: "x".repeat(2001) }), env).status, 1);
+  assert.deepEqual(await calls(), []);
+});
