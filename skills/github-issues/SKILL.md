@@ -37,14 +37,24 @@ Search for duplicates using the CLI's draft result and meaningful words from the
 ## Create an issue
 
 Draft the complete issue as JSON and run `github-planning.mjs validate-draft` before publishing it. The result must show repository issue-form expectations, valid-label findings, plausible duplicate candidates, and the complete `proposedMutation`. Follow the repository's issue form where present.
-A useful issue normally contains:
+A useful issue states the outcome, the next useful increment and where it stops, how to check it,
+and what is left out, plus any constraints, dependencies, and risks. Link existing context and
+evidence instead of repeating it. For example:
 
-- problem or desired outcome;
-- context and evidence;
-- explicit scope and non-goals;
-- acceptance criteria that can be verified;
-- constraints, dependencies, and risks;
-- validation expectations.
+```markdown
+## Outcome
+Operators can see which required checks failed without opening CI logs.
+
+## Next increment
+List failed check names in `github-work status`. Stop there and show the output; a pull request
+comment is a later increment.
+
+## Check
+In a worktree whose pull request has a failing required check, `status` names that check.
+
+## Left out
+Re-running checks. Context: [the CI discussion](URL).
+```
 
 Do not invent labels. Use only labels accepted by draft validation. Prefer `--body-file` over shell inline Markdown. Show the title, body, labels, assignees, parent, dependencies, milestone, and every Project field change before `gh issue create` unless already explicitly authorized. Draft validation never authorizes or performs publication.
 
@@ -56,7 +66,7 @@ Read the entire issue and relevant comments. Check that it is still valid, non-d
 appropriately scoped, and implementable without guessing. A ready issue has:
 
 - a concrete outcome rather than a prescribed implementation where alternatives remain open;
-- bounded scope and named non-goals;
+- a bounded next increment with a stopping point, and named non-goals;
 - testable acceptance criteria;
 - known parent, dependencies, and blockers;
 - repository-valid labels;
@@ -84,17 +94,17 @@ pull-request number as the primary description of work.
   by the current issue and the proposed sibling outcomes.
 - Distinguish facts observed on GitHub from recommendations. Do not present a future gate date,
   readiness judgment, or proposed restructuring without explaining its source and consequence.
-- End with the smallest decision needed from the operator. Phrase alternatives by outcome and title,
+- Ask for the smallest decision needed from the operator. Phrase alternatives by outcome and title,
   not number alone, and recommend a default when the evidence supports one.
 
-Use this compact structure, omitting empty sections:
+Lead with the update shape from the shared policy. **Result:** counts plus a one-sentence
+interpretation of flow and capacity. **Check:** a link to the Project view. **Your turn:** the
+decision. Then add these sections, omitting empty ones:
 
-1. **State at a glance:** counts plus a one-sentence interpretation of flow and capacity.
-2. **Ready queue / active work:** one row per relevant item with linked title, priority/size/readiness,
+1. **Ready queue / active work:** one row per relevant item with linked title, priority/size/readiness,
    why it is or is not actionable, and the next move.
-3. **Dependencies and review gates:** named relationships, failed checks, and when/how they clear.
-4. **Attention and proposed changes:** concrete diagnosis, recommendation, and expected queue effect.
-5. **Decision:** a descriptive choice or confirmation request.
+2. **Dependencies and review gates:** named relationships, failed checks, and when/how they clear.
+3. **Attention and proposed changes:** concrete diagnosis, recommendation, and expected queue effect.
 
 Do not enumerate every healthy backlog item merely for completeness. Do include every Ready,
 In-progress, In-review, blocked-near-Ready, or otherwise actionable item; summarize the rest by count.
@@ -124,10 +134,11 @@ request, or a stack of layer pull requests when the change is worth reading in s
 [`github-pull-requests`](../github-pull-requests/SKILL.md) for the layer workflow. Layers create no
 extra capacity, because each layer awaiting review counts as a pull request awaiting review.
 
-Implementation also follows the checkpoint and preview contract in
-[the shared workflow policy](../_shared/github-workflow.md): pause for a consequential or unspecified
-UI/UX decision with something running for the user to look at, and treat design acceptance as
-permission to keep implementing, not to commit, publish, or merge.
+Implementation also follows the increment, checkpoint, and preview contract in
+[the shared workflow policy](../_shared/github-workflow.md): deliver the issue's next increment, show
+it, and stop; pause for a consequential or unspecified UI/UX decision with something running for the
+user to look at; and treat design acceptance as permission to keep implementing, not to commit,
+publish, or merge.
 
 ## Completion
 

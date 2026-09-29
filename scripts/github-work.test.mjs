@@ -224,7 +224,12 @@ test("managed start creates a native Herdr issue worktree and launches in its ro
 });
 
 const ISSUE_TASK = "Work on GitHub issue #10 in owner/repo. Read the repository instructions and issue,"
-  + " implement it in this worktree, validate the changes, and prepare a pull request. Do not merge."
+  + " and implement the issue's next increment in this worktree, which is the whole issue when it is one"
+  + " bounded change. Validate it, show it, and stop before starting another; prepare a pull request when"
+  + " the issue is complete. Do not merge. Routine edits need no approval; ask before expanding scope."
+  + " Lead every update with Result (what now exists), Check (how Martin can see it), and Your turn (the"
+  + " one decision needed, or nothing), normally within one screen; keep failures and limitations, and"
+  + " link evidence instead of pasting it."
   + " Follow the repository's checkpoint and preview contract: pause at a consequential or unspecified"
   + " UI/UX decision and bring a running preview you opened yourself, and change nothing that alters it"
   + " while you wait. Accepting a design lets you keep implementing in that direction; it is not"
@@ -256,6 +261,9 @@ for (const [agent, profile, designSuffix] of [
     assert.match(command, /bring a running preview you opened yourself/);
     assert.match(command, /not authorization to push, open or publish a pull request, or merge/);
     assert.match(command, /never overrides a repository rule that requires approval before committing/);
+    assert.match(command, /stop before starting another/);
+    assert.match(command, /ask before expanding scope/);
+    assert.match(command, /Result \(what now exists\), Check .*, and Your turn/);
     if (agent === "codex") assert.doesNotMatch(launch.args[3], /danger-full-access/);
   });
 }
@@ -306,6 +314,7 @@ for (const [reviewer, expectedProfile, designMarker] of [
     assert.match(command, /Martin is one developer responsible for many projects/);
     assert.match(command, /reasoning that exists only in an agent transcript/);
     assert.match(command, /review the diff of that layer against its own base branch/);
+    assert.match(command, /Lead with a one-line verdict and the decision it needs/);
     assert.match(command, designMarker);
     if (reviewer === "codex") {
       assert.doesNotMatch(command, /--full-auto/);

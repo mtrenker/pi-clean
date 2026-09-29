@@ -100,6 +100,24 @@ repository requires approval first, and it authorizes no publication and no merg
 the target repository still binds. Merging always needs authorization refreshed against live state
 immediately beforehand.
 
+### Increments and updates
+
+Work in bounded increments. An increment is the next useful change the issue or request names; an
+issue that is one bounded change is one increment. Finish it, show it, and stop before starting
+another. Routine edits inside it need no approval; expanding scope beyond it does. When the user
+explicitly asks you to finish a bounded task, run it to completion and report once.
+
+Every update to the user, whether a checkpoint, a completion, or a status reply, leads with:
+
+- **Result:** what now exists or what you found, in plain words.
+- **Check:** how the user can see it: a command, route, file, or link.
+- **Your turn:** the one decision or authorization you need, or "nothing".
+
+Add only what the reader needs after that, normally within one screen. Always keep failed or skipped
+checks and real limitations. Name work by title, not criterion codes or session history, and link
+evidence instead of pasting it. A coordinator reports its own conclusions, not its workers' reports
+again.
+
 ### Checkpoints
 
 Pause and ask when:
@@ -119,11 +137,11 @@ small changes within it do not pause again, and opening a layer is not by itself
 When you are unsure whether a decision is consequential, state the assumption, continue, and list it
 in the next checkpoint or the pull request body rather than blocking.
 
-A checkpoint states the decision in one sentence and what you would do without an answer, the
-options you actually considered where more than one is reasonable, a preview for any UI/UX decision,
-and what you are explicitly not asking about. A bounded prototype is a legitimate way to make an
-unresolved visual choice inspectable; say that it is a prototype, because showing one does not make
-it accepted production design.
+A checkpoint is an update in that shape. Its Your turn states the decision in one sentence and what
+you would do without an answer, and its Check is the preview for any UI/UX decision. Add the options
+you actually considered where more than one is reasonable, and what you are explicitly not asking
+about. A bounded prototype is a legitimate way to make an unresolved visual choice inspectable; say
+that it is a prototype, because showing one does not make it accepted production design.
 
 Silence never resumes a checkpoint. Wait for an explicit answer; a quiet pane, a timeout, or your own
 conclusion that the direction has become obvious is not one.

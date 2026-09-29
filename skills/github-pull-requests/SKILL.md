@@ -25,7 +25,7 @@ or one layer branch of a stack. Draft a PR using the local pull request template
 
 - linked issue (`Closes #N` only for complete resolution);
 - concise explanation of behavior and design decisions;
-- validation commands and outcomes;
+- validation outcomes, including failures, linked rather than pasted;
 - risks, limitations, migrations, or screenshots where relevant.
 
 Show the final title/body/base/head before `gh pr create` unless the user explicitly authorized
@@ -179,12 +179,11 @@ their vendor's flag for it, so a reviewer that needs help asks for a second visi
 
 Review the full diff for correctness, regressions, security, error handling, maintainability,
 test quality, and issue acceptance criteria. For a pull request in a stack, that diff is the
-layer's own diff against its base branch, with the stack map for context, not the whole stack. Run focused validation when practical. Distinguish:
+layer's own diff against its base branch, with the stack map for context, not the whole stack. Run focused validation when practical. Lead the report with the verdict and the decision it needs, then distinguish:
 
 - blocking findings with file/line evidence and a concrete failure mode;
 - non-blocking suggestions;
-- questions caused by missing context;
-- verified strengths worth preserving.
+- questions caused by missing context.
 
 The authoring agent must not be the sole independent reviewer. When correctness depends on a new
 or materially changed product, UX, interaction, visual, architecture, API, or data-model direction,
