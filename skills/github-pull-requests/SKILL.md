@@ -111,4 +111,5 @@ never stop a service you did not start or that something else shares.
 
 The helper must refuse dirty worktrees. Remote branch deletion is a separate consequential action.
 `--delete-branch` handles one branch; a stack's other layer branches are removed deliberately, as
-described above.
+[the stacked pull requests reference](references/stacked-pull-requests.md#merge-and-clean-up-a-stack)
+describes.
