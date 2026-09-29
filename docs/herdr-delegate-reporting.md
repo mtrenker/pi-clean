@@ -49,6 +49,24 @@ shell, standing in for a delegate. The tab was closed afterwards.
 | Missing target | `herdr agent prompt w5:p999 x`; `herdr pane get w5:p999` | Exit 1 with `{"error":{"code":"agent_not_found",…}}` and `{"error":{"code":"pane_not_found",…}}` |
 | Codex delegate | Prompted the `codex-sol-write` session in `w5:pE` once to run `herdr agent prompt w5:pG "codex callback test"` and `herdr pane get w5:pG` | Both exited 1 with `Error: Os { code: 1, kind: PermissionDenied, message: "Operation not permitted" }`. Nothing reached the parent's session file. |
 
+### Round trip through the helper
+
+Run the same day, after the helper existed. A fresh Pi parent (`launch-command --profile
+pi-ambient`) sat in a named tab `Demo · parent Pi` (pane `w5:pH`, session
+`2026-09-29T08-54-39-601Z_01a0ec5f-….jsonl`). Its prompt told it to run `callback-handoff`, open a
+second named tab `Demo · delegate`, launch `claude-opus` at effort `low` there through
+`launch-command` with a read-only task and the `Report back:` line, and end its turn without waiting.
+The prompt also told it what to do with a callback, and with an identical second one. Both tabs were
+closed afterwards.
+
+| Step | Observed |
+| --- | --- |
+| Handoff | The parent ran `callback-handoff`, which printed the command bound to `--pane 'w5:pH' --session-kind 'path' --session-source 'herdr:pi'` and its session file. It created the delegate tab (pane `w5:pJ`), launched Claude, replied "Delegate launched in pane `w5:pJ`", and ended its turn at 08:55:02 UTC. |
+| Delegate | Claude counted the headings with `grep` and ran the `callback` command once with `--status completed`. Its transcript shows the helper printing `{"ok":true,"sent":"yes","pane":"w5:pH","status":"completed"}` and exit `0`. |
+| Parent transcript | At 08:55:05, a `message` with `role: user`: "Delegate callback · completed · from pane w5:pJ · Result: 6 lines start with '## '; the last is '## Non-goals'. Check: … Your turn: nothing." |
+| Parent turn | A turn started without anyone typing. The parent re-ran the count with one read-only `awk` command, replied "Matches: 6 headings; the last is `## Non-goals`", and gave its next step without taking it: "record this verified callback as evidence for issue #51. Not taken." It did not prompt the delegate. |
+| Duplicate | Re-running the identical command by hand from another shell (with `HERDR_PANE_ID=w5:pJ`, so the text was identical) also exited `0` with `sent: yes`. The parent got a second `user` message and a second turn, and replied "Identical duplicate callback received. Verification not repeated." Only its prompt made it hold back. Nothing in the transport suppressed the duplicate. |
+
 Documented but not observed here: `agent_blocked`, which Herdr's help says rejects the prompt before
 any input is sent, and `agent_prompt_stalled`, returned when `--wait` sees no activity within 5 s. The
 following were not tried: a callback arriving while Martin has a half-written draft in the parent's
@@ -110,7 +128,8 @@ Where this direction cannot meet a criterion as written, the gap is stated rathe
 
 - **Duplicates.** Nothing suppresses a duplicate callback. The bounds are one callback per
   assignment, no re-run after exit `4`, and at most one re-run after exit `3`. A delegate that ignores
-  them can make the parent act twice.
+  them can make the parent act twice, and the round trip above shows it: an identical second
+  callback started a second turn.
 - **Replaced parent.** The identity check refuses to prompt a replaced parent (`/new`, `/resume`,
   `/fork`, or a different agent in the pane), notifies Martin, and leaves the report in the
   delegate's pane. The report is never delivered later. Martin reads it there.
@@ -121,9 +140,15 @@ Where this direction cannot meet a criterion as written, the gap is stated rathe
   transcript records the callback as `role: user`, indistinguishable from Martin's typing except by
   that prefix. Authority separation is a rule the parent follows, not something the transport
   enforces.
-- **Live round trip.** The run above delivered callbacks from a Claude shell to a Pi parent with raw
-  `herdr agent prompt`. A Pi parent launching a delegate that calls back through the new helper has
-  not yet been run live; the helper is covered by automated tests with a fake `herdr`.
+- **Real round trip (criterion 1).** Met once, live: a Pi parent launched a Claude delegate through
+  `launch-command` with the `Report back:` line and ended its turn. The delegate called back through
+  the helper with exit `0`, and the parent verified the result and stated a bounded next step
+  without Martin relaying anything. The parent was a demo session with scripted instructions, and
+  its model came from personal settings (`pi-ambient`).
+- **Focused checks and a live trial (criterion 7).** Met: the helper's routing, exit codes, and
+  notification are covered by automated tests with a fake `herdr`, and the round trip and the
+  duplicate above ran live. Not observed live: `agent_blocked`, `agent_prompt_stalled`, and a
+  replaced parent through the helper.
 - **Crashes.** A delegate that crashes sends nothing, so a crash cannot read as success. Nothing tells
   the parent, either; Martin sees the pane in Herdr.
 
