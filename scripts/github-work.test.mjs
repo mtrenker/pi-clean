@@ -902,13 +902,31 @@ test("the printed handoff block runs unchanged in a shell once STATUS and MESSAG
   const commandLine = lines.find((line) => line.startsWith("node "));
   assert.ok(commandLine.includes(`--assignment '${assignment}'`));
 
-  const message = `Result: it's done; "quoted" $HOME \`date\` $(id) > /tmp/x | cat & echo hi. Check: a.md. Your turn: nothing.`;
-  const script = ["STATUS=needs-input", "MESSAGE=$(cat <<'CALLBACK'", message, "CALLBACK", ")", commandLine].join("\n");
+  // Fill in the printed template exactly as the block tells the delegate to: set STATUS and replace
+  // the placeholder line with the message, leaving every other printed line untouched.
+  const message = [
+    `Result: it's done; "quoted" $HOME \`date\` $(id) > /tmp/x | cat & echo hi.`,
+    "CALLBACK",
+    `touch ${JSON.stringify(join(tmpdir(), "never"))}; echo escaped`,
+    "Check: a.md. Your turn: nothing."
+  ].join("\n");
+  const start = lines.indexOf("STATUS=completed");
+  const script = lines.slice(start, lines.indexOf(commandLine) + 1)
+    .map((line) => line === "STATUS=completed" ? "STATUS=needs-input" : line === "Result: … Check: … Your turn: …" ? message : line)
+    .join("\n");
+  assert.match(lines[start + 1], /^MESSAGE=\$\(cat <<'CALLBACK_[0-9A-F]{8}'$/);
   const run = spawnSync("bash", ["-c", script], { encoding: "utf8", env });
   assert.equal(run.status, 0, run.stderr);
+  assert.doesNotMatch(run.stdout + run.stderr, /escaped|command not found/);
   const prompts = promptCalls(await calls());
   assert.equal(prompts.length, 1);
-  assert.equal(prompts[0][3], `Delegate callback · assignment ${assignment} · needs-input · from pane w1:p9 · ${message}`);
+  assert.equal(prompts[0][3], `Delegate callback · assignment ${assignment} · needs-input · from pane w1:p9 · ${message.replace(/\s+/g, " ")}`);
+});
+
+test("each handoff block uses its own heredoc delimiter", async (t) => {
+  const { env } = await callbackFixture(t, { "pane get": paneInfo(PARENT_SESSION) });
+  const delimiters = [1, 2].map(() => invoke(["callback-handoff"], env).stdout.match(/<<'(CALLBACK_[0-9A-F]{8})'/)[1]);
+  assert.notEqual(delimiters[0], delimiters[1]);
 });
 
 test("copying the handoff command before setting STATUS and MESSAGE sends nothing", async (t) => {

@@ -556,6 +556,8 @@ function callbackHandoff() {
   const session = pane?.agent_session;
   if (!session?.kind || !session.source || !session.value) throw new Error(`Herdr reports no agent session for pane ${process.env.HERDR_PANE_ID}; the parent must be a recognized agent`);
   const assignment = randomUUID().slice(0, 8);
+  // A per-handoff delimiter, so a message line cannot close the heredoc and run as shell.
+  const delimiter = `CALLBACK_${randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase()}`;
   const command = [
     "node", shellQuote(fileURLToPath(import.meta.url)), "callback",
     "--assignment", shellQuote(assignment),
@@ -570,11 +572,12 @@ function callbackHandoff() {
     `Report back (assignment ${assignment}): when you stop, send exactly one callback to the parent that launched you.`
       + " Set STATUS to completed, failed, or needs-input, and MESSAGE to one paragraph with Result, Check, and Your turn."
       + " Put no environment values, credentials, tokens, or transcript excerpts in MESSAGE; name files and commands instead."
-      + " Use the quoted heredoc so quotes and $ stay literal, then run the last line unchanged:",
+      + ` Use the quoted heredoc so quotes and $ stay literal, never put a line reading ${delimiter} in the message,`
+      + " then run the last line unchanged:",
     "STATUS=completed",
-    "MESSAGE=$(cat <<'CALLBACK'",
+    `MESSAGE=$(cat <<'${delimiter}'`,
     "Result: … Check: … Your turn: …",
-    "CALLBACK",
+    delimiter,
     ")",
     command,
     "Use needs-input when you need Martin's decision, then wait in your pane."

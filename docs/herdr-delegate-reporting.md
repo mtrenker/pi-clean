@@ -88,7 +88,10 @@ lets the parent match the callback to the handoff it wrote, which is still in it
 so no state is stored anywhere.
 
 The command takes its status and message from `"$STATUS"` and `"$MESSAGE"`. The block tells the
-delegate to set `MESSAGE` with a quoted heredoc, so apostrophes, `$`, and backticks stay literal. If
+delegate to set `MESSAGE` with a quoted heredoc, so apostrophes, `$`, and backticks stay literal. Its
+delimiter is random per handoff (`CALLBACK_` and 8 hex characters), so a message line reading
+`CALLBACK` cannot close it early and run the rest as shell; the block names the delimiter and tells
+the delegate never to put that line in the message. If
 the command is copied before the variables are set, it fails as a usage error and sends nothing.
 The block also tells the delegate to put no environment values, credentials, tokens, or transcript
 excerpts in the message, and to name files and commands instead.
