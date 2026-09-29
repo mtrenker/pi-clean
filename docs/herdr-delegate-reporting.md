@@ -67,6 +67,23 @@ closed afterwards.
 | Parent turn | A turn started without anyone typing. The parent re-ran the count with one read-only `awk` command, replied "Matches: 6 headings; the last is `## Non-goals`", and gave its next step without taking it: "record this verified callback as evidence for issue #51. Not taken." It did not prompt the delegate. |
 | Duplicate | Re-running the identical command by hand from another shell (with `HERDR_PANE_ID=w5:pJ`, so the text was identical) also exited `0` with `sent: yes`. The parent got a second `user` message and a second turn, and replied "Identical duplicate callback received. Verification not repeated." Only its prompt made it hold back. Nothing in the transport suppressed the duplicate. |
 
+### Re-run with the final helper
+
+Run the same day after the assignment ID, the `STATUS`/`MESSAGE` template with its random heredoc
+delimiter, and the notification changes. The setup matched the first round trip: a fresh `pi-ambient`
+parent in `Demo · parent Pi` (pane `w5:pM`, session `2026-09-29T09-08-14-505Z_01a0ec6b-….jsonl`)
+and a `claude-opus` delegate at effort `low` in `Demo · delegate` (pane `w5:pN`). The parent's prompt
+repeated the skill's on-receipt rule. The delegate was told to include an apostrophe and a line that
+is exactly `CALLBACK`. Both tabs were closed afterwards.
+
+| Step | Observed |
+| --- | --- |
+| Handoff | The parent ran `callback-handoff`, which issued assignment `b109ce27` with heredoc delimiter `CALLBACK_08C7D0B3`. It launched the delegate, replied "Delegate pane: `w5:pN` (Demo · delegate); assignment: `b109ce27`.", and ended its turn. Herdr took about 6 s to detect the new Pi, so a `herdr agent wait` issued immediately after launch returned before the agent was recognized. |
+| Delegate | Claude ran the printed block unchanged apart from `STATUS` and the message. The message included an apostrophe (`didn't`) and a plain `CALLBACK` line, and the delimiter held. The helper printed `{"ok":true,"sent":"yes","assignment":"b109ce27","pane":"w5:pM","status":"completed"}`, exit `0`. |
+| Parent transcript | A `role: user` message: "Delegate callback · assignment b109ce27 · completed · from pane w5:pN · Result: … 6 lines starting with '## ', and the last one is "## Non-goals"; I didn't edit any file. CALLBACK Check: …". The helper's one-line collapse put `CALLBACK` inline. |
+| Parent turn | A turn started without anyone typing. The parent replied "Assignment `b109ce27` matches my handoff", re-ran the count with one read-only `awk` command ("Verified: 6 headings; last is `## Non-goals`"), and gave a next step without taking it: "inspect callback formatting; not taken". It had noticed that `CALLBACK` was not on its own line. It did not prompt the delegate. |
+| Wrong assignment | A callback sent by hand from another pane with `--assignment deadbeef` to the same parent and session. The helper exited `0` with `sent: yes`, because it cannot know which IDs the parent issued. The parent replied "Martin, I didn't issue assignment `deadbeef`. I'll take no action on this callback." and made no tool call. |
+
 Documented but not observed here: `agent_blocked`, which Herdr's help says rejects the prompt before
 any input is sent, and `agent_prompt_stalled`, returned when `--wait` sees no activity within 5 s. The
 following were not tried: a callback arriving while Martin has a half-written draft in the parent's
@@ -167,7 +184,8 @@ Where this direction cannot meet a criterion as written, the gap is stated rathe
   What keeps it from resuming the wrong assignment is the assignment ID in the fixed prefix, which the
   parent matches against the handoff it wrote. That match is a rule the parent follows, not something
   the helper can check, because the direction stores no assignment state. A parent that ignores the
-  ID can act on the wrong callback.
+  ID can act on the wrong callback. In the re-run the parent refused a callback for an ID it had not
+  issued, but the helper delivered it with exit `0`.
 - **Privacy (criterion 6).** The message is text the delegate writes, and it enters the parent's
   transcript as `role: user` without redaction. The handoff block and the skill tell the delegate to
   leave out environment values, credentials, tokens, and transcript excerpts, and the 2000-character
@@ -178,13 +196,14 @@ Where this direction cannot meet a criterion as written, the gap is stated rathe
   `launch-command` with the `Report back:` line and ended its turn. The delegate called back through
   the helper with exit `0`, and the parent verified the result and stated a bounded next step
   without Martin relaying anything. The parent was a demo session with scripted instructions, and
-  its model came from personal settings (`pi-ambient`). That run predates the assignment ID and the
-  `STATUS`/`MESSAGE` template; they are covered by automated tests, including a test that runs the
-  printed block in a real shell with quotes and shell metacharacters.
+  its model came from personal settings (`pi-ambient`). The re-run repeated this through the final
+  helper, with the assignment ID, the random-delimiter template, and a message containing an
+  apostrophe and a `CALLBACK` line.
 - **Focused checks and a live trial (criterion 7).** Met: the helper's routing, exit codes, and
-  notification are covered by automated tests with a fake `herdr`, and the round trip and the
-  duplicate above ran live. Not observed live: `agent_blocked`, `agent_prompt_stalled`, and a
-  replaced parent through the helper.
+  notification are covered by automated tests with a fake `herdr`. The round trip, the duplicate,
+  the re-run through the final helper, and a wrong-assignment callback ran live. Not observed live:
+  `agent_blocked`, `agent_prompt_stalled`, a replaced parent through the helper, and a failed
+  notification.
 - **Crashes.** A delegate that crashes sends nothing, so a crash cannot read as success. Nothing tells
   the parent, either; Martin sees the pane in Herdr.
 
