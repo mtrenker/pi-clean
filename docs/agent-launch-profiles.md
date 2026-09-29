@@ -134,8 +134,8 @@ personal settings files (read, not changed), and the Claude session that did the
 exercised in a live Pi or Codex session.
 
 The managed prompt is the only channel that reaches every harness. `start-issue` writes the
-increment rule and the update shape into the author's prompt, and `review-pr` asks the reviewer to
-lead with a one-line verdict and the decision it needs, whichever agent runs. `launch-command`
+increment rule and the update shape into the author's prompt, and `review-pr` asks the reviewer for
+the same shape, with the verdict as Result and file and line evidence as Check, whichever agent runs. `launch-command`
 appends only the delegation boundary, so an ad-hoc launch carries those rules only when its prompt
 does; the handoff template in `interactive-agent-sessions` includes them for that reason.
 

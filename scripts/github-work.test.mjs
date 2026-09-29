@@ -315,7 +315,7 @@ for (const [reviewer, expectedProfile, designMarker] of [
     assert.match(command, /Martin is one developer responsible for many projects/);
     assert.match(command, /reasoning that exists only in an agent transcript/);
     assert.match(command, /review the diff of that layer against its own base branch/);
-    assert.match(command, /Lead with a one-line verdict and the decision it needs/);
+    assert.match(command, /Lead with Result \(a one-line verdict\), Check \(the file and line evidence behind it\), and Your turn \(the decision needed\)/);
     assert.match(command, designMarker);
     if (reviewer === "codex") {
       assert.doesNotMatch(command, /--full-auto/);
