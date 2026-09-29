@@ -222,9 +222,10 @@ repository:
 node "$BRANCH_PACKAGE/scripts/github-work.mjs" start-issue <number>
 ```
 
-This repository is a pi package, not a Claude Code plugin, so Claude Code has no equivalent
-per-session flag. Give a Claude session the absolute paths instead: the skills are plain Markdown and
-the helper runs from the branch path above.
+For Claude Code the checkout is also a plugin, so a session on the trial branch loads the trial
+skills: `claude --plugin-dir "$BRANCH_PACKAGE"` for one session, or the personal
+`CLAUDE_CODE_PLUGIN_DIRS` setting when it already points at this checkout and the branch is checked
+out. The helper runs from the branch path above either way.
 
 Installing the branch as a pinned git ref is the other way to reach it, and it writes settings. The
 local trial does not need it, so it is left to pi's own packages documentation rather than written

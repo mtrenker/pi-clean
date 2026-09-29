@@ -41,15 +41,11 @@ and reviews.
 
 ## Delegation and design ownership
 
-When delegating work that establishes or materially changes a solution direction, Claude Opus 5.5
-(`claude-opus-5-5`) must own the design. This includes product, UX, interaction, visual, architecture,
-API, and data-model design. Other models may investigate constraints, implement an approved Opus
-design, and validate it, but must not invent or materially revise unresolved design. Fable may
-coordinate the work, but it must assign the design phase to Opus. Fable is not a code implementation
-model: it must not edit implementation files or delegate coding to another Fable instance unless
-Martin explicitly requests Fable implementation for that specific task. Use Opus or Codex as coding
-workers. Make the Opus design durable in the issue, an artifact, or repository documentation before
-dependent implementation proceeds.
+[Delegated design ownership](skills/_shared/github-workflow.md#delegated-design-ownership) in the
+shared workflow policy is the rule, in full: Claude Opus 5.5 owns any delegated design, Opus or
+Codex do the coding, and Fable coordinates without editing implementation files unless Martin
+explicitly asks for Fable implementation on that task. Follow it from there rather than from a
+paraphrase.
 
 Launch settings for delegated sessions live in `scripts/agent-profiles.mjs` and are documented in
 [`docs/agent-launch-profiles.md`](docs/agent-launch-profiles.md); which model each profile pins, and

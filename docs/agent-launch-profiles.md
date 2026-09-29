@@ -142,11 +142,13 @@ does; the handoff template in `interactive-agent-sessions` includes them for tha
 | Harness | Context file | pi-clean skills | Gap |
 | --- | --- | --- | --- |
 | Pi | `AGENTS.md` or `CLAUDE.md` from the working directory and its parents, plus the agent directory, which has none | Listed by name and description from the package `~/.pi/agent/settings.json` declares, `../../code/pi-clean`: whatever branch the primary checkout has. The model reads a full `SKILL.md` only when it picks that skill | In another repository pi-clean's `AGENTS.md` is not loaded, so a manual session follows the rules only if it opens the relevant skill |
-| Claude Code | `CLAUDE.md`, or `AGENTS.md` where a project has no `CLAUDE.md` (the default `claude-md-or-agents-md`); no `~/.claude/CLAUDE.md` exists | Not discovered. Claude lists skills from `.claude/skills`, `~/.claude/skills`, and plugins, and pi-clean is none of these | A manual session in pi-clean loads `AGENTS.md`, which names skills Claude cannot list; in another repository it gets neither. `--disallowed-tools Agent,Workflow` removes spawning tools and does not affect instructions |
+| Claude Code | `CLAUDE.md`, or `AGENTS.md` where a project has no `CLAUDE.md` (the default `claude-md-or-agents-md`); no `~/.claude/CLAUDE.md` exists | Listed as `pi-clean:<skill>` in every session once the checkout is loaded as a plugin: `.claude-plugin/plugin.json` marks the repository as one, and the personal setting `env.CLAUDE_CODE_PLUGIN_DIRS` (or a symlink to the checkout under `~/.claude/skills/`) points Claude at it. Read live from whatever branch is checked out; edits show after `/reload-plugins` or a new session. Verified on Claude Code 2.1.284 on 2026-09-29 | In another repository pi-clean's `AGENTS.md` is not loaded, so a manual session follows the rules only if it opens the relevant skill, as with pi. `--disallowed-tools Agent,Workflow` removes spawning tools and does not affect instructions |
 | Codex | `AGENTS.override.md` or `AGENTS.md` from the project root and scoped directories, plus `~/.codex/AGENTS.md`, which does not exist | Not discovered. Codex reads `~/.codex/skills`, `~/.agents/skills`, and project `.agents/skills`, which hold only its system skills and `hf-cli` | Same as Claude Code |
 
-Closing these gaps means installing the skills in each harness's personal skill location, or adding a
-pointer to each target repository's `AGENTS.md`. Both are outside this repository and left to Martin.
+For Claude Code the repository closes its half of the gap with the plugin manifest; the one personal
+setting that points at the checkout is Martin's. Claude Code does not read `~/.agents/skills/`, so
+no single directory serves both harnesses: Codex still needs its own personal skill installation, or a
+pointer in each target repository's `AGENTS.md`, and both are left to Martin.
 
 ## Compatibility assumptions
 

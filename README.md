@@ -41,7 +41,9 @@ GitHub issues are the durable mental model for work. Each implementation uses on
 
 Agents stop for Martin's judgment at consequential UI/UX decisions and bring a running preview to the question, rather than presenting a finished surface at the end. Accepting a design lets the agent keep implementing; committing, publishing, and merging stay separate authorizations. See [Reviewable delivery](docs/reviewable-delivery.md).
 
-The package includes reusable skills:
+The package includes reusable skills. Pi loads them through the package manifest, and Claude Code
+loads the same directory as a plugin named `pi-clean` when `CLAUDE_CODE_PLUGIN_DIRS` in the personal
+settings names the checkout, so a skill shows up as `pi-clean:<name>` in every Claude session:
 
 - `experience-design-quality` for emotionally fitting, distinctive, accessible experience design across product contexts.
 - `interactive-agent-sessions` for visible, focusable Claude, Codex, and Fable sessions with deterministic models, effort, permissions, prompts, and Herdr placement.
@@ -87,6 +89,7 @@ pi-clean/
 ├── extensions/visual-design/ # PlateJS visual artifact relay
 ├── designs/                # Example repo-native visual artifacts
 ├── skills/                 # GitHub workflow, code-quality, and Proton Pass skills
+├── .claude-plugin/         # Marks the checkout as a Claude Code plugin exposing skills/
 ├── scripts/                # GitHub issue/worktree helpers
 └── prompts/                # GitHub issue-grooming shortcuts
 ```

@@ -54,9 +54,18 @@ instance unless Martin explicitly requests Fable implementation for that specifi
 Codex as coding workers. Capture the Opus direction durably in the issue, an artifact, or repository
 documentation and make it an explicit dependency of downstream implementation.
 
+The recorded direction states the chosen design, its consequential tradeoffs, constraints, and the
+acceptance criteria implementation is measured against. When a request combines design and
+implementation, either give the whole task to Opus or sequence an Opus design task before any other
+implementation agent; never ask Codex to "design and build", and never treat Opus and Codex as
+interchangeable during the design phase.
+
 Routine implementation choices within an approved direction do not require a new design pass. If
 an implementation agent discovers a material design gap, it must stop that part of the work and
 request an Opus design handoff instead of improvising.
+
+Skills and repository instructions that touch delegation link here rather than restating this
+section, so the rule has one home.
 
 ## Reviewable delivery
 
