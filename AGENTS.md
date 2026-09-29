@@ -25,6 +25,9 @@ and reviews.
   consequential UI/UX decision with a running preview, and keep design acceptance separate from
   commit, publication, and merge authorization. Each stack layer awaiting review counts against
   the review limit.
+- Read Martin's shorthand as the grant it is: `go` covers the whole proposed sequence, and `push it`
+  or `create the PR` covers commit, push, and opening the pull request. Ask for pending
+  authorizations once, together. The table is in the shared policy.
 - For this repository (`mtrenker/pi-clean`) only, work on a feature branch in the primary
   checkout unless Martin explicitly requests a worktree. Pi loads extensions from this checkout,
   so this lets Martin test the branch directly. This exception overrides worktree-only placement
@@ -71,10 +74,8 @@ worktree is requested, or when working in another repository.
   panes or named tabs. Create a separate worktree and workspace only when a subtask needs a
   checkout the current one must not disturb; a tab is placement, not isolation.
 - Keep one writer at a time in a shared worktree. Read-only delegates may run alongside it.
-- Labels name what a child is, not which repository it belongs to: `#123 · short title` for an
-  issue workspace, `Implementation` for its author tab, `PR #456 · Review` for a review tab. Never
-  identify a workspace by its label; use the repository root and checkout Herdr reports. Do not
-  persist Herdr's ephemeral workspace or pane IDs as durable identity.
+- Labels and placement follow [the placement policy](skills/interactive-agent-sessions/SKILL.md#placement-policy):
+  labels say what a child is, never which repository, and Herdr IDs are never durable identity.
 - Never remove a dirty worktree or use `rm -rf` for worktree cleanup.
 
 ## Validation

@@ -20,7 +20,7 @@ Prototypes repo-native, Plate-compatible visual artifacts: select a stable desig
 
 ## Interactive delegation with Herdr
 
-Pi-clean intentionally does not ship a subprocess delegation tool or duplicate Herdr command reference. Its `interactive-agent-sessions` skill maps short requests to predictable Claude and Codex launch profiles and placement; it loads the externally managed `herdr` skill discovered from `~/.agents/skills/` as the canonical guide to current pane, workspace, output, focus, and intervention commands.
+Pi-clean intentionally does not ship a subprocess delegation tool or duplicate Herdr command reference. Its `interactive-agent-sessions` skill maps short requests to predictable Claude and Codex launch profiles and placement; it reads Herdr's own skill from `herdr --skill` as the canonical guide to current pane, workspace, output, focus, and intervention commands.
 
 Choose the delegation boundary by risk:
 

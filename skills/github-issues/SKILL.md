@@ -10,7 +10,8 @@ Read [the shared workflow policy](../_shared/github-workflow.md) before acting.
 
 ## Inspect before mutation
 
-Resolve the current repository and inspect its issue forms, labels, milestones, open work, and relevant Project when one exists:
+Scale inspection to the task: a status question or a single-issue read needs `gh issue view`, not a
+sweep. Before creating, grooming, or prioritizing, resolve the current repository and inspect its issue forms, labels, milestones, open work, and relevant Project when one exists:
 
 ```bash
 gh repo view --json nameWithOwner,defaultBranchRef
@@ -32,11 +33,11 @@ The CLI is read-only and fails rather than presenting partial data as clean. Tre
 
 When the task involves planning, prioritization, agent readiness, or a Project, read [the Project-aware workflow reference](references/project-workflow.md) and inspect the existing Project before proposing mutations. Prefer one relevant Project with focused views over duplicate Projects.
 
-Search for duplicates using the CLI's draft result and meaningful words from the proposed title and behavior. Inspect likely matches with `gh issue view <number> --json number,title,body,labels,state,comments,url`.
+Search for duplicates with `gh issue list --search` on meaningful words from the proposed title and behavior, plus the draft validation result where a planning configuration exists. Inspect likely matches with `gh issue view <number> --json number,title,body,labels,state,comments,url`.
 
 ## Create an issue
 
-Draft the complete issue as JSON and run `github-planning.mjs validate-draft` before publishing it. The result must show repository issue-form expectations, valid-label findings, plausible duplicate candidates, and the complete `proposedMutation`. Follow the repository's issue form where present.
+Where a planning configuration exists (`github-planning.mjs config` succeeds), draft the issue as JSON and run `validate-draft` before publishing: its result shows the repository's issue-form expectations, label findings, plausible duplicates, and the complete `proposedMutation`. Without one the CLI exits with `CONFIG_NOT_FOUND`; then check labels and duplicates with the `gh` commands above, and do not treat the missing configuration as a blocker. Follow the repository's issue form where present.
 A useful issue states the outcome, the next useful increment and where it stops, how to check it,
 and what is left out, plus any constraints, dependencies, and risks. Link existing context and
 evidence instead of repeating it. For example:
@@ -56,7 +57,7 @@ In a worktree whose pull request has a failing required check, `status` names th
 Re-running checks. Context: [the CI discussion](URL).
 ```
 
-Do not invent labels. Use only labels accepted by draft validation. Prefer `--body-file` over shell inline Markdown. Show the title, body, labels, assignees, parent, dependencies, milestone, and every Project field change before `gh issue create` unless already explicitly authorized. Draft validation never authorizes or performs publication.
+Do not invent labels. Use only labels the repository defines, which draft validation also checks. Prefer `--body-file` over shell inline Markdown. Show the title, body, labels, assignees, parent, dependencies, milestone, and every Project field change before `gh issue create` unless already explicitly authorized. Draft validation never authorizes or performs publication.
 
 Use parent issues for outcomes and child issues for independently deliverable units. Use native dependency relationships for blocking order. Create only the first executable wave rather than publishing a speculative full roadmap.
 
@@ -79,35 +80,10 @@ Propose issue, relationship, label, milestone, and Project-field changes before 
 
 ## Report a project grooming pass
 
-Make the report useful to someone who does not remember issue numbers. Never use a bare issue or
-pull-request number as the primary description of work.
-
-- On first mention, render a linked identifier and exact title, for example
-  `[#64 — Add atomic Codex form command](URL)`. In a distant section, repeat the title rather than
-  expecting the reader to recall it.
-- Describe relationships in plain language: name both items, say which one blocks the other, and
-  explain the practical consequence for the queue.
-- Translate mechanical findings into workflow impact. “Structurally clean” must say what was
-  checked and must not imply that scope, priority, or semantic readiness is sound.
-- For every item needing attention, include **why it matters**, the **specific recommended change**,
-  and the **resulting next state or next action**. If recommending a split, name the outcome retained
-  by the current issue and the proposed sibling outcomes.
-- Distinguish facts observed on GitHub from recommendations. Do not present a future gate date,
-  readiness judgment, or proposed restructuring without explaining its source and consequence.
-- Ask for the smallest decision needed from the operator. Phrase alternatives by outcome and title,
-  not number alone, and recommend a default when the evidence supports one.
-
-Lead with the update shape from the shared policy. **Result:** counts plus a one-sentence
-interpretation of flow and capacity. **Check:** a link to the Project view. **Your turn:** the
-decision. Then add these sections, omitting empty ones:
-
-1. **Ready queue / active work:** one row per relevant item with linked title, priority/size/readiness,
-   why it is or is not actionable, and the next move.
-2. **Dependencies and review gates:** named relationships, failed checks, and when/how they clear.
-3. **Attention and proposed changes:** concrete diagnosis, recommendation, and expected queue effect.
-
-Do not enumerate every healthy backlog item merely for completeness. Do include every Ready,
-In-progress, In-review, blocked-near-Ready, or otherwise actionable item; summarize the rest by count.
+Lead with the update shape from the shared policy, then follow [the grooming report format](references/grooming-report.md):
+linked titles on first mention, relationships in plain language, and for every item that needs
+attention why it matters, the specific change, and the resulting next state. Include every Ready,
+active, in-review, or blocked-near-Ready item; summarize the healthy rest by count.
 
 ## Select work
 

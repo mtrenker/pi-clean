@@ -109,6 +109,27 @@ repository requires approval first, and it authorizes no publication and no merg
 the target repository still binds. Merging always needs authorization refreshed against live state
 immediately beforehand.
 
+### Shorthand and bundled grants
+
+Martin runs many sessions and answers in a few words. Read each answer as the grant it is, and never
+ask again for a step that answer already covers.
+
+| Martin says | It means |
+| --- | --- |
+| `status`, `where are we`, `what's the outcome` | Reply in the update shape below and nothing else |
+| `accept`, `ok`, `looks good`, at a checkpoint | Experience acceptance: keep implementing that direction |
+| `go`, `proceed`, `do it`, after a proposal | Do the whole proposed sequence, every step it listed |
+| `commit` | Commit the described step |
+| `push it`, `open the PR`, `create the PR`, `ship it` | Commit what is uncommitted, push the branch, and open the pull request, in one go |
+| `merge` | Merge after refreshing live state |
+| `merged, clean up` | Run the review and issue cleanup commands |
+
+When several authorizations are pending, ask for them once, as one question that lists the steps,
+so one answer covers them all. A proposal ending "Your turn: say go to commit, push, and open the PR"
+is answered by `go`; asking again before each of those steps is the failure this section exists to
+prevent. Shorthand stops at this table: nothing in it authorizes a merge or a destructive operation
+unless it names one.
+
 ### Increments and updates
 
 Work in bounded increments. An increment is the next useful change the issue or request names; an
@@ -126,6 +147,16 @@ Add only what the reader needs after that, normally within one screen. Always ke
 checks and real limitations. Name work by title, not criterion codes or session history, and link
 evidence instead of pasting it. A coordinator reports its own conclusions, not its workers' reports
 again.
+
+Write Result so it answers "so what is the outcome?" without a follow-up: what a user of the product
+can now do, or what was found and what it means, in plain words. Translate measurements, internal
+names, and mechanisms into their consequence. A reader who has to ask "what does that mean in plain
+English?" was given the mechanism instead of the outcome.
+
+The increment also bounds the diff. When a change starts pulling in surrounding code, new
+abstractions, or fixes for things the increment did not name, stop, keep the increment's scope, and
+list the rest in the update as a proposed next increment. Growth beyond the increment is Martin's
+decision, not a side effect of momentum.
 
 ### Checkpoints
 
@@ -223,17 +254,12 @@ One author worktree belongs to one issue, and so does its Herdr workspace. That 
 issue branch, plus any layer branches when the change is delivered as a stack. Reviewers use separate
 detached worktrees. Do not modify an author's worktree during independent review.
 
-A review's separate filesystem does not mean a separate workspace. `review-pr` places the reviewer in
-a named tab of a workspace this repository already has: the one you are in, or the primary checkout's
-workspace. It never creates a workspace, and it fails and names the candidates rather than guessing.
-A review that someone has since moved is recognised by the working directory of its pane and reused
-where it now sits.
-
-Labels say what a child is, not which repository it belongs to, because the parent workspace already
-carries that: `#<number> · <short title>` for an issue workspace, `Implementation` for its author
-tab, `PR #<number> · Review` for a review tab. Never identify a workspace or a review by its label;
-`#43` means a different issue in another repository. Branches, worktree paths and work IDs are
-unaffected.
+Where a delegate or a review sits on screen, and how workspaces, tabs, and panes are labelled, is
+[the placement policy](../interactive-agent-sessions/SKILL.md#placement-policy) in the agent-sessions
+skill: one semantic workspace per issue worktree, a review in a named tab of a workspace the
+repository already has, and labels that say what a child is rather than which repository it belongs
+to. `review-pr` applies that policy, recognises a review someone has moved by the working directory
+of its pane, and fails naming the candidates rather than guessing.
 
 If `FLIGHTDECK_TELEMETRY_FILE` is configured, the helper emits best-effort Flightdeck-compatible
 `worktree.created`, `agent.run.started`, and `worktree.removed` events only when those transitions

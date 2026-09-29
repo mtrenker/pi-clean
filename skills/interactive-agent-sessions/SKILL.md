@@ -1,17 +1,17 @@
 ---
 name: interactive-agent-sessions
 description: Start visible, focusable Claude Code or Codex TUI sessions in Herdr with predictable model, effort, permissions, prompts, orchestration, isolation, maintainability review, and review convergence. Use for requests such as "make a fable review", "start a fable review", delegated bigger tasks, Claude or Codex review/implementation/investigation sessions, repeated review rounds, YOLO or non-prompting launches, and interactive Herdr agent sessions.
-compatibility: Requires HERDR_ENV=1, Herdr 0.7.3+ (verified on 0.8.2), Claude Code 2.1.266, Codex CLI 0.153.4, and the external herdr skill.
+compatibility: Requires HERDR_ENV=1, Herdr 0.7.3+ (verified on 0.8.2) on PATH with `herdr --skill`, Claude Code 2.1.266, and Codex CLI 0.153.4.
 ---
 
 # Interactive agent sessions
 
-Turn a short request into an operator-visible Claude or Codex TUI. This skill owns intent, prompt shape, and placement policy; `scripts/agent-profiles.mjs` owns the exact launch commands. The external `herdr` skill covers live Herdr response shapes, but check its commands against `herdr --help` before use: the copy on this machine still documents the removed `herdr wait`.
+Turn a short request into an operator-visible Claude or Codex TUI. This skill owns intent, prompt shape, and placement policy; `scripts/agent-profiles.mjs` owns the exact launch commands. `herdr --skill` prints Herdr's own current skill with live command and response shapes; read it once per session rather than relying on any copy.
 
 ## Preconditions
 
 1. Check `HERDR_ENV` before any Herdr command. If it is not exactly `1`, stop and explain that the request requires an interactive Herdr-managed pane. Do not fall back to a subprocess, background agent, or non-interactive command.
-2. Load and follow the external `herdr` skill listed in the available skills, verifying any command it names against `herdr --help` or `herdr --skill` output. Re-read live IDs from Herdr and parse create/split responses; never guess or retain ephemeral workspace, tab, or pane IDs as durable identity.
+2. Read `herdr --skill` and follow it; when a command's shape is in doubt, `herdr <group> --help` decides. Re-read live IDs from Herdr and parse create/split responses; never guess or retain ephemeral workspace, tab, or pane IDs as durable identity.
 3. Read the target repository's instructions before launching. GitHub issue and PR work must also follow the repository `github-issues` and `github-pull-requests` skills.
 
 ## Deterministic intent matrix
@@ -218,7 +218,8 @@ if the state does not change:
 herdr notification show 'owner/repo #123 checkpoint' --body 'Compare the two list densities at http://localhost:5173/items' --sound request
 ```
 
-While the checkpoint is open, hold the preview still. The freeze in the shared policy covers writes
+The freeze and lift notices a coordinator sends to delegates that share the worktree are in
+[templates](references/templates.md#freeze-and-lift-notices). While the checkpoint is open, hold the preview still. The freeze in the shared policy covers writes
 from tests and tools, not only commits: no edits, no branch switch or rebase, no install, no rebuild
 or restart of the preview process. Reads and read-only checks are fine. Re-check the worktree state
 when Martin answers instead of assuming it is as you left it.

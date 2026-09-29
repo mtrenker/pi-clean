@@ -32,3 +32,16 @@ Limitations and accepted risks: <what this does not cover>
 ```
 
 Keep it within one screen and link evidence instead of pasting it. The coordinator verifies the claims rather than relaying them: re-run the checks, read the diff, and reconcile disagreements between delegates. Its own report to Martin uses the same shape and states what it concluded, not the delegates' blocks again.
+
+## Freeze and lift notices
+
+A coordinator holding a preview still for Martin's review sends the freeze to every delegate that
+shares the worktree, and lifts it explicitly when Martin has answered. Silence never lifts it.
+
+```text
+PREVIEW FROZEN for Martin's review of <issue or PR>. Until I lift it: no file edits, creates, or deletes; no installs, builds, or restarts; no branch switch, rebase, merge, reset, or checkout; no tests or tools that write. Reads and read-only checks are fine. Reply "frozen" and wait.
+```
+
+```text
+PREVIEW LIFTED for <issue or PR>. Martin's answer: <verbatim>. Re-check the worktree state before continuing, and continue only with <the authorized next increment>.
+```

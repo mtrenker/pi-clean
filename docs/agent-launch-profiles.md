@@ -156,9 +156,8 @@ pointer in each target repository's `AGENTS.md`, and both are left to Martin.
   the native worktree API.
 - Herdr lifecycle commands used by recipes: `herdr pane current`, `pane split`, `pane rename`,
   `pane run`, `pane wait-output`, `tab create`, `agent wait`. `herdr wait` no longer exists.
-- The external `herdr` skill under `~/.agents/skills/` is stale and still documents `herdr wait`.
-  Refreshing it is an operator action: `herdr --skill` prints the current version. This repository
-  neither edits nor ships that file.
+- Herdr's own skill is read from `herdr --skill` at session start. This repository ships no copy of
+  it, and none is installed in a personal skill directory on this machine.
 - Version drift is expected, and it fails visibly only where the CLI checks the input: a removed
   flag is an unknown argument, an unknown Codex feature name exits non-zero, and a deny rule naming
   no known tool warns at startup. A renamed tool or a silently accepted setting is not covered, so
