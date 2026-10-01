@@ -121,6 +121,47 @@ The rules are in [the shared policy](../skills/_shared/github-workflow.md#review
 [`github-pull-requests`](../skills/github-pull-requests/SKILL.md#independent-review); the commands
 are in `scripts/github-work.mjs`.
 
+## Amendment: small increments and short updates
+
+Recorded 2026-09-29 by Claude Opus 5.5 for issue #53. During a Yamiat trial Martin had to ask "so
+whats the outcome of this worktree?" Agents delivered more than he could redirect, then buried the
+outcome in long reports. Checkpoints catch UI/UX decisions, but not the size of an ordinary step or
+the shape of a report.
+
+**Direction.** One increment rule and one update shape, stated once in
+[the shared policy](../skills/_shared/github-workflow.md#increments-and-updates) and carried by the
+handoff and completion templates and the managed prompts.
+
+- An increment is the next useful change the issue or request names. Finish it, show it, and stop
+  before starting another. Routine edits need no approval; expanding scope does. An explicit request
+  to finish a bounded task, such as a delegated handoff, runs to completion.
+- Every update leads with Result, Check, and Your turn, normally within one screen. Failures and
+  limitations stay, evidence is linked rather than pasted, and a coordinator reports its own
+  conclusions instead of relaying worker reports.
+- An issue names the outcome, the next increment and where it stops, how to check it, and what is
+  left out, and links context instead of repeating it.
+
+**Tradeoffs.** Stopping after each increment costs a round trip; accepted for the same reason
+checkpoints were. Increments are coarser than commits, so no authorization rule changes and no
+per-commit question appears. A short update can drop something a reader needed, so failures and
+limitations are never cut. The completion block drops "Files and behavior changed", which the diff
+shows, and folds "Needs operator authorization" into "Your turn", which must still name each push,
+publication, merge, or deletion.
+
+**Constraints.** No new skill, helper command, model or settings change. Required checks,
+independent review, Opus design ownership, and authorization boundaries are unchanged.
+
+**Acceptance criteria.**
+
+1. The shared policy, issue guidance, handoff template, coordinator prompts, and managed issue
+   prompt agree on the increment, the stopping point, and the explicit-completion exception.
+2. Checkpoint, completion, grooming, and review reports lead with the outcome and the decision
+   needed, name work in words rather than criterion codes, and link evidence.
+3. [Agent launch profiles](agent-launch-profiles.md#instruction-loading) records how Pi, Claude
+   Code, and Codex receive these rules and what gaps remain.
+4. Review guidance no longer asks for content that pads a report. The diff reads in one sitting.
+5. Tests assert that the managed issue prompt carries the increment rule and the update shape.
+
 ## Tradeoffs
 
 Rebase churn is the real cost of stacking. Every change to a lower layer forces the upper layers
@@ -181,9 +222,10 @@ repository:
 node "$BRANCH_PACKAGE/scripts/github-work.mjs" start-issue <number>
 ```
 
-This repository is a pi package, not a Claude Code plugin, so Claude Code has no equivalent
-per-session flag. Give a Claude session the absolute paths instead: the skills are plain Markdown and
-the helper runs from the branch path above.
+For Claude Code the checkout is also a plugin, so a session on the trial branch loads the trial
+skills: `claude --plugin-dir "$BRANCH_PACKAGE"` for one session, or the personal
+`CLAUDE_CODE_PLUGIN_DIRS` setting when it already points at this checkout and the branch is checked
+out. The helper runs from the branch path above either way.
 
 Installing the branch as a pinned git ref is the other way to reach it, and it writes settings. The
 local trial does not need it, so it is left to pi's own packages documentation rather than written
@@ -200,7 +242,8 @@ disproportionate, or pauses arrive for decisions that were never consequential.
 
 | Rule | File |
 | --- | --- |
-| Concepts, authorization, checkpoint and preview contracts, review capacity | `skills/_shared/github-workflow.md` |
+| Concepts, authorization, increments and updates, checkpoint and preview contracts, review capacity | `skills/_shared/github-workflow.md` |
+| Handoff and completion templates, coordinator reports | `skills/interactive-agent-sessions/SKILL.md` |
 | Stacked pull request workflow, per-layer review, lower-layer fixes, cleanup limits | `skills/github-pull-requests/SKILL.md` |
 | Preview and checkpoint placement, freeze, blocked signal | `skills/interactive-agent-sessions/SKILL.md` |
 | When UI work needs an early renderable checkpoint | `skills/experience-design-quality/SKILL.md` |

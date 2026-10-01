@@ -126,15 +126,38 @@ These are boundaries, not guarantees. State them this way in any report:
 - Neither profile authorizes a remote mutation. Publishing, approving, merging, pushing, and
   deleting branches still need Martin's explicit approval.
 
+## Instruction loading
+
+Checked 2026-09-29 for issue #53 against Pi 0.87.1, Claude Code 2.1.283, and Codex CLI 0.157.1 on
+this machine, using Pi's shipped documentation, strings in the Claude and Codex binaries, the
+personal settings files (read, not changed), and the Claude session that did the check. Not
+exercised in a live Pi or Codex session.
+
+The managed prompt is the only channel that reaches every harness. `start-issue` writes the
+increment rule and the update shape into the author's prompt, and `review-pr` asks the reviewer for
+the same shape, with the verdict as Result and file and line evidence as Check, whichever agent runs. `launch-command`
+appends only the delegation boundary, so an ad-hoc launch carries those rules only when its prompt
+does; the handoff template in `interactive-agent-sessions` includes them for that reason.
+
+| Harness | Context file | pi-clean skills | Gap |
+| --- | --- | --- | --- |
+| Pi | `AGENTS.md` or `CLAUDE.md` from the working directory and its parents, plus the agent directory, which has none | Listed by name and description from the package `~/.pi/agent/settings.json` declares, `../../code/pi-clean`: whatever branch the primary checkout has. The model reads a full `SKILL.md` only when it picks that skill | In another repository pi-clean's `AGENTS.md` is not loaded, so a manual session follows the rules only if it opens the relevant skill |
+| Claude Code | `CLAUDE.md`, or `AGENTS.md` where a project has no `CLAUDE.md` (the default `claude-md-or-agents-md`); no `~/.claude/CLAUDE.md` exists | Listed as `pi-clean:<skill>` in every session once the checkout is loaded as a plugin: `.claude-plugin/plugin.json` marks the repository as one, and the personal setting `env.CLAUDE_CODE_PLUGIN_DIRS` (or a symlink to the checkout under `~/.claude/skills/`) points Claude at it. Read live from whatever branch is checked out; edits show after `/reload-plugins` or a new session. Verified on Claude Code 2.1.284 on 2026-09-29 | In another repository pi-clean's `AGENTS.md` is not loaded, so a manual session follows the rules only if it opens the relevant skill, as with pi. `--disallowed-tools Agent,Workflow` removes spawning tools and does not affect instructions |
+| Codex | `AGENTS.override.md` or `AGENTS.md` from the project root and scoped directories, plus `~/.codex/AGENTS.md`, which does not exist | Not discovered. Codex reads `~/.codex/skills`, `~/.agents/skills`, and project `.agents/skills`, which hold only its system skills and `hf-cli` | Same as Claude Code |
+
+For Claude Code the repository closes its half of the gap with the plugin manifest; the one personal
+setting that points at the checkout is Martin's. Claude Code does not read `~/.agents/skills/`, so
+no single directory serves both harnesses: Codex still needs its own personal skill installation, or a
+pointer in each target repository's `AGENTS.md`, and both are left to Martin.
+
 ## Compatibility assumptions
 
 - Claude Code 2.1.266, Codex CLI 0.153.4, Herdr 0.8.2, `HERDR_ENV=1`, and Herdr 0.7.3 or newer for
   the native worktree API.
 - Herdr lifecycle commands used by recipes: `herdr pane current`, `pane split`, `pane rename`,
   `pane run`, `pane wait-output`, `tab create`, `agent wait`. `herdr wait` no longer exists.
-- The external `herdr` skill under `~/.agents/skills/` is stale and still documents `herdr wait`.
-  Refreshing it is an operator action: `herdr --skill` prints the current version. This repository
-  neither edits nor ships that file.
+- Herdr's own skill is read from `herdr --skill` at session start. This repository ships no copy of
+  it, and none is installed in a personal skill directory on this machine.
 - Version drift is expected, and it fails visibly only where the CLI checks the input: a removed
   flag is an unknown argument, an unknown Codex feature name exits non-zero, and a deny rule naming
   no known tool warns at startup. A renamed tool or a silently accepted setting is not covered, so

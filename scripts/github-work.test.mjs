@@ -224,7 +224,12 @@ test("managed start creates a native Herdr issue worktree and launches in its ro
 });
 
 const ISSUE_TASK = "Work on GitHub issue #10 in owner/repo. Read the repository instructions and issue,"
-  + " implement it in this worktree, validate the changes, and prepare a pull request. Do not merge."
+  + " and implement the issue's next increment in this worktree, which is the whole issue when it is one"
+  + " bounded change. Validate it, show it, and stop before starting another, unless the issue or Martin"
+  + " explicitly asks you to finish the whole issue; prepare a pull request when the issue is complete. Do not merge. Routine edits need no approval; ask before expanding scope."
+  + " Lead every update with Result (what now exists), Check (how Martin can see it), and Your turn (the"
+  + " one decision needed, or nothing), normally within one screen; keep failures and limitations, and"
+  + " link evidence instead of pasting it."
   + " Follow the repository's checkpoint and preview contract: pause at a consequential or unspecified"
   + " UI/UX decision and bring a running preview you opened yourself, and change nothing that alters it"
   + " while you wait. Accepting a design lets you keep implementing in that direction; it is not"
@@ -256,6 +261,10 @@ for (const [agent, profile, designSuffix] of [
     assert.match(command, /bring a running preview you opened yourself/);
     assert.match(command, /not authorization to push, open or publish a pull request, or merge/);
     assert.match(command, /never overrides a repository rule that requires approval before committing/);
+    assert.match(command, /stop before starting another/);
+    assert.match(command, /unless the issue or Martin explicitly asks you to finish the whole issue/);
+    assert.match(command, /ask before expanding scope/);
+    assert.match(command, /Result \(what now exists\), Check .*, and Your turn/);
     if (agent === "codex") assert.doesNotMatch(launch.args[3], /danger-full-access/);
   });
 }
@@ -306,6 +315,7 @@ for (const [reviewer, expectedProfile, designMarker] of [
     assert.match(command, /Martin is one developer responsible for many projects/);
     assert.match(command, /reasoning that exists only in an agent transcript/);
     assert.match(command, /review the diff of that layer against its own base branch/);
+    assert.match(command, /Lead with Result \(a one-line verdict\), Check \(the file and line evidence behind it\), and Your turn \(the decision needed\)/);
     assert.match(command, designMarker);
     if (reviewer === "codex") {
       assert.doesNotMatch(command, /--full-auto/);
@@ -845,4 +855,146 @@ test("generated commands parse into the intended argv under a real shell", async
     assert.equal(run.status, 0, run.stderr);
     assert.deepEqual(JSON.parse(await readFile(argvPath, "utf8")), argv, profile);
   }
+});
+
+// Delegate callbacks (docs/herdr-delegate-reporting.md). The fake herdr answers each
+// "<group> <verb>" from a scripted table and logs every call.
+const PARENT_SESSION = { agent: "pi", kind: "path", source: "herdr:pi", value: "/sessions/it's parent $HOME.jsonl" };
+const herdrError = (code) => ({ status: 1, stderr: JSON.stringify({ error: { code, message: `fake ${code}` } }) });
+const paneInfo = (session) => ({ stdout: JSON.stringify({ result: { pane: { pane_id: "w1:p2", agent: "pi", agent_session: session } } }) });
+
+async function callbackFixture(t, responses) {
+  const root = await mkdtemp(join(tmpdir(), "github-work-callback-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const bin = join(root, "bin");
+  await mkdir(bin);
+  const logPath = join(root, "herdr.log");
+  await writeFile(join(bin, "herdr"), `#!/usr/bin/env node
+import { appendFileSync } from "node:fs";
+const args = process.argv.slice(2);
+appendFileSync(${JSON.stringify(logPath)}, JSON.stringify(args) + "\\n");
+const reply = (${JSON.stringify(responses)})[args.slice(0, 2).join(" ")] ?? { stdout: "{}" };
+if (reply.stdout) process.stdout.write(reply.stdout);
+if (reply.stderr) process.stderr.write(reply.stderr);
+process.exit(reply.status ?? 0);
+`);
+  await chmod(join(bin, "herdr"), 0o755);
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, HERDR_ENV: "1", HERDR_PANE_ID: "w1:p9" };
+  const calls = async () => (await readFile(logPath, "utf8").catch(() => "")).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  return { env, calls };
+}
+
+const callbackArgs = (overrides = {}) => {
+  const options = { assignment: "a1b2c3d4", pane: "w1:p2", "session-kind": PARENT_SESSION.kind, "session-source": PARENT_SESSION.source,
+    "session-value": PARENT_SESSION.value, status: "completed", message: "Result: done.\nCheck: docs/x.md. Your turn: nothing.", ...overrides };
+  return ["callback", ...Object.entries(options).flatMap(([key, value]) => [`--${key}`, value])];
+};
+
+const promptCalls = (log) => log.filter((args) => args[0] === "agent" && args[1] === "prompt");
+
+test("the printed handoff block runs unchanged in a shell once STATUS and MESSAGE are set", async (t) => {
+  const { env, calls } = await callbackFixture(t, { "pane get": paneInfo(PARENT_SESSION) });
+  const handoff = invoke(["callback-handoff"], env);
+  assert.equal(handoff.status, 0, handoff.stderr);
+  const lines = handoff.stdout.trim().split("\n");
+  const assignment = lines[0].match(/^Report back \(assignment ([0-9a-f]{8})\):/)?.[1];
+  assert.ok(assignment, lines[0]);
+  const commandLine = lines.find((line) => line.startsWith("node "));
+  assert.ok(commandLine.includes(`--assignment '${assignment}'`));
+
+  // Fill in the printed template exactly as the block tells the delegate to: set STATUS and replace
+  // the placeholder line with the message, leaving every other printed line untouched.
+  const message = [
+    `Result: it's done; "quoted" $HOME \`date\` $(id) > /tmp/x | cat & echo hi.`,
+    "CALLBACK",
+    `touch ${JSON.stringify(join(tmpdir(), "never"))}; echo escaped`,
+    "Check: a.md. Your turn: nothing."
+  ].join("\n");
+  const start = lines.indexOf("STATUS=completed");
+  const script = lines.slice(start, lines.indexOf(commandLine) + 1)
+    .map((line) => line === "STATUS=completed" ? "STATUS=needs-input" : line === "Result: … Check: … Your turn: …" ? message : line)
+    .join("\n");
+  assert.match(lines[start + 1], /^MESSAGE=\$\(cat <<'CALLBACK_[0-9A-F]{8}'$/);
+  const run = spawnSync("bash", ["-c", script], { encoding: "utf8", env });
+  assert.equal(run.status, 0, run.stderr);
+  assert.doesNotMatch(run.stdout + run.stderr, /escaped|command not found/);
+  const prompts = promptCalls(await calls());
+  assert.equal(prompts.length, 1);
+  assert.equal(prompts[0][3], `Delegate callback · assignment ${assignment} · needs-input · from pane w1:p9 · ${message.replace(/\s+/g, " ")}`);
+});
+
+test("each handoff block uses its own heredoc delimiter", async (t) => {
+  const { env } = await callbackFixture(t, { "pane get": paneInfo(PARENT_SESSION) });
+  const delimiters = [1, 2].map(() => invoke(["callback-handoff"], env).stdout.match(/<<'(CALLBACK_[0-9A-F]{8})'/)[1]);
+  assert.notEqual(delimiters[0], delimiters[1]);
+});
+
+test("copying the handoff command before setting STATUS and MESSAGE sends nothing", async (t) => {
+  const { env, calls } = await callbackFixture(t, { "pane get": paneInfo(PARENT_SESSION) });
+  const commandLine = invoke(["callback-handoff"], env).stdout.split("\n").find((line) => line.startsWith("node "));
+  const run = spawnSync("bash", ["-c", commandLine], { encoding: "utf8", env });
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /--status requires a value/);
+  assert.equal(promptCalls(await calls()).length, 0);
+});
+
+test("callback-handoff refuses a pane without an agent session", async (t) => {
+  const { env } = await callbackFixture(t, { "pane get": paneInfo(undefined) });
+  const result = invoke(["callback-handoff"], env);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /no agent session/);
+});
+
+test("callback verifies the parent session, prompts once on one line with its assignment, and does not notify", async (t) => {
+  const { env, calls } = await callbackFixture(t, { "pane get": paneInfo(PARENT_SESSION) });
+  const result = invoke(callbackArgs(), env);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).assignment, "a1b2c3d4");
+  const log = await calls();
+  assert.deepEqual(log.map((args) => args.slice(0, 2).join(" ")), ["pane get", "agent prompt"]);
+  assert.deepEqual(log[1], ["agent", "prompt", "w1:p2",
+    "Delegate callback · assignment a1b2c3d4 · completed · from pane w1:p9 · Result: done. Check: docs/x.md. Your turn: nothing.",
+    "--wait", "--until", "working", "--until", "blocked", "--timeout", "10000"]);
+});
+
+for (const [name, responses, code] of [
+  ["a replaced parent session", { "pane get": paneInfo({ ...PARENT_SESSION, value: "/sessions/other.jsonl" }) }, 3],
+  ["a missing parent pane", { "pane get": herdrError("pane_not_found") }, 3],
+  ["a blocked parent", { "pane get": paneInfo(PARENT_SESSION), "agent prompt": herdrError("agent_blocked") }, 3],
+  ["a stalled prompt", { "pane get": paneInfo(PARENT_SESSION), "agent prompt": herdrError("agent_prompt_stalled") }, 4]
+]) {
+  test(`callback to ${name} exits ${code}, notifies once with the recovery step, and never retries`, async (t) => {
+    const { env, calls } = await callbackFixture(t, responses);
+    const result = invoke(callbackArgs(), env);
+    assert.equal(result.status, code, result.stderr);
+    const error = JSON.parse(result.stderr);
+    assert.equal(error.sent, code === 3 ? "no" : "maybe");
+    assert.equal(error.notified, true);
+    assert.equal(error.recovery, "read the full report with: herdr pane read w1:p9 --source recent-unwrapped --lines 200");
+    const log = await calls();
+    assert.ok(promptCalls(log).length <= 1);
+    const notices = log.filter((args) => args[0] === "notification");
+    assert.equal(notices.length, 1);
+    assert.match(notices[0][notices[0].indexOf("--body") + 1], /^Assignment a1b2c3d4: .*herdr pane read w1:p9/);
+    if (code === 3 && name !== "a blocked parent") assert.equal(promptCalls(log).length, 0);
+  });
+}
+
+test("a failed notification is reported and keeps the not-sent exit code", async (t) => {
+  const { env } = await callbackFixture(t, { "pane get": herdrError("pane_not_found"), "notification show": herdrError("server_unavailable") });
+  delete env.HERDR_PANE_ID;
+  const result = invoke(callbackArgs(), env);
+  assert.equal(result.status, 3);
+  const error = JSON.parse(result.stderr);
+  assert.equal(error.notified, false);
+  assert.match(error.notificationError, /server_unavailable/);
+  assert.match(error.recovery, /delegate's own pane \(HERDR_PANE_ID is unset\)/);
+});
+
+test("callback rejects a missing assignment, an unknown status, or an oversized message before calling Herdr", async (t) => {
+  const { env, calls } = await callbackFixture(t, {});
+  assert.equal(invoke(callbackArgs({ assignment: "" }), env).status, 1);
+  assert.equal(invoke(callbackArgs({ status: "done" }), env).status, 1);
+  assert.equal(invoke(callbackArgs({ message: "x".repeat(2001) }), env).status, 1);
+  assert.deepEqual(await calls(), []);
 });

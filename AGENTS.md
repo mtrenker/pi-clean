@@ -25,6 +25,9 @@ and reviews.
   consequential UI/UX decision with a running preview, and keep design acceptance separate from
   commit, publication, and merge authorization. Each stack layer awaiting review counts against
   the review limit.
+- Read Martin's shorthand as the grant it is: `go` covers the whole proposed sequence, and `push it`
+  or `create the PR` covers commit, push, and opening the pull request. Ask for pending
+  authorizations once, together. The table is in the shared policy.
 - For this repository (`mtrenker/pi-clean`) only, work on a feature branch in the primary
   checkout unless Martin explicitly requests a worktree. Pi loads extensions from this checkout,
   so this lets Martin test the branch directly. This exception overrides worktree-only placement
@@ -41,15 +44,11 @@ and reviews.
 
 ## Delegation and design ownership
 
-When delegating work that establishes or materially changes a solution direction, Claude Opus 5.5
-(`claude-opus-5-5`) must own the design. This includes product, UX, interaction, visual, architecture,
-API, and data-model design. Other models may investigate constraints, implement an approved Opus
-design, and validate it, but must not invent or materially revise unresolved design. Fable may
-coordinate the work, but it must assign the design phase to Opus. Fable is not a code implementation
-model: it must not edit implementation files or delegate coding to another Fable instance unless
-Martin explicitly requests Fable implementation for that specific task. Use Opus or Codex as coding
-workers. Make the Opus design durable in the issue, an artifact, or repository documentation before
-dependent implementation proceeds.
+[Delegated design ownership](skills/_shared/github-workflow.md#delegated-design-ownership) in the
+shared workflow policy is the rule, in full: Claude Opus 5.5 owns any delegated design, Opus or
+Codex do the coding, and Fable coordinates without editing implementation files unless Martin
+explicitly asks for Fable implementation on that task. Follow it from there rather than from a
+paraphrase.
 
 Launch settings for delegated sessions live in `scripts/agent-profiles.mjs` and are documented in
 [`docs/agent-launch-profiles.md`](docs/agent-launch-profiles.md); which model each profile pins, and
@@ -75,10 +74,8 @@ worktree is requested, or when working in another repository.
   panes or named tabs. Create a separate worktree and workspace only when a subtask needs a
   checkout the current one must not disturb; a tab is placement, not isolation.
 - Keep one writer at a time in a shared worktree. Read-only delegates may run alongside it.
-- Labels name what a child is, not which repository it belongs to: `#123 · short title` for an
-  issue workspace, `Implementation` for its author tab, `PR #456 · Review` for a review tab. Never
-  identify a workspace by its label; use the repository root and checkout Herdr reports. Do not
-  persist Herdr's ephemeral workspace or pane IDs as durable identity.
+- Labels and placement follow [the placement policy](skills/interactive-agent-sessions/SKILL.md#placement-policy):
+  labels say what a child is, never which repository, and Herdr IDs are never durable identity.
 - Never remove a dirty worktree or use `rm -rf` for worktree cleanup.
 
 ## Validation

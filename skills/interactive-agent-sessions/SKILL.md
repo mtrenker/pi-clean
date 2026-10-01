@@ -1,17 +1,17 @@
 ---
 name: interactive-agent-sessions
 description: Start visible, focusable Claude Code or Codex TUI sessions in Herdr with predictable model, effort, permissions, prompts, orchestration, isolation, maintainability review, and review convergence. Use for requests such as "make a fable review", "start a fable review", delegated bigger tasks, Claude or Codex review/implementation/investigation sessions, repeated review rounds, YOLO or non-prompting launches, and interactive Herdr agent sessions.
-compatibility: Requires HERDR_ENV=1, Herdr 0.7.3+ (verified on 0.8.2), Claude Code 2.1.266, Codex CLI 0.153.4, and the external herdr skill.
+compatibility: Requires HERDR_ENV=1, Herdr 0.7.3+ (verified on 0.8.2) on PATH with `herdr --skill`, Claude Code 2.1.266, and Codex CLI 0.153.4.
 ---
 
 # Interactive agent sessions
 
-Turn a short request into an operator-visible Claude or Codex TUI. This skill owns intent, prompt shape, and placement policy; `scripts/agent-profiles.mjs` owns the exact launch commands. The external `herdr` skill covers live Herdr response shapes, but check its commands against `herdr --help` before use: the copy on this machine still documents the removed `herdr wait`.
+Turn a short request into an operator-visible Claude or Codex TUI. This skill owns intent, prompt shape, and placement policy; `scripts/agent-profiles.mjs` owns the exact launch commands. `herdr --skill` prints Herdr's own current skill with live command and response shapes; read it once per session rather than relying on any copy.
 
 ## Preconditions
 
 1. Check `HERDR_ENV` before any Herdr command. If it is not exactly `1`, stop and explain that the request requires an interactive Herdr-managed pane. Do not fall back to a subprocess, background agent, or non-interactive command.
-2. Load and follow the external `herdr` skill listed in the available skills, verifying any command it names against `herdr --help` or `herdr --skill` output. Re-read live IDs from Herdr and parse create/split responses; never guess or retain ephemeral workspace, tab, or pane IDs as durable identity.
+2. Read `herdr --skill` and follow it; when a command's shape is in doubt, `herdr <group> --help` decides. Re-read live IDs from Herdr and parse create/split responses; never guess or retain ephemeral workspace, tab, or pane IDs as durable identity.
 3. Read the target repository's instructions before launching. GitHub issue and PR work must also follow the repository `github-issues` and `github-pull-requests` skills.
 
 ## Deterministic intent matrix
@@ -42,37 +42,20 @@ An explicit effort request overrides the matrix when the profile supports that v
 
 ## Design ownership
 
-Any delegated work that establishes or materially changes a solution direction must assign the
-design phase to Claude Opus 5.5 (`claude-opus-5-5`). This includes product, UX, interaction, visual,
-architecture, API, and data-model design.
-
-- Fable may decompose and coordinate the task, but it must delegate design to Opus rather than
-  designing the solution itself.
-- Fable is not a code implementation model. It must not edit implementation files, take a coding
-  subtask itself, or spawn/delegate coding to another Fable instance unless Martin explicitly asks
-  for Fable implementation for that specific task. The model name `fable` must never appear in a
-  coding-worker assignment by default; use Opus or Codex.
-- Pi and Codex may investigate constraints, implement a settled Opus design, and independently
-  validate it. They must not originate or materially revise unresolved design.
-- Record the Opus direction in the issue, a design artifact, or repository documentation before
-  dependent implementation begins. The output must state the chosen direction, consequential
-  tradeoffs, constraints, and implementation acceptance criteria.
-- Routine local implementation choices within that approved direction do not require another Opus
-  pass. If implementation exposes a material design gap, pause that part and return it to Opus.
-
-When a request combines design and implementation, either give the whole task to Opus or sequence
-an Opus design task before any other implementation agent. Never ask Codex to "design and build"
-or let a coordinator treat Opus and Codex as interchangeable during the design phase.
+[The shared workflow policy](../_shared/github-workflow.md#delegated-design-ownership) is the one
+place that defines who may design, who may implement, and what a design handoff must record. The
+launch consequences here: a design or architecture intent always routes to `claude-opus`; the model
+name `fable` never appears in a coding-worker assignment unless Martin asked for Fable
+implementation on that task; and an explicit effort request never overrides that routing.
 
 ### Review-only prompt
 
-Substitute the concrete target and repository/PR context before launch:
+`REVIEW_PROMPT` is the review-only prompt in [prompts](references/prompts.md#review-only-prompt).
+Substitute the concrete target and repository or PR context before launch.
 
-```text
-Review only: <TARGET>. Do not edit files or implement fixes unless Martin explicitly requests fixes in this session. Read the relevant issue, accepted scope, durable design direction, full diff, and tests. Review correctness, regressions, error handling, security, and maintainability against the supported contract. Distinguish reachable blockers, maintainability risks, unresolved design gaps, and out-of-contract concerns. A blocker needs a concrete failure path in a supported environment; label theoretical or future-call-path concerns as non-blocking unless they expose a reachable security or data-loss risk. Martin is one developer responsible for many projects: assess whether he can find the entry points, trace state and invariants, diagnose failures, recover safely, and change the code without an agent. Flag hidden coupling, disproportionate abstraction or change size, duplicated policy, tests that obscure rather than explain the contract, and designs whose operation depends on reconstructing agent reasoning. Allow abstractions that remove more complexity than they add and leave clear names, boundaries, and documentation. Return evidence-backed findings ordered by severity. For each finding include its category, file and line evidence, the concrete failure mode and impact, the supported-contract assumption, and the smallest maintainable correction. State explicitly when there are no findings. Do not publish comments, approve, merge, delete branches, or perform other protected remote mutations.
-```
-
-A review's `workspace-write` sandbox allows tools and tests to create local artifacts; it does not relax the review-only instruction. Review Git changes before declaring the session settled. If the review requires judgment about a new or materially changed design direction, use Opus rather than Fable, Pi, or Codex for that design review; other models may still review implementation fidelity against the approved direction.
+A review's `workspace-write` sandbox allows tools and tests to create local artifacts; it does not
+relax the review-only instruction. Review Git changes before declaring the session settled. A review
+that must judge a design direction routes to Opus under the design-ownership rule above.
 
 ## Review quality and convergence
 
@@ -102,21 +85,20 @@ Do not impose an arbitrary maximum number of reviews, but do not feed an open-en
 
 ### Re-review prompt addition
 
-Append this to `REVIEW_PROMPT` for a re-review:
-
-```text
-This is review round <N>. Read the previous findings and author dispositions before reviewing. First verify each disposition and correction. Then inspect the changed areas and complete diff for regressions against the accepted supported contract. Clearly label any new finding, explain why it is reachable now and whether the original change or a correction introduced or exposed it, and do not expand the contract with theoretical or unsupported states. If material new blockers or material diff growth indicate that the review is not converging, stop and request an Opus convergence pass instead of proposing another patch list.
-```
+For a re-review, append [the re-review addition](references/prompts.md#re-review-prompt-addition)
+to `REVIEW_PROMPT`.
 
 ## Coordinated-task delegation prompt
 
-Use this only when coordination is warranted: parallel bounded subtasks, long-running work, or an explicit request from Martin. Substitute the concrete task and repository/issue context before launch:
+Use `DELEGATION_PROMPT`, [the coordinated-task prompt](references/prompts.md#coordinated-task-delegation-prompt),
+only when coordination is warranted: parallel bounded subtasks, long-running work, or an explicit
+request from Martin. Substitute the concrete task and repository or issue context before launch.
 
-```text
-Coordinate this task: <TASK>. Read and follow the repository instructions and relevant issue or PR context. You are the coordinator only: do not edit implementation files or perform coding yourself, and never spawn or assign another Fable instance for coding. Martin has not authorized Fable implementation. Decompose the work into bounded, non-overlapping subtasks and give each one to the profile that fits it: `claude-opus` for design and for implementation, `codex-sol-write` where a second vendor adds independent review or complementary investigation, `codex-sol-read` for read-only investigation. Involve both vendors when that independence is worth its cost, not by default. Assign every product, UX, interaction, visual, architecture, API, or data-model design decision exclusively to Opus and make its direction durable before dependent implementation begins. Codex may investigate constraints, implement an approved design, review, or validate; it must not originate or materially revise unresolved design. Start every delegate with `node <path>/scripts/github-work.mjs launch-command`; never write a model, effort, or permission flag by hand, and never spawn a native subagent. Keep a single writer for any shared worktree unless isolated worktrees make concurrent mutation safe. Place every delegate that shares this worktree in the current semantic Herdr workspace as a sibling pane or a named tab, and never create a second workspace for a checkout that already has one; create a separate worktree and workspace only when a subtask needs a checkout this one must not disturb. Require a solution Martin can locate, trace, diagnose, recover, and change without an agent; abstractions must remove more complexity than they add and leave their contract durable in the repository. Use the review convergence gate when repeated findings expand scope or materially grow the diff instead of coordinating an open-ended patch loop. Inspect and synthesize delegated results, resolve discrepancies, run final validation, and remain accountable for the complete result. Respect repository WIP, worktree, review, and authorization rules. Do not merge or perform protected remote mutations without Martin's explicit authorization.
-```
-
-Fable is the coordinator, not a third interchangeable implementation worker or the design owner. By default it must not write code, edit implementation files, or delegate coding to another Fable. Only an explicit request from Martin for Fable implementation may override that boundary for the named task; a general request to delegate, orchestrate, review, or use Fable does not. It must assign design to Opus, use Opus and Codex as workers, prevent overlapping writes, and verify their outputs before reporting completion, using the handoff and completion templates below. Its workers stay in the coordinator's workspace whenever they share its worktree. Keep the Fable coordinator visible and focusable; its internally delegated workers do not replace the operator-visible coordinator session.
+The Fable coordinator is neither a third interchangeable implementation worker nor the design owner.
+It assigns design to Opus, uses Opus and Codex as workers, keeps one writer per worktree, verifies
+worker output before reporting, and stays visible and focusable; its workers stay in its workspace
+whenever they share its worktree. The handoff and completion templates it uses are in
+[templates](references/templates.md).
 
 ## Launch commands
 
@@ -236,135 +218,20 @@ if the state does not change:
 herdr notification show 'owner/repo #123 checkpoint' --body 'Compare the two list densities at http://localhost:5173/items' --sound request
 ```
 
-While the checkpoint is open, hold the preview still. The freeze in the shared policy covers writes
+The freeze and lift notices a coordinator sends to delegates that share the worktree are in
+[templates](references/templates.md#freeze-and-lift-notices). While the checkpoint is open, hold the preview still. The freeze in the shared policy covers writes
 from tests and tools, not only commits: no edits, no branch switch or rebase, no install, no rebuild
 or restart of the preview process. Reads and read-only checks are fine. Re-check the worktree state
 when Martin answers instead of assuming it is as you left it.
 
-## Recipes
+## Recipes and templates
 
-Resolve `../../scripts/github-work.mjs` relative to this skill directory and use its absolute path. Every recipe below assumes:
+[Recipes](references/recipes.md) has the runnable launch sequences: a review in a safe shared
+checkout, a focused read-only investigation, a delegated subtask inside the current issue workspace,
+issue implementation with an explicit profile, a coordinated issue with Fable, waiting for a
+delegate, and the watch-or-callback choice. Every recipe resolves `../../scripts/github-work.mjs`
+against this skill directory and uses that absolute path as `WORK_HELPER`.
 
-```bash
-WORK_HELPER=/absolute/path/to/pi-clean/scripts/github-work.mjs
-```
-
-### Review in a safe shared checkout
-
-Use only when the target can be reviewed without filesystem mutation. Swap `--profile claude-fable` for `codex-sol-write` or `claude-opus` to change reviewer.
-
-```bash
-REVIEW_PROMPT='Review only: the current change. Do not edit files or implement fixes unless Martin explicitly requests fixes in this session. Review correctness, security, regressions, and maintainability against the accepted supported contract. Distinguish reachable blockers, maintainability risks, design gaps, and out-of-contract concerns. A blocker needs a concrete reachable path. Assess whether one human can find the entry points, trace invariants and state, diagnose failures, recover, and change the code without an agent. Return evidence-backed findings ordered by severity, with category, file and line evidence, concrete impact, contract assumption, and the smallest maintainable correction. State explicitly when there are no findings. Do not publish comments, approve, merge, delete branches, or perform other protected remote mutations.'
-LAUNCH=$(node "$WORK_HELPER" launch-command --profile claude-fable --effort high --prompt "$REVIEW_PROMPT")
-CURRENT_PANE=$(herdr pane current | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
-NEW_PANE=$(herdr pane split "$CURRENT_PANE" --direction right --cwd "$PWD" --focus | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
-herdr pane rename "$NEW_PANE" 'Fable · review'
-herdr pane run "$NEW_PANE" "$LAUNCH"
-```
-
-For an independent PR review, do not use the shared-checkout recipe. Run the helper with the requested reviewer so it creates the detached review worktree and places it as a named tab in this repository's workspace:
-
-```bash
-node "$WORK_HELPER" review-pr 42 --reviewer codex
-```
-
-Then focus and report the returned semantic workspace. The review-only authorization boundary still applies; never publish or merge the review without explicit approval.
-
-### Focused read-only investigation
-
-```bash
-PROMPT='Investigate why the parser rejects empty input. Read only: do not edit files. Report evidence, likely cause, and the smallest safe correction.'
-LAUNCH=$(node "$WORK_HELPER" launch-command --profile claude-opus --effort medium --prompt "$PROMPT")
-CURRENT_PANE=$(herdr pane current | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
-NEW_PANE=$(herdr pane split "$CURRENT_PANE" --direction right --cwd "$PWD" --focus | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
-herdr pane rename "$NEW_PANE" 'Claude · parser investigation'
-herdr pane run "$NEW_PANE" "$LAUNCH"
-```
-
-Codex investigation uses `--profile codex-sol-read`, whose sandbox is `read-only`.
-
-### Delegated subtask inside the current issue workspace
-
-Use this when the coordinator already runs in an issue worktree and the subtask shares that checkout. Read the live workspace from the current pane and add a named tab; do not create a workspace.
-
-```bash
-PROMPT='Review only: the working-tree change for issue #123. Do not edit files. Return evidence-backed findings ordered by severity, with file and line evidence, concrete failure mode and impact, and a recommended correction. State explicitly when there are no findings.'
-LAUNCH=$(node "$WORK_HELPER" launch-command --profile codex-sol-write --effort high --prompt "$PROMPT")
-WORKSPACE=$(herdr pane current | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["workspace_id"])')
-TAB_PANE=$(herdr tab create --workspace "$WORKSPACE" --cwd "$PWD" --label 'review/codex' --no-focus | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["root_pane"]["pane_id"])')
-herdr pane rename "$TAB_PANE" 'Codex · review'
-herdr pane run "$TAB_PANE" "$LAUNCH"
-```
-
-For bounded work meant to sit next to the coordinator, split the current pane instead of creating a tab. A coding subtask uses the same placement, with the coordinator holding still while that one writer runs. Report the existing workspace label rather than announcing a new workspace.
-
-### Issue implementation with an explicit profile
-
-`start-issue` launches the `claude-opus` profile by default. Pass `--agent none` only when you need a different profile, then launch it in the returned root pane:
-
-```bash
-RESULT=$(node "$WORK_HELPER" start-issue 123 --agent none)
-WORKSPACE=$(printf '%s' "$RESULT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["herdrWorkspaceId"])')
-PANE=$(printf '%s' "$RESULT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["herdrPaneId"])')
-PROMPT='Work on GitHub issue #123. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge.'
-LAUNCH=$(node "$WORK_HELPER" launch-command --profile codex-sol-write --effort high --prompt "$PROMPT")
-herdr pane run "$PANE" "$LAUNCH"
-herdr workspace focus "$WORKSPACE"
-```
-
-### Coordinated issue with Fable
-
-Use the same issue-worktree setup when the work has parallel or long-running parts. Fable owns decomposition, assignment, synthesis, and final validation, but must not edit implementation files or assign coding to another Fable. It assigns design to Opus and coding to Opus or Codex.
-
-```bash
-DELEGATION_PROMPT='Coordinate GitHub issue #123 as a bigger delegated task. Read the repository instructions and issue. You are the coordinator only: do not edit implementation files or perform coding yourself, and never spawn or assign another Fable instance for coding. Martin has not authorized Fable implementation. Decompose the work into bounded, non-overlapping subtasks and assign each to the vendor that fits it, using both Claude Opus 5.5 (`claude-opus`) and GPT-6 Sol (`codex-sol-write`) only where a second vendor adds independent review or complementary investigation. Assign every product, UX, interaction, visual, architecture, API, or data-model design decision exclusively to Opus and record its direction before dependent implementation. Assign coding only to `claude-opus` or `codex-sol-write`. Start every delegate with the repository helper command `github-work.mjs launch-command`; do not write a model or permission flag by hand, and do not spawn native subagents. Give each delegate a handoff block and require its completion block back before accepting the work. Require a solution Martin can locate, trace, diagnose, recover, and change without an agent; abstractions must remove more complexity than they add and leave their contracts in the repository. Keep a single writer in this worktree and place every delegate that shares it in this Herdr workspace as a sibling pane or a named tab, never a second workspace; create a separate worktree and workspace only for a subtask that needs an isolated checkout. If repeated review findings expand scope or materially grow the diff, stop the patch loop and run the Opus convergence gate before more implementation. Inspect and synthesize delegated results, run final validation, and prepare a pull request. Do not merge or perform protected remote mutations.'
-LAUNCH=$(node "$WORK_HELPER" launch-command --profile claude-fable --effort high --prompt "$DELEGATION_PROMPT")
-herdr pane run "$PANE" "$LAUNCH"
-herdr workspace focus "$WORKSPACE"
-```
-
-If the helper reports a reused workspace and omits a root pane ID, use the external Herdr skill to re-read that workspace's current pane; do not guess an old ID. Keep one semantic workspace per active issue and report its label after launch.
-
-### Waiting for a delegate
-
-`herdr wait` no longer exists. On Herdr 0.8.2 the lifecycle commands are:
-
-```bash
-herdr agent wait "$NEW_PANE" --until working --timeout 120000
-herdr agent wait "$NEW_PANE" --until idle --until done --until blocked --timeout 1800000
-herdr pane wait-output "$NEW_PANE" --match 'No findings' --timeout 60000
-```
-
-Observe `working` before calling a launch successful. Then accept `idle`, `done`, or `blocked` as settled, and read the pane: `done` is ephemeral, so a waiter that requires only `done` can hang after someone focuses the pane. Bring a `blocked` agent to Martin instead of waiting longer. Keep the pane open so he can focus, inspect, interrupt, and resume it.
-
-Run `herdr --help`, `herdr agent --help`, and `herdr pane --help` when a command's shape is in doubt. The external `herdr` skill under `~/.agents/skills/` is stale on this machine and still documents `herdr wait`; `herdr --skill` prints the current version. Refreshing that file is Martin's action, not this repository's: never edit it or any other personal settings file.
-
-## Handoff and completion templates
-
-A delegated session starts and ends in writing. Fill in every field; write "none" rather than leaving one out.
-
-Handoff, sent as part of the delegate's initial prompt:
-
-```text
-Task: <one sentence>
-Repository and revision: <owner/repo> at <git SHA>, branch <branch>, worktree <path>
-Write scope: <paths you may change>. You are the only writer in this worktree while you run. Do not touch <paths off limits>.
-Design: <approved Opus direction and where it is recorded> | <none; stop and request an Opus handoff if design is needed>
-Tests to run: <exact commands>
-Acceptance criteria: <numbered, testable>
-Risks and known traps: <what has already gone wrong here>
-Escalation: stop and report if <condition>. Do not push, publish, approve, merge, or delete anything. Do not spawn native subagents; ask for a visible Herdr pane instead.
-```
-
-Completion, required back from the delegate before its work is accepted:
-
-```text
-Revision: <git SHA or "working tree only">, branch <branch>
-Files and behavior changed: <path: what changed and what a user sees>
-Checks run: <command → result, including failures and skips>
-Acceptance criteria: <each criterion → met, partially met with reason, or not met>
-Limitations and accepted risks: <what this does not cover>
-Needs operator authorization: <pushes, publications, merges, deletions, or nothing>
-```
-
-The coordinator verifies the claims rather than relaying them: re-run the checks, read the diff, and reconcile disagreements between delegates before reporting.
+[Templates](references/templates.md) has the handoff block a delegate receives in its initial prompt
+and the completion block it must return before its work is accepted. Fill in every field; write
+"none" rather than leaving one out.

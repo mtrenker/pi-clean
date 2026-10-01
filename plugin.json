@@ -1,0 +1,6 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "pi-clean",
+  "description": "pi-clean workflow skills: GitHub issues and pull requests, interactive agent sessions, prose, experience design, React composition, and Proton Pass.",
+  "version": "0.1.0"
+}

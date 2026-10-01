@@ -5,7 +5,7 @@ import { homedir, hostname } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   DEFAULT_ISSUE_AGENT,
@@ -47,6 +47,10 @@ async function main() {
         return output(describeProfiles());
       case "launch-command":
         return console.log(profileLaunchCommand(options));
+      case "callback-handoff":
+        return console.log(callbackHandoff());
+      case "callback":
+        return callback(options);
       case "help":
       case undefined:
         return printHelp(command ? 0 : 1);
@@ -509,7 +513,7 @@ function launchAgentInHerdrPane(paneId, agent, prompt, launchEnvironment = {}) {
 }
 
 function issueAgentPrompt(agent, number, repository) {
-  const task = `Work on GitHub issue #${number} in ${repository}. Read the repository instructions and issue, implement it in this worktree, validate the changes, and prepare a pull request. Do not merge.`
+  const task = `Work on GitHub issue #${number} in ${repository}. Read the repository instructions and issue, and implement the issue's next increment in this worktree, which is the whole issue when it is one bounded change. Validate it, show it, and stop before starting another, unless the issue or Martin explicitly asks you to finish the whole issue; prepare a pull request when the issue is complete. Do not merge. Routine edits need no approval; ask before expanding scope. Lead every update with Result (what now exists), Check (how Martin can see it), and Your turn (the one decision needed, or nothing), normally within one screen; keep failures and limitations, and link evidence instead of pasting it.`
     + " Follow the repository's checkpoint and preview contract: pause at a consequential or unspecified UI/UX decision and bring a running preview you opened yourself, and change nothing that alters it while you wait. Accepting a design lets you keep implementing in that direction; it is not authorization to push, open or publish a pull request, or merge, and it never overrides a repository rule that requires approval before committing. Preparing a pull request means showing its title, body, base, and head.";
   if (agent === "claude") {
     return `${task} As Claude Opus 5.5, own and document any unresolved product, UX, interaction, visual, architecture, API, or data-model design before implementing it.`;
@@ -518,7 +522,7 @@ function issueAgentPrompt(agent, number, repository) {
 }
 
 function reviewAgentPrompt(reviewer, number, repository) {
-  const task = `Independently review GitHub pull request #${number} in ${repository}. Read the relevant issue, accepted scope, durable design direction, full diff, and tests. If this pull request is part of a stack, review the diff of that layer against its own base branch with the stack map as context, rather than the whole stack. Review correctness, regressions, error handling, security, and maintainability against the supported contract. Distinguish reachable blockers, maintainability risks, unresolved design gaps, and out-of-contract concerns. A blocker needs a concrete failure path in a supported environment; theoretical or future-call-path concerns are non-blocking unless they expose a reachable security or data-loss risk. Martin is one developer responsible for many projects: assess whether he can find the entry points, trace state and invariants, diagnose failures, recover safely, and change the code without an agent. Flag hidden coupling, disproportionate abstraction or change size, duplicated policy, tests that obscure rather than explain the contract, and reasoning that exists only in an agent transcript. Return evidence-backed findings with category, file and line evidence, concrete impact, supported-contract assumption, and the smallest maintainable correction. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization.`;
+  const task = `Independently review GitHub pull request #${number} in ${repository}. Read the relevant issue, accepted scope, durable design direction, full diff, and tests. If this pull request is part of a stack, review the diff of that layer against its own base branch with the stack map as context, rather than the whole stack. Review correctness, regressions, error handling, security, and maintainability against the supported contract. Distinguish reachable blockers, maintainability risks, unresolved design gaps, and out-of-contract concerns. A blocker needs a concrete failure path in a supported environment; theoretical or future-call-path concerns are non-blocking unless they expose a reachable security or data-loss risk. Martin is one developer responsible for many projects: assess whether he can find the entry points, trace state and invariants, diagnose failures, recover safely, and change the code without an agent. Flag hidden coupling, disproportionate abstraction or change size, duplicated policy, tests that obscure rather than explain the contract, and reasoning that exists only in an agent transcript. Lead with Result (a one-line verdict), Check (the file and line evidence behind it), and Your turn (the decision needed), linking lengthy output instead of pasting it; then return evidence-backed findings with category, file and line evidence, concrete impact, supported-contract assumption, and the smallest maintainable correction. Do not modify the author worktree, approve, merge, or publish comments without explicit authorization.`;
   if (reviewer === "claude") {
     return `${task} As Claude Opus 5.5, evaluate any new or materially changed product, UX, interaction, visual, architecture, API, or data-model design.`;
   }
@@ -533,6 +537,107 @@ function profileLaunchCommand(options) {
   if (!options.profile) throw new Error(`--profile is required; supported: ${profileIds().join(", ")}`);
   if (!options.prompt) throw new Error("--prompt is required");
   return launchCommand({ profile: options.profile, effort: options.effort, prompt: options.prompt });
+}
+
+// Delegate callback: one `herdr agent prompt` back to the parent that asked for it.
+// Design and observed behavior: docs/herdr-delegate-reporting.md.
+const CALLBACK_STATUSES = ["completed", "failed", "needs-input"];
+const CALLBACK_MAX_LENGTH = 2000;
+const CALLBACK_ACTIVITY_TIMEOUT_MS = 10000;
+const NOT_SENT = 3;
+const MAYBE_SENT = 4;
+
+// Run by the parent in its own shell. Prints the handoff block: a fresh assignment ID, and a
+// callback command bound to this pane and session whose status and message come from shell
+// variables, so copying it before substitution fails as a usage error instead of misparsing.
+function callbackHandoff() {
+  if (process.env.HERDR_ENV !== "1" || !process.env.HERDR_PANE_ID) throw new Error("callback-handoff must run inside a Herdr pane (HERDR_ENV=1 and HERDR_PANE_ID)");
+  const pane = jsonCommand("herdr", ["pane", "get", process.env.HERDR_PANE_ID]).result?.pane;
+  const session = pane?.agent_session;
+  if (!session?.kind || !session.source || !session.value) throw new Error(`Herdr reports no agent session for pane ${process.env.HERDR_PANE_ID}; the parent must be a recognized agent`);
+  const assignment = randomUUID().slice(0, 8);
+  // A per-handoff delimiter, so a message line cannot close the heredoc and run as shell.
+  const delimiter = `CALLBACK_${randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase()}`;
+  const command = [
+    "node", shellQuote(fileURLToPath(import.meta.url)), "callback",
+    "--assignment", shellQuote(assignment),
+    "--pane", shellQuote(pane.pane_id),
+    "--session-kind", shellQuote(session.kind),
+    "--session-source", shellQuote(session.source),
+    "--session-value", shellQuote(session.value),
+    "--status", '"$STATUS"',
+    "--message", '"$MESSAGE"'
+  ].join(" ");
+  return [
+    `Report back (assignment ${assignment}): when you stop, send exactly one callback to the parent that launched you.`
+      + " Set STATUS to completed, failed, or needs-input, and MESSAGE to one paragraph with Result, Check, and Your turn."
+      + " Put no environment values, credentials, tokens, or transcript excerpts in MESSAGE; name files and commands instead."
+      + ` Use the quoted heredoc so quotes and $ stay literal, never put a line reading ${delimiter} in the message,`
+      + " then run the last line unchanged:",
+    "STATUS=completed",
+    `MESSAGE=$(cat <<'${delimiter}'`,
+    "Result: … Check: … Your turn: …",
+    delimiter,
+    ")",
+    command,
+    "Use needs-input when you need Martin's decision, then wait in your pane."
+      + " Exit 0: delivered. Exit 3: not sent; you may run it once more, only after the printed cause is cleared."
+      + " Exit 4: it may have been sent; do not run it again."
+      + " Whatever the exit, keep your full completion block as your final message in this pane."
+  ].join("\n");
+}
+
+// Run by the delegate. Verifies the parent's identity, prompts once, and notifies on failure.
+function callback(options) {
+  for (const name of ["assignment", "pane", "sessionKind", "sessionSource", "sessionValue", "status", "message"]) {
+    if (!options[name]) throw new Error(`--${name.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`)} is required`);
+  }
+  if (!/^[A-Za-z0-9-]{4,40}$/.test(options.assignment)) throw new Error("--assignment must be the ID from the handoff");
+  if (!CALLBACK_STATUSES.includes(options.status)) throw new Error(`--status must be ${CALLBACK_STATUSES.join(", ")}`);
+  const from = process.env.HERDR_PANE_ID;
+  const text = `Delegate callback · assignment ${options.assignment} · ${options.status} · from pane ${from || "unidentified"} · ${options.message}`.replace(/\s+/g, " ").trim();
+  if (text.length > CALLBACK_MAX_LENGTH) throw new Error(`callback is ${text.length} characters; the limit is ${CALLBACK_MAX_LENGTH}. Keep the full report in your pane and send a summary`);
+
+  const fail = (code, reason) => {
+    const recovery = from
+      ? `read the full report with: herdr pane read ${from} --source recent-unwrapped --lines 200`
+      : "the full report is in the delegate's own pane (HERDR_PANE_ID is unset)";
+    const notice = herdrJson(["notification", "show", "Delegate callback not sent", "--body", `Assignment ${options.assignment}: ${reason}. ${recovery}`, "--sound", "request"]);
+    console.error(JSON.stringify({ ok: false, sent: code === NOT_SENT ? "no" : "maybe", assignment: options.assignment, reason, recovery,
+      notified: !notice.error, ...(notice.error ? { notificationError: notice.error } : {}) }));
+    process.exitCode = code;
+  };
+
+  const target = herdrJson(["pane", "get", options.pane]);
+  if (target.error) return fail(NOT_SENT, `parent pane ${options.pane}: ${target.error}`);
+  const session = target.value.result?.pane?.agent_session;
+  const expected = { kind: options.sessionKind, source: options.sessionSource, value: options.sessionValue };
+  const mismatch = Object.keys(expected).filter((key) => session?.[key] !== expected[key]);
+  if (mismatch.length > 0) return fail(NOT_SENT, `parent pane ${options.pane} no longer hosts the expected session (${mismatch.join(", ")} differs)`);
+
+  const prompted = herdrJson(["agent", "prompt", options.pane, text, "--wait", "--until", "working", "--until", "blocked", "--timeout", String(CALLBACK_ACTIVITY_TIMEOUT_MS)]);
+  if (prompted.error) {
+    const code = ["agent_blocked", "agent_not_found"].includes(prompted.code) ? NOT_SENT : MAYBE_SENT;
+    return fail(code, `herdr agent prompt: ${prompted.error}`);
+  }
+  console.log(JSON.stringify({ ok: true, sent: "yes", assignment: options.assignment, pane: options.pane, status: options.status }));
+}
+
+// Herdr reports server errors as JSON on stderr with exit 1; keep the code for classification.
+function herdrJson(args) {
+  const result = spawnSync("herdr", args, { encoding: "utf8" });
+  if (result.error) return { error: result.error.message, code: "spawn_failed" };
+  if (result.status !== 0) {
+    const raw = (result.stderr || result.stdout).trim();
+    try {
+      const parsed = JSON.parse(raw).error;
+      return { error: `${parsed.code}: ${parsed.message}`, code: parsed.code };
+    } catch {
+      return { error: raw || `exit ${result.status}`, code: "unknown" };
+    }
+  }
+  try { return { value: JSON.parse(result.stdout) }; }
+  catch { return { error: "herdr returned invalid JSON", code: "invalid_json" }; }
 }
 
 function herdrPanes() {
@@ -762,6 +867,8 @@ function allowedOptions(command) {
     case "review-pr": return new Map([["reviewer", "value"], ["workspace", "value"], ["allow-closed", "boolean"]]);
     case "finish-issue": return new Map([["delete-branch", "boolean"]]);
     case "launch-command": return new Map([["profile", "value"], ["effort", "value"], ["prompt", "value"]]);
+    case "callback": return new Map([["assignment", "value"], ["pane", "value"], ["session-kind", "value"], ["session-source", "value"], ["session-value", "value"], ["status", "value"], ["message", "value"]]);
+    case "callback-handoff":
     case "cleanup-pr":
     case "status":
     case "profiles":
@@ -848,7 +955,7 @@ function output(value) {
 }
 
 function printHelp(code) {
-  console.log(`github-work — isolated GitHub issue and PR work in Herdr\n\nUsage:\n  github-work start-issue <number> [--agent claude|codex|pi|none]   (default: ${DEFAULT_ISSUE_AGENT})\n  github-work review-pr <number> [--reviewer claude|codex|pi] [--workspace <id>]\n                                                                  (default reviewer: ${DEFAULT_REVIEWER}; default host: this workspace, else the primary one)\n  github-work status\n  github-work finish-issue <number> [--delete-branch]\n  github-work cleanup-pr <number>\n  github-work profiles\n  github-work launch-command --profile <id> [--effort <level>] --prompt <text>\n\nLaunch profiles (docs/agent-launch-profiles.md):\n  ${profileIds().join(", ")}\n\nEnvironment:\n  GITHUB_WORKTREE_ROOT       default: ~/.local/share/agent-worktrees\n  GITHUB_WORK_REMOTE         default: origin\n  FLIGHTDECK_TELEMETRY_FILE  optional Flightdeck-compatible JSONL sink\n`);
+  console.log(`github-work — isolated GitHub issue and PR work in Herdr\n\nUsage:\n  github-work start-issue <number> [--agent claude|codex|pi|none]   (default: ${DEFAULT_ISSUE_AGENT})\n  github-work review-pr <number> [--reviewer claude|codex|pi] [--workspace <id>]\n                                                                  (default reviewer: ${DEFAULT_REVIEWER}; default host: this workspace, else the primary one)\n  github-work status\n  github-work finish-issue <number> [--delete-branch]\n  github-work cleanup-pr <number>\n  github-work profiles\n  github-work launch-command --profile <id> [--effort <level>] --prompt <text>\n  github-work callback-handoff                                    (parent: print the Report back block)\n  github-work callback --assignment <id> --pane <id> --session-kind <k> --session-source <s> --session-value <v>\n                       --status completed|failed|needs-input --message <text>   (delegate)\n\nLaunch profiles (docs/agent-launch-profiles.md):\n  ${profileIds().join(", ")}\n\nEnvironment:\n  GITHUB_WORKTREE_ROOT       default: ~/.local/share/agent-worktrees\n  GITHUB_WORK_REMOTE         default: origin\n  FLIGHTDECK_TELEMETRY_FILE  optional Flightdeck-compatible JSONL sink\n`);
   process.exitCode = code;
 }
 

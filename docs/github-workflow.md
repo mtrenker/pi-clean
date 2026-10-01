@@ -85,7 +85,7 @@ they may compact after workspaces or panes close.
 
 ## Interactive delegation policy
 
-Pi-clean does not provide non-interactive Claude or Codex subprocess delegation. Delegated work must remain visible in Herdr. The externally managed `herdr` skill discovered from `~/.agents/skills/` describes response shapes, but verify its commands against `herdr --help`: the installed copy predates Herdr 0.8.2 and still documents the removed `herdr wait`. `herdr --skill` prints the current version; refreshing that personal file is an operator action, and this repository never edits it.
+Pi-clean does not provide non-interactive Claude or Codex subprocess delegation. Delegated work must remain visible in Herdr. Herdr's own skill, printed by `herdr --skill`, describes the current commands and response shapes; read it at session start rather than relying on a copy.
 
 Use a split pane in the current workspace only for a bounded read-only investigation where sharing the checkout is safe. Starting another issue, or mutating any other checkout, uses `start-issue` and its isolated linked-worktree workspace. Independent review uses `review-pr`, which gives the reviewer a detached worktree in a named tab of a workspace this repository already has.
 
