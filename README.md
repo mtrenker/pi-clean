@@ -8,6 +8,38 @@ Custom [pi](https://github.com/badlogic/pi) package collection.
 pi install git:git@github.com:mtrenker/pi-clean.git
 ```
 
+### Load skills directly from a checkout
+
+For local development, point each harness at the same checkout. The examples below use
+`/home/martin/code/pi-clean`; substitute your checkout path. Branch switches and edits then
+change the source each harness reads. Restart the harness after setup to refresh discovery.
+
+- **Pi:** include the checkout's absolute path in the `packages` array in
+  `~/.pi/agent/settings.json`. Replace any Git-installed pi-clean entry to avoid loading it
+  twice. Pi reads the extensions and skills declared in this checkout's `package.json`.
+- **Claude Code:** set `env.CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json` to
+  `/home/martin/code/pi-clean`, preserving any other configured plugin directories. Claude
+  reads `.claude-plugin/plugin.json` and exposes the skills as `pi-clean:<name>`.
+- **Codex:** add one bundle symlink under the existing global skills directory:
+
+  ```bash
+  mkdir -p ~/.agents/skills
+  ln -sT /home/martin/code/pi-clean/skills ~/.agents/skills/pi-clean
+  ```
+
+  This adds the whole bundle without replacing other global skills or linking each skill
+  separately. Newly added skill folders are included on discovery, and `_shared` resources
+  remain in the checkout. Verified with Codex CLI 0.159.0: all seven skills resolve to checkout
+  paths and appear as `pi-clean:<name>`. The command refuses to overwrite an existing destination.
+
+Codex marketplace installation copies even local plugins into its cache. Use the bundle link
+for live checkout development; `plugin.json` remains available for packaged distribution.
+If migrating from the personal marketplace setup, run
+`codex plugin remove pi-clean@martin-local` and remove its entry from
+`~/.agents/plugins/marketplace.json`, preserving any other plugins. An empty marketplace file
+can be removed. See the [Codex skill discovery documentation](https://learn.chatgpt.com/docs/build-skills)
+and [plugin installation documentation](https://developers.openai.com/plugins/build/plugins).
+
 ## Extensions
 
 ### 🛡 [Agent Guard](extensions/agent-guard/README.md)
