@@ -7,6 +7,11 @@ repository skill. Create or update it under `skills/<skill-name>/SKILL.md`, neve
 home skill directory. A personal skill is only intended when Martin explicitly asks from his home
 directory.
 
+## Engineering approach
+
+Follow [agile-engineering](skills/agile-engineering/SKILL.md) for plans, code, tests, docs,
+issues and reviews: the smallest useful increment, feedback early, rigor proportional to risk.
+
 ## Prose
 
 Follow the `prose-quality` skill for human-facing prose, including replies, commits, PR and issue

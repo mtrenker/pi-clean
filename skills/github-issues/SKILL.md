@@ -7,6 +7,7 @@ compatibility: Requires git and an authenticated GitHub CLI (gh).
 # GitHub issues
 
 Read [the shared workflow policy](../_shared/github-workflow.md) before acting.
+Apply [agile-engineering](../agile-engineering/SKILL.md) to scope and issue prose.
 
 ## Inspect before mutation
 
@@ -59,7 +60,9 @@ Re-running checks. Context: [the CI discussion](URL).
 
 Do not invent labels. Use only labels the repository defines, which draft validation also checks. Prefer `--body-file` over shell inline Markdown. Show the title, body, labels, assignees, parent, dependencies, milestone, and every Project field change before `gh issue create` unless already explicitly authorized. Draft validation never authorizes or performs publication.
 
-Use parent issues for outcomes and child issues for independently deliverable units. Use native dependency relationships for blocking order. Create only the first executable wave rather than publishing a speculative full roadmap.
+Use parent issues for outcomes and child issues for independently deliverable units when a split
+helps delivery; one small change needs no artificial hierarchy. Use native dependency relationships
+for blocking order. Create only the first executable wave, not a speculative full roadmap.
 
 ## Groom an issue
 
@@ -71,8 +74,12 @@ appropriately scoped, and implementable without guessing. A ready issue has:
 - testable acceptance criteria;
 - known parent, dependencies, and blockers;
 - repository-valid labels;
-- architecture constraints and validation expectations;
-- enough context for an agent starting in a fresh worktree.
+- relevant architecture constraints and proportionate validation expectations;
+- enough context to start, linking existing material rather than repeating it.
+
+These are readiness questions, not mandatory prose sections. Aim for one screen with the outcome,
+next increment, check and stopping point easy to find. Keep details that change implementation or
+review; omit boilerplate and empty headings unless the repository's issue form requires them.
 
 Treat `agent-ready` as a strict admission gate when the repository uses it: a cold agent must not need to reconstruct chat history or make unresolved product, architecture, visual, security, or migration decisions. Unresolved design blocks readiness under [the shared design-ownership rule](../_shared/github-workflow.md#delegated-design-ownership); represent a substantial design pass as an Opus-owned blocking child issue or an explicit dependency. Use `needs-human` when human judgment is the next work. Never move work into Ready solely because it exists.
 
