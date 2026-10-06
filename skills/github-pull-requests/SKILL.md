@@ -8,6 +8,7 @@ compatibility: Requires git, an authenticated GitHub CLI (gh), and Herdr for man
 
 Read [the shared workflow policy](../_shared/github-workflow.md) before acting. It defines the
 checkpoint, preview, commit, and layer concepts and the authorization each one needs.
+Apply [agile-engineering](../agile-engineering/SKILL.md) when judging scope and validation.
 
 ## Open a pull request
 
@@ -66,7 +67,9 @@ under a `workspace-write` sandbox. Both instruct the reviewer not to spawn nativ
 their vendor's flag for it, so a reviewer that needs help asks for a second visible session.
 
 Review the full diff for correctness, regressions, security, error handling, maintainability,
-test quality, and issue acceptance criteria. For a pull request in a stack, that diff is the
+test quality, and issue acceptance criteria. Flag tests that add maintenance without guarding a
+credible risk, as well as missing important checks. Hypothetical future needs do not expand scope.
+For a pull request in a stack, that diff is the
 layer's own diff against its base branch, with the stack map for context, not the whole stack. Run focused validation when practical. Lead the report with the verdict and the decision it needs, then distinguish:
 
 - blocking findings with file/line evidence and a concrete failure mode;
