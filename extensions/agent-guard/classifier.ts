@@ -11,6 +11,9 @@
  * prompt, tool results or file contents. Design record: issue #62.
  */
 
+import { appendFile, mkdir, rename, stat } from "node:fs/promises";
+import { dirname } from "node:path";
+
 import type { GuardPolicy } from "./policy.ts";
 import { redactContent } from "./redaction.ts";
 
@@ -400,5 +403,42 @@ export function createShadowClassifier(options: {
       if (!busy && queue.length === 0) return Promise.resolve();
       return new Promise((resolve) => idleWaiters.push(resolve));
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Log file: the active file plus one previous file, each at most LOG_LIMIT
+// ---------------------------------------------------------------------------
+
+/**
+ * A line is appended only while the active file stays at or under LOG_LIMIT
+ * bytes; otherwise the file first becomes `<logPath>.1`, replacing the
+ * previous one. A line over LOG_LIMIT is dropped. Writes in this process run
+ * one at a time. Pi processes sharing the log take no lock: each line is one
+ * O_APPEND write and rotation is an atomic rename, so lines are never split,
+ * but writers crossing the limit together can overshoot it by a line each,
+ * and two rotating at the same moment can discard the previous file.
+ */
+export const LOG_LIMIT = 5_000_000;
+
+let logTail: Promise<void> = Promise.resolve();
+
+export function createClassifierLog(logPath: string, limit = LOG_LIMIT): (line: ClassifierLogLine) => Promise<void> {
+  const ignoreMissing = (error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") throw error;
+  };
+  const append = async (text: string) => {
+    const bytes = Buffer.byteLength(text);
+    if (bytes > limit) return;
+    await mkdir(dirname(logPath), { recursive: true });
+    const size = await stat(logPath).then((s) => s.size, (error) => (ignoreMissing(error), 0));
+    if (size + bytes > limit) await rename(logPath, `${logPath}.1`).catch(ignoreMissing);
+    await appendFile(logPath, text, "utf8");
+  };
+  return (line) => {
+    const text = JSON.stringify(line) + "\n";
+    // Failures are swallowed: logging must never affect a session.
+    logTail = logTail.then(() => append(text)).catch(() => {});
+    return logTail;
   };
 }

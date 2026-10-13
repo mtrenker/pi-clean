@@ -3,15 +3,21 @@
  *
  * Covers what leaves the process (exact arguments, redaction, truncation),
  * skips that must not send a request, answer parsing that never turns a
- * failure into `routine`, and the bounded queue.
+ * failure into `routine`, the bounded queue, and the rotating log file.
  */
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 
 import { DEFAULT_POLICY } from "./policy.ts";
 import {
   buildState,
+  createClassifierLog,
   createShadowClassifier,
   parseResult,
   POLICY_TEXT,
@@ -195,4 +201,71 @@ test("one request in flight, eight waiting, then queue-full; an aborted waiter i
   assert.ok(!calls.some(([, context]) => JSON.stringify(context.state).includes("echo 0")));
   assert.deepEqual(lines.find((l) => l.toolCallId === "q0")?.outcome, "aborted");
   assert.equal(lines.length, QUEUE_LIMIT + 2);
+});
+
+// ---------------------------------------------------------------------------
+// Log file
+// ---------------------------------------------------------------------------
+
+async function logDir(t: test.TestContext) {
+  const dir = await mkdtemp(join(tmpdir(), "agent-guard-log-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  return dir;
+}
+
+const logLine = (n: number): ClassifierLogLine => ({ ts: "t", prompt: "v2", outcome: "classified", toolCallId: `c${n}` });
+const LINE_BYTES = Buffer.byteLength(JSON.stringify(logLine(0)) + "\n");
+
+async function ids(path: string) {
+  const text = await readFile(path, "utf8").catch(() => "");
+  return text.split("\n").filter(Boolean).map((l) => (JSON.parse(l) as ClassifierLogLine).toolCallId);
+}
+
+test("the log fills to exactly its limit, then keeps one previous file; an oversized line is dropped", async (t) => {
+  const dir = await logDir(t);
+  const path = join(dir, "logs", "classifier.jsonl");
+  const log = createClassifierLog(path, 3 * LINE_BYTES);
+
+  for (let n = 0; n < 3; n++) await log(logLine(n));
+  assert.equal((await stat(path)).size, 3 * LINE_BYTES);
+  assert.deepEqual(await readdir(join(dir, "logs")), ["classifier.jsonl"]);
+
+  for (let n = 3; n < 7; n++) await log(logLine(n));
+  await log({ ...logLine(9), reason: "x".repeat(3 * LINE_BYTES) });
+  assert.deepEqual(await ids(`${path}.1`), ["c3", "c4", "c5"]);
+  assert.deepEqual(await ids(path), ["c6"]);
+  assert.deepEqual((await readdir(join(dir, "logs"))).sort(), ["classifier.jsonl", "classifier.jsonl.1"]);
+});
+
+test("lines logged at once rotate one at a time", async (t) => {
+  const path = join(await logDir(t), "classifier.jsonl");
+  const log = createClassifierLog(path, 3 * LINE_BYTES);
+  await Promise.all(Array.from({ length: 9 }, (_, n) => log(logLine(n))));
+  assert.deepEqual(await ids(`${path}.1`), ["c3", "c4", "c5"]);
+  assert.deepEqual(await ids(path), ["c6", "c7", "c8"]);
+});
+
+test("separate writers sharing the log never split a line and stay near the limit", async (t) => {
+  const path = join(await logDir(t), "classifier.jsonl");
+  const limit = 20 * LINE_BYTES;
+  const writers = 3;
+  // Each worker loads its own copy of the module, like a separate Pi process.
+  const code = `
+    const { workerData } = require("node:worker_threads");
+    import(workerData.module).then(async ({ createClassifierLog }) => {
+      const log = createClassifierLog(workerData.path, workerData.limit);
+      for (let n = 0; n < 200; n++) await log({ ts: "t", prompt: "v2", outcome: "classified", toolCallId: "w" + n });
+    });`;
+  const module = pathToFileURL(join(import.meta.dirname, "classifier.ts")).href;
+  await Promise.all(
+    Array.from({ length: writers }, () => {
+      const worker = new Worker(code, { eval: true, workerData: { module, path, limit } });
+      return new Promise((resolve, reject) => worker.on("exit", resolve).on("error", reject));
+    }),
+  );
+  for (const file of [path, `${path}.1`]) {
+    const text = await readFile(file, "utf8");
+    for (const line of text.split("\n").filter(Boolean)) assert.equal(JSON.parse(line).prompt, "v2");
+    assert.ok(text.length <= limit + writers * (LINE_BYTES + 2), `${file} is ${text.length} bytes`);
+  }
 });

@@ -215,9 +215,14 @@ with reason `oversized`, `invalid-input` or `queue-full`, `unavailable`) are
 logged as such and never counted as `routine`.
 
 **Log:** one JSON line per call in `~/.pi/agent/agent-guard-classifier.jsonl`
-(`actionGuard.classifier.logPath`), separate from the audit log, not rotated,
-safe to delete. Lines carry `prompt`, `toolName`, `toolCallId`, `outcome`,
-`label`, rounded `probabilities`, `truncated`, `inputChars`, `inputTokens`,
+(`actionGuard.classifier.logPath`), separate from the audit log and safe to
+delete. A line that would take the file past 5 MB (5,000,000 bytes) first moves
+it to `agent-guard-classifier.jsonl.1`, replacing the previous one, so the two
+files hold about 10 MB at most; a single line over 5 MB is dropped. Pi
+processes sharing the log take no lock: lines are never split, but writers
+crossing the limit together can overshoot it by a line each, and two rotating
+at once can discard the previous file. Lines carry `prompt`, `toolName`,
+`toolCallId`, `outcome`, `label`, rounded `probabilities`, `truncated`, `inputChars`, `inputTokens`,
 `waitMs` and `latencyMs`. Only `review` and `block` lines include a 200-character
 excerpt of the redacted input; use `toolCallId` to find a `routine` call in the
 session file.
@@ -282,7 +287,7 @@ coding agent sessions:
 | Catastrophic patterns | 9: `rm-rf-root`, `rm-rf-home`, `fork-bomb`, `dd-to-block-device`, `stdout-to-block-device`, `mkfs`, `format-disk-mac`, `shred-root`, `chmod-777-root` |
 | Redaction patterns | 6: `aws-access-key-id`, `anthropic-api-key`, `openai-api-key`, `github-pat`, `generic-api-key` (covers multiple token formats) |
 | Audit log path | `~/.pi/agent/agent-guard-audit.jsonl` |
-| Shadow classifier | Off; log `~/.pi/agent/agent-guard-classifier.jsonl` |
+| Shadow classifier | Off; log `~/.pi/agent/agent-guard-classifier.jsonl`, rotated at 5 MB with one previous file |
 
 ---
 

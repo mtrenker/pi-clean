@@ -41,6 +41,7 @@ import { checkAction } from "./action-guard.js";
 import { enforcePathGuard, classifyPath, resolveInputPath, type LogFn } from "./path-guard.js";
 import { redactContent } from "./redaction.js";
 import {
+  createClassifierLog,
   createShadowClassifier,
   resolveClassifier,
   PROMPT_VERSION,
@@ -146,7 +147,7 @@ export default function (pi: ExtensionAPI) {
     classifierStatus = "off";
     const settings = policy.actionGuard.classifier;
     if (policy.actionGuard.enabled && settings?.enabled) {
-      const classifierLog = createAuditLogger(resolveAuditLogPath(ctx.cwd, settings.logPath));
+      const classifierLog = createClassifierLog(resolveAuditLogPath(ctx.cwd, settings.logPath));
       let resolved: ReturnType<typeof resolveClassifier>;
       try {
         resolved = resolveClassifier(ctx.modelRegistry, settings.provider, settings.model);
@@ -161,13 +162,13 @@ export default function (pi: ExtensionAPI) {
           outcome: "unavailable",
           reason: resolved.reason,
         };
-        await classifierLog({ ...line });
+        await classifierLog(line);
         if (ctx.hasUI) ctx.ui.notify(`agent-guard shadow classifier ${classifierStatus}`, "warning");
       } else {
         classifier = createShadowClassifier({
           ...resolved,
           policy,
-          log: (line) => classifierLog({ ...line }),
+          log: classifierLog,
         });
         classifierStatus = `shadow via ${settings.provider}/${settings.model}`;
       }
