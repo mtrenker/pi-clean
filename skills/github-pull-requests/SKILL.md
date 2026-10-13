@@ -67,8 +67,11 @@ under a `workspace-write` sandbox. Both instruct the reviewer not to spawn nativ
 their vendor's flag for it, so a reviewer that needs help asks for a second visible session.
 
 Review the full diff for correctness, regressions, security, error handling, maintainability,
-test quality, and issue acceptance criteria. Flag tests that add maintenance without guarding a
-credible risk, as well as missing important checks. Hypothetical future needs do not expand scope.
+test quality, and issue acceptance criteria. Judge tests with the questions in
+[Test what earns its place](../agile-engineering/SKILL.md#test-what-earns-its-place): a request
+for a test names the failure it would catch, and a finding against a test names its concrete
+defect or cost, such as that it cannot fail, pins nothing depended on, or duplicates other evidence.
+Neither is a default finding. Hypothetical future needs do not expand scope.
 For a pull request in a stack, that diff is the
 layer's own diff against its base branch, with the stack map for context, not the whole stack. Run focused validation when practical. Lead the report with the verdict and the decision it needs, then distinguish:
 

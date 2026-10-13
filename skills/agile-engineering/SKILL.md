@@ -55,6 +55,31 @@ These are judgments, not modes to declare or forms to fill out.
   at every layer, or test framework behavior. Do not build a test framework for a
   small change. Run required repository checks and report failures honestly.
 
+Before adding, keeping or asking for a test, ask:
+
+- **Can it fail?** It must fail when the behavior it promises breaks. A test whose
+  setup never reaches the guarded path is not evidence, nor is one a no-op would
+  pass when the promised behavior is a change. See a regression or risk test fail
+  once against the broken behavior.
+- **Is the pinned detail depended on?** Assert what users, callers, stored data or
+  other components rely on. Persisted and wire formats, authorization and security
+  decisions, ids or attributes that other code or assistive technology reads, and
+  stated properties are contracts: test them directly. An encoding or call order
+  that nothing consumes is not.
+- **Does the boundary under test match production?** A unit test may stub what
+  lies outside its boundary. Inside it, the plugins, configuration and
+  serialization that shape what the test checks must be the ones production uses.
+- **Would sharpening an existing test do?** Prefer a sharper assertion, or a case
+  for a distinct failure mechanism, over more inputs of the same kind.
+
+No new test, a sharper existing assertion, and removing a test whose failure
+another test still catches are normal outcomes. When changed behavior gets no new
+test, name the existing evidence in the pull request's validation notes. Reviewers
+ask the same questions: a request for a test names the failure it would catch, and
+a finding against a test names its concrete defect or cost, such as that it cannot
+fail, pins nothing depended on, or duplicates other evidence. Neither is a default
+finding.
+
 ## Write for the person who must act
 
 - An issue needs the behavior or problem, the next deliverable, how to check it,
