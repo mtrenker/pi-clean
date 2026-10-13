@@ -11,9 +11,12 @@
  *   2. Global-level   : ~/.pi/agent/agent-guard.json
  *   3. Hardcoded      : DEFAULT_POLICY (this file)
  *
+ * Exception: `actionGuard.classifier` is honored from the global file only;
+ * a project file can set `enabled: false` and nothing else (see loadPolicy).
+ *
  * Deferred capabilities are annotated with // ⚠ deferred (mvp) and are
  * intentionally absent from the interface and defaults. Do not add them
- * without updating docs/agent-guard/02-policy.md in the same PR.
+ * without updating extensions/agent-guard/README.md in the same PR.
  */
 
 import * as fs from "fs";
@@ -123,11 +126,24 @@ export interface ActionGuardPolicy {
    * // may support a `warnPatterns` list analogous to secretGuard's
    * // `warnOnlyPaths`, pausing execution and asking the operator to approve.
    *
-   * // ⚠ deferred (mvp): broad command risk scoring — automated risk scoring
-   * // of arbitrary shell commands is explicitly out of scope for the initial
-   * // policy model. Only the short, curated `catastrophicPatterns` list is used.
+   * Risk scoring of arbitrary calls exists only as the opt-in shadow
+   * classifier below (classifier.ts): it logs verdicts and never blocks.
    */
   catastrophicPatterns: LabelledPattern[];
+
+  /** Shadow-mode classification of allowed tool calls. Global file only. */
+  classifier: ClassifierPolicy;
+}
+
+export interface ClassifierPolicy {
+  /** Off by default: no tool arguments leave the process unless the operator opts in. */
+  enabled: boolean;
+  /** Pi provider id of a classifier model, e.g. "voyager-classifiers". */
+  provider: string;
+  /** Classifier model id within that provider, e.g. "clef". */
+  model: string;
+  /** Classifier verdict log. Same resolution rules as auditLogPath. */
+  logPath: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -377,6 +393,13 @@ export const DEFAULT_POLICY: GuardPolicy = {
         pattern: "\\bchmod\\b.{0,30}-[^\\s]*R[^\\s]*\\s+[0-7]*7[0-7]{2}\\s+/\\s*$",
       },
     ],
+
+    classifier: {
+      enabled: false,
+      provider: "",
+      model: "",
+      logPath: "~/.pi/agent/agent-guard-classifier.jsonl",
+    },
   },
 };
 
@@ -452,6 +475,15 @@ export function loadPolicy(cwd: string): GuardPolicy {
 
   const globalOverride = readJsonFile(globalConfigPath);
   const projectOverride = readJsonFile(projectConfigPath);
+
+  // Enabling the classifier sends tool arguments to a provider, so a cloned
+  // repository must not be able to opt in or redirect them. It may opt out.
+  const projectActionGuard = projectOverride?.actionGuard as Record<string, unknown> | undefined;
+  if (typeof projectActionGuard === "object" && projectActionGuard !== null && "classifier" in projectActionGuard) {
+    const requested = projectActionGuard.classifier as { enabled?: unknown } | null;
+    if (requested?.enabled === false) projectActionGuard.classifier = { enabled: false };
+    else delete projectActionGuard.classifier;
+  }
 
   let policy = DEFAULT_POLICY;
   if (globalOverride) {

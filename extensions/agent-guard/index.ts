@@ -11,6 +11,9 @@
  *   6. session_shutdown         — clear footer status badge
  *   7. /agent-guard cmd         — show policy summary and recent audit log
  *
+ * Calls the deterministic guards allow are also queued for the opt-in shadow
+ * classifier (classifier.ts), which logs verdicts and never blocks.
+ *
  * All guard logic is delegated to sub-modules; no guard logic lives here.
  *
  * Sub-modules:
@@ -18,6 +21,7 @@
  *   - action-guard.ts — checkAction
  *   - path-guard.ts   — enforcePathGuard / classifyPath
  *   - redaction.ts    — redactContent  (added by Task 005)
+ *   - classifier.ts   — createShadowClassifier
  */
 
 import * as fs from "node:fs";
@@ -36,6 +40,15 @@ import { buildUnsetPreamble } from "./env.js";
 import { checkAction } from "./action-guard.js";
 import { enforcePathGuard, classifyPath, resolveInputPath, type LogFn } from "./path-guard.js";
 import { redactContent } from "./redaction.js";
+import {
+  createShadowClassifier,
+  resolveClassifier,
+  PROMPT_VERSION,
+  type ClassifierLogLine,
+  type ObserveContext,
+  type ObservedCall,
+  type ShadowClassifier,
+} from "./classifier.js";
 
 // ---------------------------------------------------------------------------
 // Audit log
@@ -107,6 +120,18 @@ export default function (pi: ExtensionAPI) {
   // We keep a module-level reference so all hooks close over it.
   let policy: GuardPolicy | null = null;
   let log: LogFn | null = null;
+  let classifier: ShadowClassifier | null = null;
+  let classifierStatus = "off";
+
+  // Never awaits the model. A tool_call handler that throws blocks the tool,
+  // so the shadow classifier must not throw either.
+  const observe = (event: ObservedCall, ctx: ObserveContext) => {
+    try {
+      classifier?.observe(event, ctx);
+    } catch {
+      // Already caught inside observe(); this is the last line of defence.
+    }
+  };
 
   // -------------------------------------------------------------------------
   // session_start — load policy, set status badge
@@ -116,9 +141,42 @@ export default function (pi: ExtensionAPI) {
     const auditLogPath = resolveAuditLogPath(ctx.cwd, policy.auditLogPath);
     log = createAuditLogger(auditLogPath);
 
+    classifier?.shutdown();
+    classifier = null;
+    classifierStatus = "off";
+    const settings = policy.actionGuard.classifier;
+    if (policy.actionGuard.enabled && settings?.enabled) {
+      const classifierLog = createAuditLogger(resolveAuditLogPath(ctx.cwd, settings.logPath));
+      let resolved: ReturnType<typeof resolveClassifier>;
+      try {
+        resolved = resolveClassifier(ctx.modelRegistry, settings.provider, settings.model);
+      } catch {
+        resolved = { reason: "classifier lookup failed" };
+      }
+      if ("reason" in resolved) {
+        classifierStatus = `unavailable: ${resolved.reason}`;
+        const line: ClassifierLogLine = {
+          ts: new Date().toISOString(),
+          prompt: PROMPT_VERSION,
+          outcome: "unavailable",
+          reason: resolved.reason,
+        };
+        await classifierLog({ ...line });
+        if (ctx.hasUI) ctx.ui.notify(`agent-guard shadow classifier ${classifierStatus}`, "warning");
+      } else {
+        classifier = createShadowClassifier({
+          ...resolved,
+          policy,
+          log: (line) => classifierLog({ ...line }),
+        });
+        classifierStatus = `shadow via ${settings.provider}/${settings.model}`;
+      }
+    }
+
     const parts: string[] = [];
     if (policy.secretGuard.enabled) parts.push("env");
     if (policy.actionGuard.enabled) parts.push("action");
+    if (classifier) parts.push("shadow");
     const label = parts.length > 0 ? parts.join("+") : "off";
 
     ctx.ui.setStatus(
@@ -131,6 +189,8 @@ export default function (pi: ExtensionAPI) {
   // session_shutdown — clear status badge
   // -------------------------------------------------------------------------
   pi.on("session_shutdown", async (_event, ctx) => {
+    classifier?.shutdown();
+    classifier = null;
     ctx.ui.setStatus("agent-guard", undefined);
   });
 
@@ -176,6 +236,7 @@ export default function (pi: ExtensionAPI) {
         }
       }
 
+      observe(event, ctx);
       return undefined;
     }
 
@@ -211,6 +272,7 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
+    observe(event, ctx);
     return undefined;
   });
 
@@ -298,6 +360,14 @@ export default function (pi: ExtensionAPI) {
         `actionGuard : ${policy.actionGuard.enabled ? "enabled" : "disabled"}`,
         `  catastrophic patterns: ${policy.actionGuard.catastrophicPatterns.length}`,
         `    ${policy.actionGuard.catastrophicPatterns.map((p) => p.label).join(", ")}`,
+        "",
+        `classifier : ${classifierStatus}`,
+        ...(classifierStatus === "off"
+          ? []
+          : [
+              `  this session: ${Object.entries(classifier?.counts() ?? {}).map(([k, v]) => `${k} ${v}`).join(", ") || "none"}`,
+              `  log: ${policy.actionGuard.classifier.logPath}`,
+            ]),
         "",
         `auditLog : ${policy.auditLogPath}`,
         "",

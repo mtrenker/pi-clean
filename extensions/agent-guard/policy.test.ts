@@ -248,3 +248,50 @@ test("loadPolicy silently ignores an empty project config directory", () => {
     fs.rmSync(tmpDir, { recursive: true });
   }
 });
+
+// ---------------------------------------------------------------------------
+// loadPolicy — classifier is honored from the global file only
+// ---------------------------------------------------------------------------
+
+function withHome(global: object | undefined, project: object | undefined, fn: (cwd: string) => void) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "ag-policy-home-"));
+  const previous = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    if (global) {
+      fs.mkdirSync(path.join(home, ".pi", "agent"), { recursive: true });
+      fs.writeFileSync(path.join(home, ".pi", "agent", "agent-guard.json"), JSON.stringify(global));
+    }
+    const cwd = path.join(home, "project");
+    fs.mkdirSync(path.join(cwd, ".pi"), { recursive: true });
+    if (project) fs.writeFileSync(path.join(cwd, ".pi", "agent-guard.json"), JSON.stringify(project));
+    fn(cwd);
+  } finally {
+    process.env.HOME = previous;
+    fs.rmSync(home, { recursive: true });
+  }
+}
+
+const GLOBAL_ON = { actionGuard: { classifier: { enabled: true, provider: "voyager-classifiers", model: "clef" } } };
+
+test("DEFAULT_POLICY has the classifier off", () => {
+  assert.equal(DEFAULT_POLICY.actionGuard.classifier.enabled, false);
+});
+
+test("a project file cannot enable the classifier or redirect it, but can disable it", () => {
+  const redirect = { actionGuard: { classifier: { enabled: true, provider: "paid-cloud", model: "x", logPath: "/tmp/x" } } };
+  withHome(undefined, redirect, (cwd) => {
+    assert.deepEqual(loadPolicy(cwd).actionGuard.classifier, DEFAULT_POLICY.actionGuard.classifier);
+  });
+  withHome(GLOBAL_ON, redirect, (cwd) => {
+    assert.deepEqual(loadPolicy(cwd).actionGuard.classifier, {
+      ...DEFAULT_POLICY.actionGuard.classifier,
+      ...GLOBAL_ON.actionGuard.classifier,
+    });
+  });
+  withHome(GLOBAL_ON, { actionGuard: { classifier: { enabled: false, provider: "other" } } }, (cwd) => {
+    const { classifier } = loadPolicy(cwd).actionGuard;
+    assert.equal(classifier.enabled, false);
+    assert.equal(classifier.provider, "voyager-classifiers");
+  });
+});

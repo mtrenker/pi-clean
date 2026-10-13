@@ -327,6 +327,7 @@ test("custom policy: blocks a user-defined pattern", () => {
   const customPolicy: GuardPolicy = {
     ...DEFAULT_POLICY,
     actionGuard: {
+      ...DEFAULT_POLICY.actionGuard,
       enabled: true,
       catastrophicPatterns: [{ label: "custom-nuke", pattern: "nuke_everything" }],
     },
@@ -339,6 +340,7 @@ test("custom policy: does NOT block default catastrophic commands when list is r
   const customPolicy: GuardPolicy = {
     ...DEFAULT_POLICY,
     actionGuard: {
+      ...DEFAULT_POLICY.actionGuard,
       enabled: true,
       catastrophicPatterns: [{ label: "custom-only", pattern: "custom_cmd" }],
     },

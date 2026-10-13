@@ -14,7 +14,9 @@
  *
  * ⚠ deferred (mvp):
  *   - Per-project approval workflows (warnPatterns / confirm flow).
- *   - Broad command risk scoring of arbitrary shell commands.
+ *
+ * Risk scoring of arbitrary calls is the opt-in shadow classifier in
+ * classifier.ts, which logs verdicts and never blocks.
  */
 
 import type { GuardPolicy } from "./policy.js";
