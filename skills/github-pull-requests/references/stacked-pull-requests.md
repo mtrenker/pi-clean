@@ -21,8 +21,8 @@ branch ref exists. Never check out a layer branch outside the managed worktree. 
 worktree and one Herdr workspace however many layers it has, and a layer awaiting review counts
 against review capacity like any other pull request.
 
-Open a layer as you would any pull request, with publication authorization and its base set to the
-branch below:
+Open a layer as you would any pull request, under routine delivery or the request's authorization,
+with its base set to the branch below:
 
 ```bash
 gh pr create --base issue/<number>-<slug> --draft --body-file <file>
@@ -112,13 +112,17 @@ promised here. Remote branch deletion after merge depends on that repository's
 `delete_branch_on_merge` setting and never removes local branches.
 
 `finish-issue --delete-branch` deletes exactly one branch, the one attached to the worktree at
-removal time, using `git branch -d`, which refuses an unmerged branch. Other layer branches stay.
+removal time, and only after checking that its commits are in a merged pull request head or the
+remote default branch. Other layer branches stay.
 Check out the canonical issue branch and leave the worktree clean before running it, then remove
 leftovers deliberately:
 
 ```bash
 git branch --list 'issue/<number>-*'
-git branch -d <branch>
+git rev-list --count <branch> --not <that layer's headRefOid>   # 0, or keep the branch
+git branch -D <branch>
 ```
 
-One branch at a time, never `-D`, and never in a loop without reading the list first.
+One branch at a time, `-D` only after the preservation check in
+[Merge and cleanup](../SKILL.md#merge-and-cleanup) passes for that branch's own pull request, and never
+in a loop without reading the list first.

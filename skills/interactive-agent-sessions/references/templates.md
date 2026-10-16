@@ -13,10 +13,11 @@ Write scope: <paths you may change>. You are the only writer in this worktree wh
 Design: <approved Opus direction and where it is recorded> | <none; stop and request an Opus handoff if design is needed>
 Tests to run: <exact commands>
 Acceptance criteria: <numbered, testable>
-Stop when: <the end of this increment: show it and wait> | <the whole task is done, when Martin asked for it to be finished>
+Stop when: <the end of this increment: its pull request is open, or its report is written> | <the whole task is done, when Martin asked for it to be finished>
 Risks and known traps: <what has already gone wrong here>
 Report back: <none; the parent watches this pane> | <the block `github-work.mjs callback-handoff` prints; send at most one callback for this assignment>
-Escalation: stop and report if <condition>. Do not push, publish, approve, merge, or delete anything. Do not spawn native subagents; ask for a visible Herdr pane instead.
+Publication: <routine delivery: commit, push <branch>, and open its pull request> | <commits only; the parent publishes> | <none: read-only task>
+Escalation: stop and report if <condition>. Do not merge, approve, force-push, publish a review, or delete anything beyond what Publication names. Do not spawn native subagents; ask for a visible Herdr pane instead.
 ```
 
 Completion, required back from the delegate before its work is accepted:
@@ -24,7 +25,7 @@ Completion, required back from the delegate before its work is accepted:
 ```text
 Result: <what now exists or was found, in plain words>
 Check: <how to see it: command, route, file, or link>
-Your turn: <the decision needed, and each push, publication, merge, or deletion awaiting authorization; or nothing>
+Your turn: <the decision needed, and each action the handoff did not grant that now awaits authorization; or nothing>
 Revision: <git SHA or "working tree only">, branch <branch>
 Checks run: <command → result, including failures and skips>
 Acceptance criteria: <each criterion in words → met, partially met with reason, or not met>

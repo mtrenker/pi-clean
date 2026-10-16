@@ -27,7 +27,9 @@ authorization and states what design acceptance does not grant.
 
 Never expose authentication output, secrets, environment dumps, prompts, raw file contents, or
 full command output in telemetry. Never use `rm -rf` to remove a worktree. Never remove a dirty
-worktree or force-delete a branch without explicit authorization.
+worktree. Force-delete a branch only with explicit authorization; `merged` gives it for the task's
+own branch once the preservation check in
+[Merge and cleanup](../github-pull-requests/SKILL.md#merge-and-cleanup) passes.
 
 ## Repository discovery
 
@@ -79,12 +81,14 @@ record](../../docs/reviewable-delivery.md) explains the reasoning; the rules are
 | Checkpoint | A pause where you show a consequential UI/UX decision and wait for the user's judgment | Not a commit, not a pull request, not permission for either |
 | Preview | A running instance you loaded yourself, with the route to open and what to look at | Not a deliverable, deployment, or durable environment |
 | Commit | One coherent local step in a branch's history | Not implied by an accepted checkpoint |
-| Layer | A pull request whose diff is one reviewable unit, based on the layer below it | Not implied by a checkpoint, and not opened or published on its own |
+| Layer | A pull request whose diff is one reviewable unit, based on the layer below it | Not implied by a checkpoint; opened under routine delivery like any pull request |
 
-Accepting a design at a checkpoint authorizes continuing to implement in that direction, and nothing
-else. A checkpoint may be followed by a commit, a layer boundary, both, or neither. A layer boundary
-is a good moment to offer a checkpoint but does not require one. Preparing a pull request means
-drafting its title, body, base, and head and showing them, not running `gh pr create`.
+Accepting a design at a checkpoint authorizes continuing to implement in that direction and adds
+nothing else; what the task already grants under [routine delivery](#routine-delivery) still
+applies, so its commits and pull request are not asked for again. A checkpoint may be followed by a
+commit, a layer boundary, both, or neither. A layer boundary is a good moment to offer a checkpoint
+but does not require one. Outside an assigned task, preparing a pull request means drafting its
+title, body, base, and head and showing them, not running `gh pr create`.
 
 ### Authorization
 
@@ -94,8 +98,9 @@ Five kinds, none implied by another:
 2. **Commit:** commit a described step in this worktree. A task you were asked to implement
    includes committing its coherent steps on its branch, so this needs a grant of its own only where
    the target repository requires approval before committing.
-3. **Publication:** push a branch, open a pull request, mark a draft ready, request a review, or
-   publish a review or comment.
+3. **Publication:** push a branch, open or update a pull request, mark a draft ready, request a
+   review, or publish a review or comment. An assigned task includes publishing its own branch and
+   pull request, as [routine delivery](#routine-delivery) describes.
 4. **Merge:** merge a pull request or a stack.
 5. **Destructive operation:** rewrite or discard work, force-push, delete a branch or worktree.
 
@@ -105,9 +110,41 @@ turn an authorized task into a question per commit. An advance grant covers the 
 that task and nothing above them in the list.
 
 Design acceptance is never one of these grants. It does not make a commit acceptable where the
-repository requires approval first, and it authorizes no publication and no merge. A stricter rule in
-the target repository still binds. Merging always needs authorization refreshed against live state
-immediately beforehand.
+repository requires approval first, and it adds no publication or merge beyond what the task already
+grants. A stricter rule in the target repository still binds. Merging always needs authorization
+refreshed against live state immediately beforehand.
+
+### Routine delivery
+
+An assigned bounded task, such as an issue started on its own branch or a handoff that names a
+branch, grants in advance everything routine about delivering it:
+
+- commit coherent steps on the task's branch as you go, honest work-in-progress commits included;
+- push that branch;
+- open its pull request, ready for review, once the increment is validated and every checkpoint it
+  needed has been answered; open a draft only when you judge it not yet reviewable or review
+  capacity is full, and mark it ready yourself when that clears;
+- push further commits and update the pull request's body within the task's scope.
+
+Martin reviews the code in the pull request, so ordinary steps get no terminal review. A failing test
+or check is work to investigate and fix, not a question. Commit only your own work: unrelated changes
+in a shared checkout are not yours to commit or stash, and they do not stop you pushing what you have
+already committed.
+
+Stop and ask, in the update shape below, only when:
+
+- a [checkpoint](#checkpoints) applies;
+- a consequential decision is unresolved;
+- the work would grow beyond the increment;
+- you are genuinely blocked, for example by a check you cannot fix within scope, a branch someone
+  else pushed to, or a remote you cannot reach; report the committed branch and the pull request you
+  would open;
+- the target repository has a stricter rule, such as approval before pushing.
+
+The grant stops at the task's own branch and pull request. Merging, force-pushing, discarding work,
+deleting a remote branch, publishing a review, and any deployment beyond the CI and previews the
+repository already runs for a pull request each need their own authorization. If you know a push or
+pull request would trigger more than that, say so and ask first.
 
 ### Shorthand and bundled grants
 
@@ -122,7 +159,7 @@ ask again for a step that answer already covers.
 | `commit` | Commit the described step |
 | `push it`, `open the PR`, `create the PR`, `ship it` | Commit what is uncommitted, push the branch, and open the pull request, in one go |
 | `merge` | Merge after refreshing live state |
-| `merged, clean up` | Run the review and issue cleanup commands |
+| `merged`, `merged, clean up` | Verify the merge and that local work is preserved, then clean up the task's review and issue worktrees, its local branch, and the previews you started, as [Merge and cleanup](../github-pull-requests/SKILL.md#merge-and-cleanup) describes, without asking again |
 
 When several authorizations are pending, ask for them once, as one question that lists the steps,
 so one answer covers them all. A proposal ending "Your turn: say go to commit, push, and open the PR"
@@ -133,9 +170,11 @@ unless it names one.
 ### Increments and updates
 
 Work in bounded increments. An increment is the next useful change the issue or request names; an
-issue that is one bounded change is one increment. Finish it, show it, and stop before starting
-another. Routine edits inside it need no approval; expanding scope beyond it does. When the user
-explicitly asks you to finish a bounded task, run it to completion and report once.
+issue that is one bounded change is one increment. Carry it through without pausing: routine steps
+inside it need no approval, and its commits and pull request are how it is shown. Then report and
+stop before starting another. Expanding scope beyond it needs Martin. When the user explicitly asks
+you to finish a bounded task, run it to completion and report once. A task with nothing to publish,
+such as an investigation, a design, or a review, is shown by its report.
 
 Every update to the user, whether a checkpoint, a completion, or a status reply, leads with:
 
@@ -168,7 +207,7 @@ Pause and ask when:
   loading or error states, a new token or style recipe, motion, or the shape of a form or surface;
 - consequential UI/UX work is about to be built out, in which case show a renderable composition or
   a vertical slice early, while redirecting is still cheap;
-- the issue itself names a milestone as needing review;
+- the issue or Martin names a point that needs his review or a manual check;
 - implementation reveals a material deviation from the accepted direction.
 
 Do not pause for routine work inside an accepted direction: a rename, a prop, an obvious control, a

@@ -153,7 +153,7 @@ Delegate instead by launching a visible Herdr pane or named tab with `launch-com
 - Claude: `--permission-mode bypassPermissions`. This bypasses Claude checks and provides no host sandbox.
 - Codex: `--ask-for-approval never` plus the named `read-only` or `workspace-write` sandbox. `workspace-write` limits model-generated commands but still permits mutations in the worktree.
 
-Neither profile authorizes publishing a review, approving or merging a PR, pushing, deleting branches, closing issues, releasing, or any other protected remote mutation. Those actions still require Martin's explicit authorization. Prompt injection and mistaken commands remain risks.
+Neither profile authorizes anything. Pushing a task's own branch and opening its pull request come from the assignment under [routine delivery](../_shared/github-workflow.md#routine-delivery). Publishing a review, approving or merging a PR, force-pushing, deleting remote branches, closing issues, releasing, or any other protected remote mutation still requires Martin's explicit authorization. Prompt injection and mistaken commands remain risks.
 
 ## Placement policy
 

@@ -162,6 +162,69 @@ independent review, Opus design ownership, and authorization boundaries are unch
 4. Review guidance no longer asks for content that pads a report. The diff reads in one sitting.
 5. Tests assert that the managed issue prompt carries the increment rule and the update shape.
 
+## Amendment: routine delivery and verified cleanup
+
+Recorded 2026-10-16 by Claude Opus 5.5 for issue #63. Martin reviews code in the pull request, not
+the terminal. Agents waited for him between ordinary steps and asked again before pushing. After a
+merge, cleanup either stopped at `git branch -d` or could not be trusted. This amendment supersedes
+the publication half of #43 and the "show it and stop" pause from #53. The UI/UX checkpoints stay.
+
+**Direction.** An assigned bounded task covers committing, pushing its own branch, opening a ready
+pull request after validation and any checkpoints, and updating that pull request within scope. The
+commits and the pull request show the increment. The agent pauses only at a listed stop condition:
+an explicit UI/UX or manual checkpoint, an unresolved consequential decision, scope growth, a
+genuine blocker, or a stricter repository rule. An ordinary failing test is work to do, not a reason
+to ask. Merge, force-push, discarding work, remote branch deletion, publishing reviews, and deploys
+beyond the CI and previews the repository already runs each need their own grant. When Martin says
+"merged", that is the grant to clean up the task's worktrees, local branches, and the previews it
+owns, once the evidence below holds. The rules are in
+[the shared policy](../skills/_shared/github-workflow.md#authorization).
+
+**Evidence that work is preserved.** A local commit is preserved when it is reachable from either:
+
+- a commit GitHub reports now: `headRefOid` of a merged same-repository pull request for that branch,
+  or of the pull request a review worktree belongs to;
+- or the commit `git ls-remote` reports for the remote default branch at cleanup time.
+
+Both are read from live remote state when cleanup runs. The helper checks preservation with
+`git rev-list --count <tip> --not <those commits>`. Zero is proof; any other count, or a failed
+command, refuses. These things are not evidence:
+
+- a clean `git status`, which says nothing about commits;
+- `--remotes` or any local tracking ref, including the `origin/pr/<n>` ref `review-pr` fetches: a
+  tracking ref can be stale after the remote branch was deleted or rewritten, and then it vouches
+  for commits the remote no longer has. A test rewrites `main` on the remote to pin this;
+- `git branch -d`, which accepts a stale upstream.
+
+If the remote cannot be reached, the check has no default-branch commit to test against, so it
+refuses unless a merged pull request head covers the work. The helper fetches `pull/<n>/head` or the
+default branch only to obtain missing objects. Neither ref is promised to last, so nothing relies on
+them for recovery.
+
+**Order.** Dirty state, preservation, a branch checked out elsewhere, hosted reviews, active agents,
+and any pane in a workspace to be closed that works outside the checkout being cleaned up are all
+checked before any pane, workspace, worktree, or branch is touched. The branch tip is
+read again right before deletion, and deletion uses `-D` only for the tip that was proven. Ignored
+files go with the worktree, as `git worktree remove` already does. The helper cannot tell build
+output from local data, and data an agent made for a preview is that agent's to stop or keep under
+[Previews](../skills/_shared/github-workflow.md#previews).
+
+**Self-session handoff.** An author told "merged" in its own pane cannot remove its own workspace,
+since that would end the session running the command. Instead, `finish-issue` runs every check,
+treats only the calling pane's own `working` status as expected, and still refuses if any other pane
+there is active. It then opens a visible `#<n> · Cleanup` tab in the repository's primary workspace.
+That tab runs `herdr agent wait <caller> --until idle --until done` and then the same `finish-issue`
+command, which repeats every check. Nothing hidden runs, no session is killed while it is working,
+and Martin does not repeat himself. If no primary workspace exists, or the caller is not a Herdr
+pane, the helper refuses and prints the command to run once the session has stopped. In the pi-clean
+shared checkout nothing is removed, so the author verifies the same evidence by hand, switches to
+main, and deletes the branch, as `AGENTS.md` says.
+
+**Tradeoffs.** If Martin starts typing to the author after it goes idle, the waiting tab can still
+close that session, unless it is `working` at the moment of the check, in which case the check
+refuses. The wait times out after 30 minutes and removes nothing. None of this has run in a live
+Herdr session; the tests use disposable Git repositories and a mocked Herdr.
+
 ## Tradeoffs
 
 Rebase churn is the real cost of stacking. Every change to a lower layer forces the upper layers
@@ -248,7 +311,9 @@ disproportionate, or pauses arrive for decisions that were never consequential.
 | Preview and checkpoint placement, freeze, blocked signal | `skills/interactive-agent-sessions/SKILL.md` |
 | When UI work needs an early renderable checkpoint | `skills/experience-design-quality/SKILL.md` |
 | Layers within one issue, review capacity in issue selection | `skills/github-issues/SKILL.md` and its Project reference |
-| Managed author and reviewer prompts | `scripts/github-work.mjs` |
+| Managed author and reviewer prompts, cleanup evidence and self-session handoff | `scripts/github-work.mjs` |
+| Routine delivery grant and stop conditions | `skills/_shared/github-workflow.md` |
+| Post-merge cleanup steps | `skills/github-pull-requests/SKILL.md` |
 
 ## Sources
 

@@ -54,7 +54,8 @@ pull requests. Two helper behaviors follow from that, and neither changes:
 - On a rerun, `start-issue` derives the branch from whatever the worktree currently has checked out,
   so it reports the current layer, and passing a different `--branch` throws.
 - `finish-issue --delete-branch` deletes exactly one branch, the one attached to the worktree at
-  removal time, with `git branch -d`. Other layer branches remain and are removed deliberately.
+  removal time, once its commits are proven preserved. Other layer branches remain and are removed
+  deliberately.
 
 Check out the canonical `issue/<number>-<slug>` branch and leave the worktree clean before
 `finish-issue`.
@@ -178,16 +179,24 @@ Herdr linked-worktree workspace, `finish-issue` uses `herdr worktree remove --wo
 Legacy generic issue workspaces and non-Herdr `--agent none` checkouts retain the safe direct-Git
 cleanup path. Pull-request review worktrees are unchanged.
 
-Cleanup refuses to:
+Before it touches any pane, workspace, worktree, or branch, cleanup checks that every local commit
+in a detached worktree, and on a branch it would delete, is in a pull request head GitHub reports or
+in the remote default branch as `git ls-remote` reports it. Cleanup refuses to:
 
 - remove a dirty worktree;
-- remove or close a Herdr workspace whose agent is `working` or `blocked`;
-- pass Herdr's force-removal option;
-- force-delete a branch.
+- remove a worktree or delete a branch holding local-only commits, or when that evidence cannot be
+  obtained;
+- remove or close a Herdr workspace whose agent is `working` or `blocked`, except for the pane
+  running the command itself, which gets the handoff below;
+- remove or close a Herdr workspace holding a pane that works outside the checkout being cleaned up;
+- pass Herdr's force-removal option.
 
-The `--delete-branch` option remains separate and uses `git branch -d`, so Git still refuses
-deletion when the branch is not safely merged. Remote branch deletion is intentionally not
-implemented.
+`--delete-branch` deletes with `git branch -D`, only for the tip it proved, and reports what
+preserved it. `git branch -d` is not used, because it accepts a stale upstream and refuses a valid
+squash merge. Run from the issue's own workspace, `finish-issue` opens a visible `#<n> · Cleanup`
+tab in the primary workspace that waits for the calling pane to settle and repeats every check.
+Remote branch deletion is intentionally not implemented. The design is in
+[Reviewable delivery](reviewable-delivery.md#amendment-routine-delivery-and-verified-cleanup).
 
 ## Flightdeck
 
