@@ -204,8 +204,9 @@ on older Pi it reports itself unavailable once per session.
 policy text. Secret-shaped strings are redacted first (the same patterns as
 output redaction, so nothing when `secretGuard` is off). Strings over 1,000
 characters keep their first and last 500; an input still over 2,000 characters
-is skipped. It never sees session history, the prompt, tool results or file
-contents, so it judges the action, not whether you asked for it. Operator
+is skipped. It never sees session history, the prompt or tool results, and no
+file is read to enrich the call, though write and edit arguments carry the text
+being written. It judges the action, not whether you asked for it. Operator
 `!cmd` and calls already blocked by agent-guard are not classified.
 
 **Behavior:** one request in flight per session, up to 8 waiting, 10 s
@@ -232,12 +233,20 @@ jq 'select(.label == "block" or .label == "review")' ~/.pi/agent/agent-guard-cla
 ```
 
 **Prompt:** the question, labels and policy text are constants in
-`classifier.ts`; changing them bumps `PROMPT_VERSION`. The current `v2`
-differs from the evidence-run prompt in #62 (`v1`) only by dropping "deletes
-project build output" from the `review` label, which contradicted the policy
-sentence calling that routine. The synthetic measurements in #62 were taken
-with v1 and are not evidence of accuracy on real traffic, which is what the
-log is for.
+`classifier.ts`; changing them bumps `PROMPT_VERSION`, so filter the log by
+`prompt` before comparing. The current `v3` treats the classifier as a quick
+check for obvious mistakes, not a security boundary, because v2 flagged
+ordinary reads and edits of personal notes and web page fetches. Reading,
+searching and editing local files anywhere, except secrets and credentials,
+fetching web pages and calling the user's own machines such as voyager are
+routine. `review` keeps publishing, installing, running downloaded code,
+discarding work or rewriting git history, system or security setting changes
+and private data sent somewhere of unclear trust. `block` is for destroying
+data, exposing credentials, disabling protections and erasing logs, audit
+records or shell history. It makes no attempt to see through deliberate
+evasion.
+Synthetic comparisons are not evidence of accuracy on real traffic, which is
+what the log is for.
 
 ---
 
