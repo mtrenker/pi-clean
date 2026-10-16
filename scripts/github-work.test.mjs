@@ -231,17 +231,24 @@ test("managed start creates a native Herdr issue worktree and launches in its ro
 
 const ISSUE_TASK = "Work on GitHub issue #10 in owner/repo. Read the repository instructions and issue,"
   + " and implement the issue's next increment in this worktree, which is the whole issue when it is one"
-  + " bounded change. Validate it, show it, and stop before starting another, unless the issue or Martin"
-  + " explicitly asks you to finish the whole issue; prepare a pull request when the issue is complete. Do not merge. Routine edits need no approval; ask before expanding scope."
+  + " bounded change; do not start another unless the issue or Martin asks you to finish the whole issue."
+  + " Routine steps need no approval and no pause: commit each coherent step as you go, and investigate"
+  + " and fix failing tests and checks yourself. When the increment is validated, push this branch and"
+  + " open its pull request ready for review, then stop; Martin reviews the code there. Ask before"
+  + " expanding scope, and stop to ask only at a checkpoint, an unresolved consequential decision, a"
+  + " genuine blocker, or a stricter repository rule; if you cannot reach the remote, report the committed"
+  + " branch and the pull request you would open. Do not merge, force-push, delete remote branches, or"
+  + " publish reviews. When Martin says the pull request merged, clean up without asking again: run"
+  + ` cleanup-pr for it, then finish-issue 10 --delete-branch with ${script}, which verifies your work is`
+  + " preserved and hands removal of this session's own workspace to a visible tab."
   + " Lead every update with Result (what now exists), Check (how Martin can see it), and Your turn (the"
   + " one decision needed, or nothing), normally within one screen; keep failures and limitations, and"
   + " link evidence instead of pasting it."
   + " Follow the repository's checkpoint and preview contract: pause at a consequential or unspecified"
   + " UI/UX decision and bring a running preview you opened yourself, and change nothing that alters it"
-  + " while you wait. Accepting a design lets you keep implementing in that direction; it is not"
-  + " authorization to push, open or publish a pull request, or merge, and it never overrides a"
-  + " repository rule that requires approval before committing. Preparing a pull request means showing"
-  + " its title, body, base, and head.";
+  + " while you wait. Accepting a design lets you keep implementing in that direction and on to the pull"
+  + " request without asking again; it never overrides a repository rule that requires approval before"
+  + " committing or pushing.";
 const OPUS_DESIGN_SUFFIX = " As Claude Opus 5.5, own and document any unresolved product, UX, interaction,"
   + " visual, architecture, API, or data-model design before implementing it.";
 const WORKER_DESIGN_SUFFIX = " Do not originate or materially change unresolved product, UX, interaction,"
@@ -265,11 +272,14 @@ for (const [agent, profile, designSuffix] of [
     assert.equal(command, expectedLaunch);
     assert.match(command, /pause at a consequential or unspecified UI\/UX decision/);
     assert.match(command, /bring a running preview you opened yourself/);
-    assert.match(command, /not authorization to push, open or publish a pull request, or merge/);
-    assert.match(command, /never overrides a repository rule that requires approval before committing/);
-    assert.match(command, /stop before starting another/);
-    assert.match(command, /unless the issue or Martin explicitly asks you to finish the whole issue/);
-    assert.match(command, /ask before expanding scope/);
+    assert.match(command, /push this branch and open its pull request ready for review, then stop/);
+    assert.match(command, /keep implementing in that direction and on to the pull request without asking again/);
+    assert.doesNotMatch(command, /Preparing a pull request means/);
+    assert.match(command, /Do not merge, force-push, delete remote branches, or publish reviews/);
+    assert.match(command, /never overrides a repository rule that requires approval before committing or pushing/);
+    assert.match(command, /do not start another unless the issue or Martin asks you to finish the whole issue/);
+    assert.match(command, /Ask before expanding scope, and stop to ask only at a checkpoint/);
+    assert.match(command, /finish-issue 10 --delete-branch/);
     assert.match(command, /Result \(what now exists\), Check .*, and Your turn/);
     if (agent === "codex") assert.doesNotMatch(launch.args[3], /danger-full-access/);
   });

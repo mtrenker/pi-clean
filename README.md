@@ -71,7 +71,7 @@ The `interactive-agent-sessions` skill defines the current version-verified non-
 
 GitHub issues are the durable mental model for work. Each implementation uses one bounded issue, one managed worktree, one semantic Herdr workspace, and independent or human review. A review keeps its own detached checkout but lives in a tab of that workspace, so one issue stays in one place on screen. That worktree delivers one pull request, or a stack of layer pull requests when the change is worth reading in several units.
 
-Agents stop for Martin's judgment at consequential UI/UX decisions and bring a running preview to the question, rather than presenting a finished surface at the end. Accepting a design lets the agent keep implementing; committing, publishing, and merging stay separate authorizations. See [Reviewable delivery](docs/reviewable-delivery.md).
+Agents stop for Martin's judgment at consequential UI/UX decisions and bring a running preview to the question, rather than presenting a finished surface at the end. An assigned task covers its commits, pushes, and ready pull request, where Martin reviews the code; merging stays a separate authorization, and saying "merged" lets the agent clean up once it has verified the work is preserved. See [Reviewable delivery](docs/reviewable-delivery.md).
 
 The package includes reusable skills. Pi loads them through the package manifest, and Claude Code
 loads the same directory as a plugin named `pi-clean` when `CLAUDE_CODE_PLUGIN_DIRS` in the personal

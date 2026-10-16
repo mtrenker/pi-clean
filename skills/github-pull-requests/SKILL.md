@@ -30,9 +30,10 @@ or one layer branch of a stack. Draft a PR using the local pull request template
 - risks, limitations, migrations, or screenshots where relevant.
 
 Keep the body within one screen: what changed and why, one line per validation command with its
-result, and links to evidence rather than pasted output. Show the final title, body, base, and head
-before `gh pr create` unless the request already authorized opening it; `push it` or `create the PR`
-does, and then commit, push, and open it without another question. Prefer `--body-file`.
+result, and links to evidence rather than pasted output. Open it without showing it first when
+[routine delivery](../_shared/github-workflow.md#routine-delivery) covers the task or the request
+authorized it (`push it`, `create the PR`): commit, push, and open it without another question.
+Otherwise show the final title, body, base, and head before `gh pr create`. Prefer `--body-file`.
 
 ## Inspect a pull request
 
@@ -96,12 +97,41 @@ solely because checks pass.
 Merging always requires explicit user authorization. Immediately before merge, refresh PR state,
 review decision, and checks. Follow repository merge strategy; do not bypass branch protection.
 
-After merge or intentional abandonment, clean review worktrees first and the issue worktree last:
+When Martin says a pull request merged, that is the grant to clean up its task without asking
+again. After merge or intentional abandonment, clean review worktrees first and the issue worktree
+last:
 
 ```bash
 node /resolved/pi-clean/scripts/github-work.mjs cleanup-pr <pr-number>
 node /resolved/pi-clean/scripts/github-work.mjs finish-issue <issue-number> --delete-branch
 ```
+
+Before removing anything, both commands check that every local commit is in a pull request head
+GitHub reports or in the remote default branch as `git ls-remote` reports it, so squash and rebase
+merges clean up like merge commits. A clean status, a remote-tracking ref, and `git branch -d` are
+not that evidence. `--delete-branch` then deletes the branch with `-D`, for the proven tip only, and
+reports what preserved it. Each command refuses, having removed nothing, on local-only commits, a
+dirty worktree, an active or blocked agent, a hosted review, or evidence it cannot obtain. Report a
+refusal; do not work around it. [The design record](../../docs/reviewable-delivery.md#amendment-routine-delivery-and-verified-cleanup)
+has the reasoning.
+
+Run from the issue's own workspace, `finish-issue` cannot remove the session running it. It runs
+every check, then opens a visible `#<n> · Cleanup` tab in the repository's primary workspace that
+waits for your pane to settle and repeats the command. Report that tab and stop. Without a single
+primary workspace it refuses and prints the command to run from the primary checkout once you have
+stopped.
+
+A shared checkout with no worktree, such as pi-clean's feature branch in the primary checkout, has
+nothing for the helper to remove. Verify the same evidence, then return to the default branch:
+
+```bash
+gh pr view <number> --json state,headRefName,headRefOid  # MERGED, and headRefName is <branch>
+git fetch <remote> <default> pull/<number>/head          # objects for the check
+git rev-list --count <branch> --not <headRefOid> "$(git ls-remote <remote> refs/heads/<default> | cut -f1)"  # 0, or stop
+git switch <default> && git merge --ff-only <remote>/<default> && git branch -D <branch>
+```
+
+If `git switch` refuses because of uncommitted changes that are not yours, stop and report them.
 
 `cleanup-pr` closes the panes whose directory is that review's worktree, closes their tab only when
 it held nothing else, and closes a workspace only when that workspace's own checkout is the review
@@ -115,7 +145,8 @@ nothing about other processes, and whether removing the worktree stops a process
 not documented in `herdr worktree remove --help` and was not tested here. Confirm yours are gone, and
 never stop a service you did not start or that something else shares.
 
-The helper must refuse dirty worktrees. Remote branch deletion is a separate consequential action.
+The helper must refuse dirty worktrees. Remote branch deletion is a separate consequential action:
+report a remote branch that is still there rather than deleting it.
 `--delete-branch` handles one branch; a stack's other layer branches are removed deliberately, as
 [the stacked pull requests reference](references/stacked-pull-requests.md#merge-and-clean-up-a-stack)
 describes.

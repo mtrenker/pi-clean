@@ -123,8 +123,10 @@ These are boundaries, not guarantees. State them this way in any report:
   here prevents that.
 - Codex `workspace-write` and Claude `bypassPermissions` limit prompting, not the host. A worktree
   isolates Git state, not the machine.
-- Neither profile authorizes a remote mutation. Publishing, approving, merging, pushing, and
-  deleting branches still need Martin's explicit approval.
+- Neither profile authorizes a remote mutation. Pushing a task's own branch and opening its pull
+  request come from the assignment under [routine delivery](../skills/_shared/github-workflow.md#routine-delivery);
+  publishing reviews, approving, merging, force-pushing, and deleting remote branches still need
+  Martin's explicit approval.
 
 ## Instruction loading
 

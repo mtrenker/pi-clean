@@ -118,10 +118,11 @@ request, or a stack of layer pull requests when the change is worth reading in s
 extra capacity, because each layer awaiting review counts as a pull request awaiting review.
 
 Implementation also follows the increment, checkpoint, and preview contract in
-[the shared workflow policy](../_shared/github-workflow.md): deliver the issue's next increment, show
-it, and stop, unless the issue or the user explicitly asks for the whole issue to be finished; pause for a consequential or unspecified UI/UX decision with something running for the
-user to look at; and treat design acceptance as permission to keep implementing, not to commit,
-publish, or merge.
+[the shared workflow policy](../_shared/github-workflow.md): carry the issue's next increment through
+to its pull request under [routine delivery](../_shared/github-workflow.md#routine-delivery), or the
+whole issue when the issue or the user asks for that; pause for a consequential or unspecified UI/UX
+decision with something running for the user to look at; and after an accepted design, continue to
+the pull request without asking again. Merging stays the user's.
 
 ## Completion
 

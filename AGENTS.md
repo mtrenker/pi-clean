@@ -26,10 +26,10 @@ and reviews.
 - Parent issues describe outcomes; independently deliverable child issues carry bounded scope and testable acceptance criteria.
 - Start agent implementation only from unblocked Ready child issues explicitly marked `agent-ready` when the repository uses that gate.
 - Respect repository WIP and human review limits; do not parallelize work with likely file or architecture-boundary overlap.
-- Follow the reviewable delivery contract in `skills/_shared/github-workflow.md`: pause for a
-  consequential UI/UX decision with a running preview, and keep design acceptance separate from
-  commit, publication, and merge authorization. Each stack layer awaiting review counts against
-  the review limit.
+- Follow the reviewable delivery contract in `skills/_shared/github-workflow.md`: an assigned task
+  covers its commits, pushes, and ready pull request without routine confirmation; pause for a
+  consequential UI/UX decision with a running preview; merging stays separate. Each stack layer
+  awaiting review counts against the review limit.
 - Read Martin's shorthand as the grant it is: `go` covers the whole proposed sequence, and `push it`
   or `create the PR` covers commit, push, and opening the pull request. Ask for pending
   authorizations once, together. The table is in the shared policy.
@@ -39,13 +39,15 @@ and reviews.
   rules in the workflow skills and instructions below; it does not apply to other repositories.
   Preserve unrelated local changes and keep one writer at a time. Do not run `start-issue` or
   `review-pr` merely to create a worktree under this exception. Issue readiness, independent
-  review, validation, and authorization requirements still apply.
+  review, validation, and authorization requirements still apply. After a merge, clean up with the
+  shared-checkout steps in [Merge and cleanup](skills/github-pull-requests/SKILL.md#merge-and-cleanup).
 - Branch names use `issue/<number>-<slug>`; extra review layers for the same issue use
   `issue/<number>-<slug>--<layer-slug>` in that same checkout.
 - Every non-trivial pull request links an issue.
 - Use `Closes #<number>` only when the PR fully resolves that issue.
 - The authoring agent must not be the sole independent reviewer.
-- Never merge, approve, publish a review, or force-delete work without explicit authorization.
+- Never merge, approve, publish a review, or force-delete work without explicit authorization;
+  `merged` authorizes the evidence-checked cleanup of the task's own branch.
 
 ## Delegation and design ownership
 
