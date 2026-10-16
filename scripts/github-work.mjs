@@ -19,6 +19,7 @@ import {
 
 const AGENTS = new Set(["pi", "claude", "codex", "none"]);
 const AUTHOR_TAB_LABEL = "Implementation";
+const SELF_CLEANUP_WAIT_MS = 30 * 60 * 1000;
 
 async function main() {
   const args = process.argv.slice(2);
@@ -273,14 +274,24 @@ async function cleanup(kind, number, options) {
   });
   if (matches.length === 0) return { ok: true, removed: [], message: `no ${kind} #${number} worktrees found` };
 
+  // Preflight: everything that can refuse runs before any pane, workspace, worktree, or branch is
+  // touched, so a refusal never leaves cleanup half done. Design: docs/reviewable-delivery.md.
   for (const entry of matches) {
     const dirty = command("git", ["-C", entry.path, "status", "--porcelain"]).stdout.trim();
     if (dirty) throw new Error(`refusing to remove dirty worktree: ${entry.path}`);
   }
+  if (kind === "pr") requireReviewCommitsPublished(context, number, matches);
+  else requireDetachedCommitsPublished(context, matches.filter((entry) => !entry.branch));
+  const branchDeletion = kind === "issue" && options.deleteBranch ? provenBranchDeletion(context, matches[0], entries) : null;
+  const herdrPlan = kind === "issue" ? planIssueHerdrRemoval(number, matches, managedRoot) : null;
 
-  const nativeIssueWorkspaces = kind === "issue"
-    ? prepareIssueHerdrRemoval(number, matches, managedRoot)
-    : new Map();
+  if (kind === "issue") {
+    const cwd = resolve(process.cwd());
+    const insideWorktree = matches.some((entry) => cwd === resolve(entry.path) || cwd.startsWith(`${resolve(entry.path)}${sep}`));
+    if (herdrPlan.callerPaneId || insideWorktree) return handOffSelfRemoval(context, number, options, herdrPlan);
+    for (const workspaceId of herdrPlan.close) run("herdr", ["workspace", "close", workspaceId], { capture: true });
+  }
+  const nativeIssueWorkspaces = herdrPlan?.nativeByPath ?? new Map();
   if (kind === "pr") closeReviewPlacements(matches);
 
   const removed = [];
@@ -308,11 +319,154 @@ async function cleanup(kind, number, options) {
   }
 
   run("git", ["-C", context.repoRoot, "worktree", "prune"]);
-  if (kind === "issue" && options.deleteBranch) {
-    const branch = matches[0].branch?.replace("refs/heads/", "");
-    if (branch) run("git", ["-C", context.repoRoot, "branch", "-d", branch]);
+  if (!branchDeletion) return { ok: true, removed };
+
+  // Delete only the tip that was proven; a branch that moved since preflight is left alone.
+  const { branch, tip, preservedIn } = branchDeletion;
+  const current = branchTipOf(context.repoRoot, branch);
+  if (current !== tip) throw new Error(`branch ${branch} moved from ${tip} to ${current} after it was verified; it was not deleted`);
+  run("git", ["-C", context.repoRoot, "branch", "-D", branch]);
+  return { ok: true, removed, deletedBranch: { name: branch, was: tip, preservedIn } };
+}
+
+/**
+ * Counts the commits reachable from `tip` and from none of `keepers`, the commits GitHub reports as
+ * published. A clean status says nothing about commits, `--remotes` includes local copies and stale
+ * refs, and `git branch -d` accepts a stale upstream, so none of them is evidence. Returns null when
+ * Git cannot answer, which callers treat as a refusal.
+ */
+function localOnlyCommits(cwd, tip, keepers) {
+  if (keepers.length === 0) return null;
+  const result = command("git", ["-C", cwd, "rev-list", "--count", tip, "--not", ...keepers], { capture: true, allowFailure: true });
+  const count = Number(result.stdout.trim());
+  return result.status === 0 && Number.isInteger(count) ? count : null;
+}
+
+/** The pull request head GitHub reports, fetched only so its objects exist locally for the check. */
+function publishedHead(context, number, headRefOid) {
+  if (!headRefOid) throw new Error(`pull request #${number} reports no head commit; nothing was removed`);
+  const present = () => command("git", ["-C", context.repoRoot, "cat-file", "-e", `${headRefOid}^{commit}`], { capture: true, allowFailure: true }).status === 0;
+  if (!present()) command("git", ["-C", context.repoRoot, "fetch", context.remote, `pull/${number}/head`], { capture: true, allowFailure: true });
+  if (!present()) throw new Error(`cannot verify against pull request #${number}: its head ${headRefOid} is not available; nothing was removed`);
+  return headRefOid;
+}
+
+// The remote default branch as the remote reports it now. A local tracking ref can be stale after
+// that branch was rewritten, and then it would vouch for commits the remote no longer has.
+function defaultBranchKeepers(context) {
+  const listed = command("git", ["-C", context.repoRoot, "ls-remote", context.remote, `refs/heads/${context.defaultBranch}`], { capture: true, allowFailure: true });
+  const head = listed.status === 0 ? listed.stdout.trim().split(/\s/)[0] : "";
+  if (!head) return [];
+  const present = () => command("git", ["-C", context.repoRoot, "cat-file", "-e", `${head}^{commit}`], { capture: true, allowFailure: true }).status === 0;
+  if (!present()) command("git", ["-C", context.repoRoot, "fetch", context.remote, context.defaultBranch], { capture: true, allowFailure: true });
+  return present() ? [head] : [];
+}
+
+function branchTipOf(repoRoot, branch) {
+  return command("git", ["-C", repoRoot, "rev-parse", "--verify", `refs/heads/${branch}^{commit}`], { capture: true }).stdout.trim();
+}
+
+// A detached worktree has no branch holding its commits, so one made there exists nowhere else once
+// the worktree is removed. Review worktrees are always detached.
+function requireReviewCommitsPublished(context, number, entries) {
+  const pr = jsonCommand("gh", ["pr", "view", String(number), "--json", "headRefOid"]);
+  requireCommitsIn(entries, [publishedHead(context, number, pr.headRefOid), ...defaultBranchKeepers(context)], `pull request #${number} and ${context.remote}/${context.defaultBranch}`);
+}
+
+function requireDetachedCommitsPublished(context, entries) {
+  if (entries.length) requireCommitsIn(entries, defaultBranchKeepers(context), `${context.remote}/${context.defaultBranch}`);
+}
+
+function requireCommitsIn(entries, keepers, description) {
+  for (const entry of entries) {
+    const count = localOnlyCommits(entry.path, "HEAD", keepers);
+    if (count === null) throw new Error(`cannot verify the commits in detached worktree ${entry.path} against ${description}; nothing was removed`);
+    if (count > 0) {
+      throw new Error(`refusing to remove detached worktree ${entry.path}: it holds ${count} local-only commit${count === 1 ? "" : "s"} that ${description} do not contain; nothing was removed`);
+    }
   }
-  return { ok: true, removed };
+}
+
+/**
+ * An issue branch may be deleted only when every commit on it is in the head of a merged
+ * same-repository pull request, or in the remote default branch. That covers merge-commit, squash,
+ * and rebase merges alike, because it never asks whether main contains the branch's own commits.
+ */
+function provenBranchDeletion(context, entry, entries) {
+  const branch = entry.branch?.replace("refs/heads/", "");
+  if (!branch) return null;
+  const elsewhere = entries.find((other) => other !== entry && other.branch === entry.branch);
+  if (elsewhere) throw new Error(`refusing to delete branch ${branch}: it is also checked out at ${elsewhere.path}; nothing was removed`);
+
+  const tip = branchTipOf(context.repoRoot, branch);
+  const merged = jsonCommand("gh", ["pr", "list", "--head", branch, "--state", "merged", "--json", "number,headRefOid,isCrossRepository"])
+    .filter((pr) => !pr.isCrossRepository);
+  const heads = merged.map((pr) => ({ pr, head: publishedHead(context, pr.number, pr.headRefOid) }));
+  const defaults = defaultBranchKeepers(context);
+  const count = localOnlyCommits(context.repoRoot, tip, [...heads.map(({ head }) => head), ...defaults]);
+  if (count === null) throw new Error(`cannot verify branch ${branch} against a merged pull request or ${context.remote}/${context.defaultBranch}; nothing was removed`);
+  if (count > 0) {
+    const against = merged.length ? `merged pull request ${merged.map((pr) => `#${pr.number}`).join(", ")}` : "no merged pull request";
+    throw new Error(`refusing to delete branch ${branch}: ${count} commit${count === 1 ? " on it is" : "s on it are"} in no merged pull request head or ${context.remote}/${context.defaultBranch} (found ${against}); nothing was removed`);
+  }
+
+  const preservedIn = heads
+    .filter(({ head }) => localOnlyCommits(context.repoRoot, tip, [head]) === 0)
+    .map(({ pr, head }) => `pull request #${pr.number} head ${head}`);
+  return { branch, tip, preservedIn: preservedIn.length ? preservedIn : defaults.map((head) => `${context.remote}/${context.defaultBranch} at ${head}`) };
+}
+
+/**
+ * The session running finish-issue sits in the workspace it would remove, so removing it now would
+ * end that session mid-command. Every check has already passed. Hand the same command to a visible
+ * tab in the repository's primary workspace that waits for this pane to settle, then repeats every
+ * check itself. Nothing runs hidden, and nothing is removed while this session is working.
+ */
+function handOffSelfRemoval(context, number, options, plan) {
+  // The tab's shell does not inherit this process's environment, so carry the helper's own settings.
+  const settings = ["GITHUB_WORKTREE_ROOT", "GITHUB_WORK_REMOTE", "FLIGHTDECK_TELEMETRY_FILE"]
+    .filter((key) => process.env[key])
+    .map((key) => `${key}=${shellQuote(process.env[key])}`);
+  const finish = [
+    ...(settings.length ? ["env", ...settings] : []),
+    shellQuote(process.execPath),
+    shellQuote(fileURLToPath(import.meta.url)),
+    "finish-issue",
+    String(number),
+    ...(options.deleteBranch ? ["--delete-branch"] : [])
+  ].join(" ");
+  const host = plan.callerPaneId
+    ? herdrWorkspaces().filter((workspace) => {
+        const root = workspace.worktree?.repo_root;
+        return typeof root === "string" && resolve(root) === resolve(context.repoRoot)
+          && workspace.worktree?.is_linked_worktree === false && !plan.workspaceIds.has(workspace.workspace_id);
+      })
+    : [];
+  if (host.length !== 1) {
+    throw new Error(`finish-issue would remove the checkout of the session running it, and ${plan.callerPaneId ? "no single primary Herdr workspace can host the cleanup" : "it has no Herdr pane of that session to wait for"}; nothing was removed. Once this session has stopped, run from the primary checkout: ${finish}`);
+  }
+
+  const waitAndFinish = `herdr agent wait ${shellQuote(plan.callerPaneId)} --until idle --until done --timeout ${SELF_CLEANUP_WAIT_MS} && ${finish}`;
+  const created = jsonCommand("herdr", [
+    "tab", "create", "--workspace", host[0].workspace_id, "--cwd", context.repoRoot, "--label", `#${number} · Cleanup`, "--no-focus"
+  ]);
+  const result = created.result ?? created;
+  const paneId = result.root_pane?.pane_id;
+  if (!paneId) throw new Error("herdr did not return a pane ID for the cleanup tab; nothing was removed");
+  run("herdr", ["pane", "run", paneId, waitAndFinish], { capture: true });
+  return {
+    ok: true,
+    removed: [],
+    handoff: {
+      workspaceId: host[0].workspace_id,
+      workspaceLabel: host[0].label,
+      tabId: result.tab?.tab_id ?? result.root_pane?.tab_id,
+      paneId,
+      waitsFor: plan.callerPaneId,
+      command: waitAndFinish
+    },
+    message: `cleanup of issue #${number} continues in tab "#${number} · Cleanup" of ${host[0].label ?? host[0].workspace_id} once this session is idle; it repeats every check before removing anything`
+  };
 }
 
 async function status() {
@@ -338,9 +492,14 @@ function repoContext() {
   };
 }
 
-function prepareIssueHerdrRemoval(number, entries, managedRoot) {
-  const nativeByPath = new Map();
-  if (process.env.HERDR_ENV !== "1") return nativeByPath;
+/**
+ * Checks, without changing anything, that the issue's Herdr workspaces can go, and returns what to
+ * remove natively and what to close. The calling pane is the one exception to the activity check:
+ * it is `working` because it is running this command. Every other pane there must be settled.
+ */
+function planIssueHerdrRemoval(number, entries, managedRoot) {
+  const plan = { nativeByPath: new Map(), close: [], callerPaneId: null, workspaceIds: new Set() };
+  if (process.env.HERDR_ENV !== "1") return plan;
 
   const entryPaths = new Set(entries.map((entry) => resolve(entry.path)));
   const workspaces = herdrWorkspaces();
@@ -366,26 +525,29 @@ function prepareIssueHerdrRemoval(number, entries, managedRoot) {
     }
   }
 
+  const caller = panes.find((pane) => pane.pane_id === process.env.HERDR_PANE_ID && relevantIds.has(pane.workspace_id));
   for (const workspace of relevant) {
-    if (["working", "blocked"].includes(workspace.agent_status)) {
+    if (caller?.workspace_id === workspace.workspace_id) {
+      const busy = panes.find((pane) => pane.workspace_id === workspace.workspace_id && pane.pane_id !== caller.pane_id
+        && ["working", "blocked"].includes(pane.agent_status));
+      if (busy) throw new Error(`refusing to remove active Herdr workspace ${workspace.label}: pane ${busy.pane_id} is ${busy.agent_status}`);
+    } else if (["working", "blocked"].includes(workspace.agent_status)) {
       throw new Error(`refusing to remove active Herdr workspace ${workspace.label} (${workspace.agent_status})`);
     }
     const worktree = workspace.worktree;
     const checkoutPath = worktree?.checkout_path;
     if (worktree?.is_linked_worktree && typeof checkoutPath === "string" && entryPaths.has(resolve(checkoutPath))) {
       const path = resolve(checkoutPath);
-      if (nativeByPath.has(path)) throw new Error(`multiple Herdr workspaces represent issue worktree: ${path}`);
-      nativeByPath.set(path, workspace.workspace_id);
+      if (plan.nativeByPath.has(path)) throw new Error(`multiple Herdr workspaces represent issue worktree: ${path}`);
+      plan.nativeByPath.set(path, workspace.workspace_id);
     }
   }
 
-  const nativeIds = new Set(nativeByPath.values());
-  for (const workspace of relevant) {
-    if (!nativeIds.has(workspace.workspace_id)) {
-      run("herdr", ["workspace", "close", workspace.workspace_id], { capture: true });
-    }
-  }
-  return nativeByPath;
+  const nativeIds = new Set(plan.nativeByPath.values());
+  plan.close = relevant.filter((workspace) => !nativeIds.has(workspace.workspace_id)).map((workspace) => workspace.workspace_id);
+  plan.callerPaneId = caller?.pane_id ?? null;
+  plan.workspaceIds = relevantIds;
+  return plan;
 }
 
 /**

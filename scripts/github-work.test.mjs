@@ -11,10 +11,11 @@ import { AGENT_PROFILE_IDS, AGENT_PROFILES, DELEGATION_BOUNDARY, launchCommand, 
 
 const script = fileURLToPath(new URL("./github-work.mjs", import.meta.url));
 
-function invoke(args, env = process.env) {
+function invoke(args, env = process.env, cwd = undefined) {
   return spawnSync(process.execPath, [script, ...args], {
     encoding: "utf8",
-    env
+    env,
+    cwd
   });
 }
 
@@ -78,11 +79,13 @@ if (program === "gh") {
   if (args[0] === "auth") process.exit(0);
   if (args[0] === "repo") json({ name: "repo", nameWithOwner: "owner/repo", defaultBranchRef: { name: "main" } });
   else if (args[0] === "issue") json({ number: 10, title: "Native worktree", state: "OPEN", url: "https://example.test/10" });
-  else if (args[0] === "pr") json({ number: 20, title: "Review profiles", state: "OPEN", url: "https://example.test/20", headRefName: "feature/review-profiles", baseRefName: "main" });
+  else if (args[0] === "pr" && args[1] === "list") json(state.mergedPrs ?? []);
+  else if (args[0] === "pr") json({ number: 20, title: "Review profiles", state: "OPEN", url: "https://example.test/20", headRefName: "feature/review-profiles", baseRefName: "main", headRefOid: state.prHead ?? "head20" });
   else fail("unexpected gh command");
 } else if (program === "git") {
   if (args[0] === "--version") process.exit(0);
-  if (args[0] === "rev-parse") {
+  if (args[0] === "-C" && args[2] === "rev-parse" && args.includes("--verify")) process.stdout.write((state.branchTip ?? "tip10") + "\\n");
+  else if (args[0] === "rev-parse") {
     const value = args.includes("--git-common-dir") ? state.repoRoot + "/.git" : (state.currentRoot ?? state.repoRoot);
     process.stdout.write(value + "\\n");
   }
@@ -95,6 +98,9 @@ if (program === "gh") {
     else if (commandArgs[0] === "status") process.stdout.write(state.dirty ?? "");
     else if (commandArgs[0] === "checkout") process.exit(0);
     else if (commandArgs[0] === "branch") process.exit(0);
+    else if (commandArgs[0] === "cat-file") process.exit(0);
+    else if (commandArgs[0] === "ls-remote") process.stdout.write(state.remoteDefault ?? "");
+    else if (commandArgs[0] === "rev-list") process.stdout.write((state.localOnly ?? "0") + "\\n");
     else fail("unexpected git command: " + commandArgs.join(" "));
   }
 } else if (program === "herdr") {
@@ -604,6 +610,7 @@ test("finish-issue removes a linked issue workspace through Herdr without force"
     agent_status: "idle",
     worktree: { checkout_path: fixture.issuePath, is_linked_worktree: true }
   }];
+  state.mergedPrs = [{ number: 21, headRefOid: "tip10", isCrossRepository: false }];
   await writeFile(fixture.statePath, JSON.stringify(state));
 
   const result = invoke(["finish-issue", "10", "--delete-branch"], { ...fixture.env, HERDR_ENV: "1" });
@@ -612,7 +619,7 @@ test("finish-issue removes a linked issue workspace through Herdr without force"
   const remove = findCommand(log, "herdr", ["worktree", "remove"]);
   assert.deepEqual(remove.args, ["worktree", "remove", "--workspace", "w-linked"]);
   assert.equal(log.some((entry) => entry.program === "git" && entry.args.includes("remove")), false);
-  assert.ok(log.some((entry) => entry.program === "git" && entry.args.includes("-d") && entry.args.includes("issue/10-native-worktree")));
+  assert.ok(log.some((entry) => entry.program === "git" && entry.args.includes("-D") && entry.args.includes("issue/10-native-worktree")));
 });
 
 test("finish-issue safely falls back for a legacy generic Herdr workspace", async (t) => {
@@ -997,4 +1004,234 @@ test("callback rejects a missing assignment, an unknown status, or an oversized 
   assert.equal(invoke(callbackArgs({ status: "done" }), env).status, 1);
   assert.equal(invoke(callbackArgs({ message: "x".repeat(2001) }), env).status, 1);
   assert.deepEqual(await calls(), []);
+});
+
+// The session running finish-issue may be the author inside the workspace it removes. It must not
+// be killed, Martin must not have to repeat himself, and no other agent's activity is excused.
+function selfCleanupState(fixture, panes) {
+  return (state) => {
+    state.worktreePorcelain = existingIssuePorcelain(fixture.repoRoot, fixture.issuePath);
+    state.workspaces = [
+      {
+        workspace_id: "w-issue",
+        label: "#10 · Native worktree",
+        agent_status: "working",
+        worktree: { checkout_path: fixture.issuePath, repo_root: fixture.repoRoot, is_linked_worktree: true }
+      },
+      repoWorkspace({ worktree: { checkout_path: fixture.repoRoot, repo_root: fixture.repoRoot, is_linked_worktree: false } })
+    ];
+    state.panes = panes;
+    state.mergedPrs = [{ number: 21, headRefOid: "tip10", isCrossRepository: false }];
+  };
+}
+
+test("finish-issue from the author's own pane hands cleanup to a visible tab that waits for it", async (t) => {
+  const fixture = await mockEnvironment(t);
+  await patchState(fixture, selfCleanupState(fixture, [
+    { pane_id: "p-author", workspace_id: "w-issue", tab_id: "w-issue:t1", cwd: fixture.issuePath, agent_status: "working" }
+  ]));
+
+  const result = invoke(["finish-issue", "10", "--delete-branch"], { ...fixture.env, HERDR_ENV: "1", HERDR_PANE_ID: "p-author" });
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.deepEqual(output.removed, []);
+  assert.equal(output.handoff.waitsFor, "p-author");
+
+  const log = await commandLog(fixture.logPath);
+  const tab = findCommand(log, "herdr", ["tab", "create", "--workspace", "w-primary"]);
+  assert.ok(tab, "expected a cleanup tab in the primary workspace");
+  assert.ok(tab.args.includes("--no-focus"));
+  const run = findCommand(log, "herdr", ["pane", "run", "p-review"]);
+  assert.match(run.args[3], /^herdr agent wait 'p-author' --until idle --until done --timeout \d+ && /);
+  assert.match(run.args[3], /finish-issue 10 --delete-branch$/);
+  assert.equal(log.some((entry) => entry.program === "herdr" && ["remove", "close"].includes(entry.args[1])), false);
+  assert.equal(log.some((entry) => entry.program === "git" && (entry.args.includes("remove") || entry.args.includes("-D"))), false);
+});
+
+test("finish-issue from the author's pane still refuses when another agent there is active", async (t) => {
+  const fixture = await mockEnvironment(t);
+  await patchState(fixture, selfCleanupState(fixture, [
+    { pane_id: "p-author", workspace_id: "w-issue", tab_id: "w-issue:t1", cwd: fixture.issuePath, agent_status: "working" },
+    { pane_id: "p-helper", workspace_id: "w-issue", tab_id: "w-issue:t2", cwd: fixture.issuePath, agent_status: "blocked" }
+  ]));
+
+  const result = invoke(["finish-issue", "10"], { ...fixture.env, HERDR_ENV: "1", HERDR_PANE_ID: "p-author" });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /refusing to remove active Herdr workspace .*p-helper is blocked/);
+  const log = await commandLog(fixture.logPath);
+  assert.equal(log.some((entry) => entry.program === "herdr" && ["create", "run", "remove", "close"].includes(entry.args[1])), false);
+});
+
+// Disposable real Git repositories: a mocked git cannot show what `git worktree remove` and
+// `git branch -d` actually do. Only gh is mocked, and global Git configuration is ignored.
+const fixtureGitEnv = {
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_NOSYSTEM: "1",
+  GIT_AUTHOR_NAME: "Fixture",
+  GIT_AUTHOR_EMAIL: "fixture@example.test",
+  GIT_COMMITTER_NAME: "Fixture",
+  GIT_COMMITTER_EMAIL: "fixture@example.test"
+};
+
+function realGit(cwd, ...args) {
+  const result = spawnSync("git", args, { cwd, encoding: "utf8", env: { ...process.env, ...fixtureGitEnv } });
+  if (result.status !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr}`);
+  return result.stdout.trim();
+}
+
+async function commitFile(cwd, name, content) {
+  await writeFile(join(cwd, name), content);
+  realGit(cwd, "add", name);
+  realGit(cwd, "commit", "-q", "-m", name);
+  return realGit(cwd, "rev-parse", "HEAD");
+}
+
+async function realGitFixture(t) {
+  const root = await mkdtemp(join(tmpdir(), "github-work-git-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const bin = join(root, "bin");
+  await mkdir(bin, { recursive: true });
+  await writeFile(join(bin, "gh"), mockCli);
+  await chmod(join(bin, "gh"), 0o755);
+  const remote = join(root, "origin.git");
+  const repoRoot = join(root, "repo");
+  realGit(root, "init", "-q", "--bare", "-b", "main", remote);
+  realGit(root, "clone", "-q", remote, repoRoot);
+  await commitFile(repoRoot, "README", "base\n");
+  realGit(repoRoot, "push", "-q", "-u", "origin", "main");
+  const worktreeRoot = join(root, "worktrees");
+  const managed = join(worktreeRoot, "github.com", "owner", "repo");
+  const statePath = join(root, "state.json");
+  const logPath = join(root, "commands.jsonl");
+  await writeFile(statePath, JSON.stringify({ repoRoot }));
+  await writeFile(logPath, "");
+  const env = {
+    ...process.env,
+    ...fixtureGitEnv,
+    PATH: `${bin}:${process.env.PATH}`,
+    GITHUB_WORKTREE_ROOT: worktreeRoot,
+    MOCK_GITHUB_WORK_STATE: statePath,
+    MOCK_GITHUB_WORK_LOG: logPath
+  };
+  delete env.HERDR_ENV;
+  delete env.HERDR_PANE_ID;
+  delete env.FLIGHTDECK_TELEMETRY_FILE;
+  return {
+    repoRoot,
+    issuePath: join(managed, "issues", "10-native-worktree"),
+    reviewPath: join(managed, "prs", "20", "review-claude"),
+    env,
+    setState: (value) => writeFile(statePath, JSON.stringify({ repoRoot, ...value })),
+    run: (args) => invoke(args, env, repoRoot)
+  };
+}
+
+function hasWorktree(fixture, path) {
+  return realGit(fixture.repoRoot, "worktree", "list", "--porcelain").split("\n").includes(`worktree ${path}`);
+}
+
+function branchTip(fixture, branch) {
+  const result = spawnSync("git", ["-C", fixture.repoRoot, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], { encoding: "utf8" });
+  return result.status === 0 ? result.stdout.trim() : null;
+}
+
+async function reviewFixture(t) {
+  const fixture = await realGitFixture(t);
+  realGit(fixture.repoRoot, "switch", "-q", "-c", "feature");
+  const prHead = await commitFile(fixture.repoRoot, "feature", "pr\n");
+  realGit(fixture.repoRoot, "push", "-q", "origin", "feature:refs/pull/20/head");
+  realGit(fixture.repoRoot, "switch", "-q", "main");
+  realGit(fixture.repoRoot, "fetch", "-q", "origin", "pull/20/head:refs/remotes/origin/pr/20");
+  realGit(fixture.repoRoot, "worktree", "add", "-q", "--detach", fixture.reviewPath, "refs/remotes/origin/pr/20");
+  await fixture.setState({ prHead });
+  return fixture;
+}
+
+test("cleanup-pr refuses a clean review worktree holding a local-only commit, and removes nothing", async (t) => {
+  const fixture = await reviewFixture(t);
+  const local = await commitFile(fixture.reviewPath, "review-note", "local\n");
+  assert.equal(realGit(fixture.reviewPath, "status", "--porcelain"), "");
+
+  const result = fixture.run(["cleanup-pr", "20"]);
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stderr, /1 local-only commit/);
+  assert.ok(hasWorktree(fixture, fixture.reviewPath), "the review worktree must survive");
+  assert.equal(realGit(fixture.reviewPath, "rev-parse", "HEAD"), local);
+});
+
+test("finish-issue refuses a detached issue worktree holding a local-only commit", async (t) => {
+  const fixture = await realGitFixture(t);
+  realGit(fixture.repoRoot, "worktree", "add", "-q", "--detach", fixture.issuePath, "origin/main");
+  await commitFile(fixture.issuePath, "detached-work", "local\n");
+
+  const result = fixture.run(["finish-issue", "10"]);
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stderr, /refusing to remove detached worktree .* 1 local-only commit/);
+  assert.ok(hasWorktree(fixture, fixture.issuePath));
+});
+
+test("finish-issue does not take a stale default-branch ref as evidence after the remote was rewritten", async (t) => {
+  const fixture = await realGitFixture(t);
+  const base = realGit(fixture.repoRoot, "rev-parse", "HEAD");
+  const dropped = await commitFile(fixture.repoRoot, "dropped", "rewritten away\n");
+  realGit(fixture.repoRoot, "push", "-q", "origin", "main");
+  realGit(fixture.repoRoot, "worktree", "add", "-q", "--detach", fixture.issuePath, dropped);
+  // Someone rewrites main on the remote; this checkout's origin/main still points at `dropped`.
+  realGit(fixture.repoRoot, "push", "-q", "--force", "origin", `${base}:refs/heads/main`);
+  realGit(fixture.repoRoot, "update-ref", "refs/remotes/origin/main", dropped);
+
+  const result = fixture.run(["finish-issue", "10"]);
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stderr, /refusing to remove detached worktree .* 1 local-only commit/);
+  assert.ok(hasWorktree(fixture, fixture.issuePath));
+});
+
+test("cleanup-pr removes a review worktree whose commits are all in the pull request", async (t) => {
+  const fixture = await reviewFixture(t);
+  const result = fixture.run(["cleanup-pr", "20"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(hasWorktree(fixture, fixture.reviewPath), false);
+});
+
+// An issue branch pushed, merged by squash, then deleted on GitHub: main holds the content but none
+// of the branch's commits, so only the merged pull request's head proves the work is preserved.
+async function squashMergedIssueFixture(t, { pruneRemote = true } = {}) {
+  const fixture = await realGitFixture(t);
+  const branch = "issue/10-native-worktree";
+  realGit(fixture.repoRoot, "worktree", "add", "-q", "-b", branch, fixture.issuePath, "origin/main");
+  const head = await commitFile(fixture.issuePath, "change", "work\n");
+  realGit(fixture.issuePath, "push", "-q", "-u", "origin", branch);
+  realGit(fixture.repoRoot, "push", "-q", "origin", `${head}:refs/pull/21/head`);
+  realGit(fixture.repoRoot, "merge", "-q", "--squash", branch);
+  realGit(fixture.repoRoot, "commit", "-q", "-m", "squash #21");
+  realGit(fixture.repoRoot, "push", "-q", "origin", "main");
+  if (pruneRemote) {
+    realGit(fixture.repoRoot, "push", "-q", "origin", "--delete", branch);
+    realGit(fixture.repoRoot, "fetch", "-q", "--prune", "origin");
+  }
+  await fixture.setState({ mergedPrs: [{ number: 21, headRefOid: head, isCrossRepository: false }] });
+  return { ...fixture, branch, head };
+}
+
+test("finish-issue --delete-branch deletes a squash-merged branch on the merged pull request's evidence", async (t) => {
+  const fixture = await squashMergedIssueFixture(t);
+  const result = fixture.run(["finish-issue", "10", "--delete-branch"]);
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.deepEqual(output.deletedBranch, { name: fixture.branch, was: fixture.head, preservedIn: [`pull request #21 head ${fixture.head}`] });
+  assert.equal(hasWorktree(fixture, fixture.issuePath), false);
+  assert.equal(branchTip(fixture, fixture.branch), null);
+});
+
+test("finish-issue --delete-branch refuses, before removing anything, a commit the merged pull request lacks", async (t) => {
+  // The stale upstream still holds the extra commit, which is exactly what lets `git branch -d` pass.
+  const fixture = await squashMergedIssueFixture(t, { pruneRemote: false });
+  const extra = await commitFile(fixture.issuePath, "after-merge", "late\n");
+  realGit(fixture.issuePath, "push", "-q", "origin", fixture.branch);
+
+  const result = fixture.run(["finish-issue", "10", "--delete-branch"]);
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stderr, /refusing to delete branch issue\/10-native-worktree: 1 commit on it is in no merged pull request/);
+  assert.ok(hasWorktree(fixture, fixture.issuePath), "the issue worktree must survive");
+  assert.equal(branchTip(fixture, fixture.branch), extra);
 });

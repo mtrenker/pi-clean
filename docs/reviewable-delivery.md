@@ -184,19 +184,22 @@ owns, once the evidence below holds. The rules are in
 
 - a commit GitHub reports now: `headRefOid` of a merged same-repository pull request for that branch,
   or of the pull request a review worktree belongs to;
-- or the remote default branch's tracking ref.
+- or the commit `git ls-remote` reports for the remote default branch at cleanup time.
 
-The helper checks this with `git rev-list --count <tip> --not <those commits>`. Zero is proof; any
-other count, or a failed command, refuses. Three things are not evidence:
+Both are read from live remote state when cleanup runs. The helper checks preservation with
+`git rev-list --count <tip> --not <those commits>`. Zero is proof; any other count, or a failed
+command, refuses. These things are not evidence:
 
 - a clean `git status`, which says nothing about commits;
-- `--remotes`, which includes local copies such as the `origin/pr/<n>` ref `review-pr` fetches, and
-  stale branch refs;
+- `--remotes` or any local tracking ref, including the `origin/pr/<n>` ref `review-pr` fetches: a
+  tracking ref can be stale after the remote branch was deleted or rewritten, and then it vouches
+  for commits the remote no longer has. A test rewrites `main` on the remote to pin this;
 - `git branch -d`, which accepts a stale upstream.
 
-A stale default-branch ref can only make the check refuse, never pass. The helper fetches
-`pull/<n>/head` only to obtain the objects behind `headRefOid`. That ref is observed, not promised to
-last, so nothing relies on it for recovery.
+If the remote cannot be reached, the check has no default-branch commit to test against, so it
+refuses unless a merged pull request head covers the work. The helper fetches `pull/<n>/head` or the
+default branch only to obtain missing objects. Neither ref is promised to last, so nothing relies on
+them for recovery.
 
 **Order.** Dirty state, preservation, a branch checked out elsewhere, hosted reviews, and active
 agents are all checked before any pane, workspace, worktree, or branch is touched. The branch tip is
