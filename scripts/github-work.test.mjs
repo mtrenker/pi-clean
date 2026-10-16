@@ -566,6 +566,54 @@ test("cleanup-pr closes a dedicated review workspace from before reviews moved i
   assert.equal(log.some((entry) => entry.program === "herdr" && entry.args[0] === "tab" && entry.args[1] === "close"), false);
 });
 
+test("cleanup-pr refuses to close a dedicated review workspace that also holds unrelated work", async (t) => {
+  const fixture = await mockEnvironment(t);
+  await patchState(fixture, (state) => {
+    state.worktreePorcelain = `worktree ${fixture.repoRoot}\nHEAD abc\nbranch refs/heads/main\n\nworktree ${reviewPath(fixture)}\nHEAD def\ndetached\n\n`;
+    state.workspaces = [{
+      workspace_id: "w-legacy-review",
+      label: "repo · PR #20 · review/claude",
+      agent_status: "idle",
+      worktree: { checkout_path: reviewPath(fixture), repo_root: fixture.repoRoot, is_linked_worktree: true }
+    }];
+    state.panes = [
+      { pane_id: "p-legacy", workspace_id: "w-legacy-review", tab_id: "w-legacy-review:t1", cwd: reviewPath(fixture), agent_status: "idle" },
+      { pane_id: "p-preview", workspace_id: "w-legacy-review", tab_id: "w-legacy-review:t2", cwd: fixture.repoRoot, agent_status: "idle" }
+    ];
+  });
+
+  const result = invoke(["cleanup-pr", "20"], { ...fixture.env, HERDR_ENV: "1" });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /refusing to close Herdr workspace .*pane p-preview works in .*outside the review checkout/);
+  const log = await commandLog(fixture.logPath);
+  assert.equal(log.some((entry) => entry.program === "herdr" && entry.args[1] === "close"), false);
+  assert.equal(log.some((entry) => entry.program === "git" && entry.args.includes("remove")), false);
+});
+
+test("finish-issue refuses to remove an issue workspace that also holds unrelated work", async (t) => {
+  const fixture = await mockEnvironment(t);
+  await patchState(fixture, (state) => {
+    state.worktreePorcelain = existingIssuePorcelain(fixture.repoRoot, fixture.issuePath);
+    state.workspaces = [{
+      workspace_id: "w-issue",
+      label: "#10 · Native worktree",
+      agent_status: "idle",
+      worktree: { checkout_path: fixture.issuePath, repo_root: fixture.repoRoot, is_linked_worktree: true }
+    }];
+    state.panes = [
+      { pane_id: "p-author", workspace_id: "w-issue", tab_id: "w-issue:t1", cwd: fixture.issuePath, agent_status: "idle" },
+      { pane_id: "p-shell", workspace_id: "w-issue", tab_id: "w-issue:t2", cwd: fixture.repoRoot, agent_status: "idle" }
+    ];
+  });
+
+  const result = invoke(["finish-issue", "10"], { ...fixture.env, HERDR_ENV: "1" });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /refusing to close Herdr workspace #10 · Native worktree: pane p-shell works in .*outside the issue worktree/);
+  const log = await commandLog(fixture.logPath);
+  assert.equal(log.some((entry) => entry.program === "herdr" && ["remove", "close"].includes(entry.args[1])), false);
+  assert.equal(log.some((entry) => entry.program === "git" && entry.args.includes("remove")), false);
+});
+
 test("finish-issue refuses to strand a review hosted in the issue workspace", async (t) => {
   const fixture = await mockEnvironment(t);
   await patchState(fixture, (state) => {

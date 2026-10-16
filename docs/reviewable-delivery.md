@@ -201,8 +201,9 @@ refuses unless a merged pull request head covers the work. The helper fetches `p
 default branch only to obtain missing objects. Neither ref is promised to last, so nothing relies on
 them for recovery.
 
-**Order.** Dirty state, preservation, a branch checked out elsewhere, hosted reviews, and active
-agents are all checked before any pane, workspace, worktree, or branch is touched. The branch tip is
+**Order.** Dirty state, preservation, a branch checked out elsewhere, hosted reviews, active agents,
+and any pane in a workspace to be closed that works outside the checkout being cleaned up are all
+checked before any pane, workspace, worktree, or branch is touched. The branch tip is
 read again right before deletion, and deletion uses `-D` only for the tip that was proven. Ignored
 files go with the worktree, as `git worktree remove` already does. The helper cannot tell build
 output from local data, and data an agent made for a preview is that agent's to stop or keep under

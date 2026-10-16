@@ -188,6 +188,7 @@ in the remote default branch as `git ls-remote` reports it. Cleanup refuses to:
   obtained;
 - remove or close a Herdr workspace whose agent is `working` or `blocked`, except for the pane
   running the command itself, which gets the handoff below;
+- remove or close a Herdr workspace holding a pane that works outside the checkout being cleaned up;
 - pass Herdr's force-removal option.
 
 `--delete-branch` deletes with `git branch -D`, only for the tip it proved, and reports what

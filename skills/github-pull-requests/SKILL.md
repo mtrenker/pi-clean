@@ -111,7 +111,8 @@ GitHub reports or in the remote default branch as `git ls-remote` reports it, so
 merges clean up like merge commits. A clean status, a remote-tracking ref, and `git branch -d` are
 not that evidence. `--delete-branch` then deletes the branch with `-D`, for the proven tip only, and
 reports what preserved it. Each command refuses, having removed nothing, on local-only commits, a
-dirty worktree, an active or blocked agent, a hosted review, or evidence it cannot obtain. Report a
+dirty worktree, an active or blocked agent, a hosted review, a pane working outside the checkout in
+a workspace it would close, or evidence it cannot obtain. Report a
 refusal; do not work around it. [The design record](../../docs/reviewable-delivery.md#amendment-routine-delivery-and-verified-cleanup)
 has the reasoning.
 
@@ -125,13 +126,16 @@ A shared checkout with no worktree, such as pi-clean's feature branch in the pri
 nothing for the helper to remove. Verify the same evidence, then return to the default branch:
 
 ```bash
-gh pr view <number> --json state,headRefName,headRefOid  # MERGED, and headRefName is <branch>
+gh pr view <number> --json state,headRefName,headRefOid,isCrossRepository  # MERGED, <branch>, false
+TIP=$(git rev-parse --verify refs/heads/<branch>)        # the tip you prove, and the only one you delete
 git fetch <remote> <default> pull/<number>/head          # objects for the check
-git rev-list --count <branch> --not <headRefOid> "$(git ls-remote <remote> refs/heads/<default> | cut -f1)"  # 0, or stop
-git switch <default> && git merge --ff-only <remote>/<default> && git branch -D <branch>
+git rev-list --count "$TIP" --not <headRefOid> "$(git ls-remote <remote> refs/heads/<default> | cut -f1)"  # 0, or stop
+git switch <default> && git merge --ff-only <remote>/<default>
+test "$(git rev-parse --verify refs/heads/<branch>)" = "$TIP" && git branch -D <branch>  # a moved branch stays
 ```
 
-If `git switch` refuses because of uncommitted changes that are not yours, stop and report them.
+If `git switch` refuses because of uncommitted changes that are not yours, stop and report them. If
+the last line deletes nothing, the branch moved after the check: report it and keep it.
 
 `cleanup-pr` closes the panes whose directory is that review's worktree, closes their tab only when
 it held nothing else, and closes a workspace only when that workspace's own checkout is the review

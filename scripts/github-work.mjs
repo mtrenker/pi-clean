@@ -527,6 +527,7 @@ function planIssueHerdrRemoval(number, entries, managedRoot) {
 
   const caller = panes.find((pane) => pane.pane_id === process.env.HERDR_PANE_ID && relevantIds.has(pane.workspace_id));
   for (const workspace of relevant) {
+    refuseUnrelatedPanes(workspace, panes, entryPaths, "the issue worktree");
     if (caller?.workspace_id === workspace.workspace_id) {
       const busy = panes.find((pane) => pane.workspace_id === workspace.workspace_id && pane.pane_id !== caller.pane_id
         && ["working", "blocked"].includes(pane.agent_status));
@@ -575,6 +576,7 @@ function closeReviewPlacements(entries) {
     if (["working", "blocked"].includes(workspace.agent_status)) {
       throw new Error(`refusing to close active Herdr workspace ${workspace.label} (${workspace.agent_status})`);
     }
+    refuseUnrelatedPanes(workspace, panes, targets, "the review checkout");
   }
 
   const dedicatedIds = new Set(dedicated.map((workspace) => workspace.workspace_id));
@@ -595,6 +597,23 @@ function closeReviewPlacements(entries) {
 
   for (const workspace of dedicated) {
     run("herdr", ["workspace", "close", workspace.workspace_id], { capture: true });
+  }
+}
+
+/**
+ * Closing or removing a workspace takes every pane in it. Refuse, before anything is closed, when one
+ * of them works outside the checkout being cleaned up: it is not this cleanup's to end.
+ */
+function refuseUnrelatedPanes(workspace, panes, checkoutPaths, description) {
+  const roots = [...checkoutPaths].map((path) => resolve(path));
+  const unrelated = panes.find((pane) => {
+    if (pane.workspace_id !== workspace.workspace_id) return false;
+    if (typeof pane.cwd !== "string") return true;
+    const cwd = resolve(pane.cwd);
+    return !roots.some((root) => cwd === root || cwd.startsWith(`${root}${sep}`));
+  });
+  if (unrelated) {
+    throw new Error(`refusing to close Herdr workspace ${workspace.label ?? workspace.workspace_id}: pane ${unrelated.pane_id} works in ${unrelated.cwd ?? "an unknown directory"}, outside ${description}; move or close it first`);
   }
 }
 
