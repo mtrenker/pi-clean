@@ -5,6 +5,11 @@ This is the durable record that `AGENTS.md` requires before dependent implementa
 agents follow live in [`interactive-agent-sessions`](../skills/interactive-agent-sessions/SKILL.md);
 this record keeps the decision, the evidence, and the gaps.
 
+For #58, Martin accepted a completion-ownership clarification: the parent collects results and
+continues authorized work without requiring him to relay messages. The current guidance below
+supersedes the original blanket ban on parent follow-ups; transport behavior and the historical
+observations are unchanged. See [completion ownership](../skills/interactive-agent-sessions/SKILL.md#completion-ownership).
+
 ## Decision
 
 An earlier revision of this record (commit `1b44830`) proposed a file inbox and a new Pi extension.
@@ -28,8 +33,10 @@ The accepted direction:
    pane's `agent_session` kind, source, and value with the identity in its handoff. On a mismatch,
    `agent_not_found`, `agent_blocked`, `agent_prompt_stalled`, or any other error it raises `herdr
    notification show`, leaves the full report in its own pane, and makes at most one further attempt.
-   A delegate sends at most one completion or blocker callback per assignment, and the parent never
-   prompts the delegate because of a callback unless Martin says so.
+   A delegate sends at most one completion or blocker callback per assignment. Parent follow-ups
+   address an identified gap or diagnosed cause within existing authorization, with a fresh callback
+   block or an active wait; they are not automatic replies. Callback delivery retry limits below
+   are separate from task recovery.
 5. **Observed limits only.** What follows reports what was run and seen, not what was inferred.
 
 ## Observed behavior
@@ -91,9 +98,10 @@ editor, a Claude Code or Codex parent, and a Pi delegate.
 
 ## How it works
 
-**Choosing.** The parent watches or waits when it expects the task to finish while it is still
-paying attention. For a longer run, it asks for a callback and ends its turn. A callback is never
-the default; the handoff says which one was chosen.
+**Choosing.** Follow [completion ownership](../skills/interactive-agent-sessions/SKILL.md#completion-ownership):
+choose an active wait or include the full generated callback block before launch. Failed setup means
+watching instead, not an unconfigured promise to report back. Focusing the delegate is not a transfer
+of responsibility. The skill defines genuine stops, explicit takeover, and the recovery notice.
 
 **Handing over the identity and the assignment.** From its own shell, the parent runs
 `node <pi-clean>/scripts/github-work.mjs callback-handoff` and pastes the printed block into the
@@ -146,12 +154,11 @@ Written as a shell one-liner in each handoff, it would drift.
 
 **On receipt**, the parent first matches the assignment ID against the handoffs it wrote. It does
 not act on a callback whose ID it did not issue, or on a second callback for an assignment it has
-already handled. Instead it tells Martin. Otherwise it treats the callback as evidence. It re-runs
-the stated checks and reads the diff or file named. It continues only with work Martin has already
-authorized for the current increment, then reports in Result / Check / Your turn form. For
-`failed`, it does not retry or reassign. For `needs-input`, it relays the question to Martin and
-stops, because the callback is not his consent. It does not prompt the delegate in reply unless
-Martin tells it to.
+already handled. Instead it tells Martin. For a matching callback it applies
+[completion ownership](../skills/interactive-agent-sessions/SKILL.md#completion-ownership) to
+verification, authorized continuation, questions, failures, and bounded follow-ups, then reports in
+Result / Check / Your turn form. The callback is evidence, not authority; delivery retry limits above
+are unchanged.
 
 ## Supported and unsupported
 
@@ -210,6 +217,7 @@ Where this direction cannot meet a criterion as written, the gap is stated rathe
 ## Non-goals
 
 A file inbox, a Pi extension, or any delivery service; queuing callbacks for a missing or replaced
-parent; duplicate suppression beyond the one-callback rule; Codex callbacks; replies from parent to
-delegate; retries beyond one; polling; changes to `launch-command` prompts, since a callback is a
-per-assignment choice rather than something every managed delegate needs; personal settings.
+parent; duplicate suppression beyond the one-callback rule; Codex callbacks; automatic parent/delegate
+reply loops; callback delivery retries beyond the limits above; busy polling; changes to
+`launch-command` prompts, since a callback is a per-assignment choice rather than something every
+managed delegate needs; personal settings.

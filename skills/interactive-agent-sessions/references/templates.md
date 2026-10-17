@@ -2,7 +2,10 @@
 
 Used by [the interactive agent sessions skill](../SKILL.md) and its coordinated-task prompt.
 
-A delegated session starts and ends in writing. Fill in every field; write "none" rather than leaving one out.
+A delegated session starts and ends in writing. Fill in every field; use "none" only where allowed.
+`Report back` must choose a [completion path](../SKILL.md#completion-ownership), never bare "none".
+For a callback, replace that entire line with the full block generated in the parent's shell, not
+just the command name. A follow-up gets a fresh block or an active wait.
 
 Handoff, sent as part of the delegate's initial prompt:
 
@@ -15,7 +18,7 @@ Tests to run: <exact commands>
 Acceptance criteria: <numbered, testable>
 Stop when: <the end of this increment: its pull request is open, or its report is written> | <the whole task is done, when Martin asked for it to be finished>
 Risks and known traps: <what has already gone wrong here>
-Report back: <none; the parent watches this pane> | <the block `github-work.mjs callback-handoff` prints; send at most one callback for this assignment>
+Report back: <watch; the parent will wait, collect the result, and continue authorized work> | <replace this line with the full block `github-work.mjs callback-handoff` prints> | <user takeover; Martin explicitly requested direct coordination, with this remaining work: ...>
 Publication: <routine delivery: commit, push <branch>, and open its pull request> | <commits only; the parent publishes> | <none: read-only task>
 Escalation: stop and report if <condition>. Do not merge, approve, force-push, publish a review, or delete anything beyond what Publication names. Do not spawn native subagents; ask for a visible Herdr pane instead.
 ```
@@ -32,7 +35,11 @@ Acceptance criteria: <each criterion in words → met, partially met with reason
 Limitations and accepted risks: <what this does not cover>
 ```
 
-Keep it within one screen and link evidence instead of pasting it. The coordinator verifies the claims rather than relaying them: re-run the checks, read the diff, and reconcile disagreements between delegates. Its own report to Martin uses the same shape and states what it concluded, not the delegates' blocks again.
+Keep it within one screen and link evidence instead of pasting it. The coordinator follows
+[completion ownership](../SKILL.md#completion-ownership): inspect relevant evidence, verify claims
+needed for the next action, and reconcile disagreements. Required checks still apply; unchanged
+validation is not repeated merely because it crossed an agent boundary. Its own report to Martin
+uses the same shape and states its conclusions, not the delegates' blocks again.
 
 ## Freeze and lift notices
 
