@@ -13,6 +13,57 @@ Turn a short request into an operator-visible Claude or Codex TUI. This skill ow
 1. Check `HERDR_ENV` before any Herdr command. If it is not exactly `1`, stop and explain that the request requires an interactive Herdr-managed pane. Do not fall back to a subprocess, background agent, or non-interactive command.
 2. Read `herdr --skill` and follow it; when a command's shape is in doubt, `herdr <group> --help` decides. Re-read live IDs from Herdr and parse create/split responses; never guess or retain ephemeral workspace, tab, or pane IDs as durable identity.
 3. Read the target repository's instructions before launching. GitHub issue and PR work must also follow the repository `github-issues` and `github-pull-requests` skills.
+4. Choose the completion path below before launch and include it in the delegate's handoff. For helper-generated prompts you cannot extend, record an active wait in your own conversation instead. A visible launch is not completion of the assigned task.
+
+## Completion ownership
+
+The parent is Martin's interface to delegates. It collects results, verifies relevant claims, and
+continues already-authorized work without Martin checking panes or relaying messages. Opening or
+focusing a delegate does not transfer that responsibility.
+
+Choose one path in every handoff:
+
+- **Watch:** actually wait for the delegate and read its result. Keep ownership until you collect
+  it, report a genuine decision, blocker, or stall as below, or Martin explicitly takes over. Do not
+  end your turn merely because the launch succeeded or a wait timed out.
+- **Callback:** before launch, run `github-work.mjs callback-handoff` in your own shell and include
+  its full session-bound block in the handoff. Follow the
+  [callback recipe](references/recipes.md#watch-or-ask-for-a-callback), then end your turn. Report the
+  delegate's location and that you will collect its result. Include the recovery instruction: if
+  delivery fails or no callback arrives, ask the parent to collect from that location, not relay the
+  delegate's output yourself. If setup fails, watch instead; never promise an unconfigured callback.
+  Codex delegates require watching because their sandbox cannot reach Herdr.
+  For a coordinator, ending a turn to await its own delegates is not completion: send its one
+  callback only when `Stop when` is reached, the assignment fails, or input is needed.
+- **User takeover:** only when Martin explicitly asks to take over coordination. Name the delegate
+  and remaining work. A request to launch or inspect a delegate is not such a handoff.
+
+Use substantial blocking waits, not frequent status checks or "are you done?" prompts. After a
+wait timeout, inspect state and recent output: neither silence nor `working` alone proves progress
+or failure. Renew a wait for a concrete reason, such as a still-running check within its expected
+runtime, and record that reason. Do not renew indefinitely without evidence; report a stalled or
+unobservable task with what you checked and the decision needed, not a blocker invented from one
+quiet interval. See [waiting](references/recipes.md#waiting-for-a-delegate).
+
+On completion, read the relevant report, diff, or artifact and verify the claims needed for your
+next action. Run required checks, but do not repeat unchanged validation merely because another
+agent reported it. Resolve discrepancies before relying on the result.
+
+Continue the next authorized step, including answering questions settled by the assignment or
+existing instructions. A `failed` or `needs-input` report is evidence to inspect, not an automatic
+handoff to Martin. A follow-up or recovery must name the concrete gap or diagnosed cause it addresses
+within the existing scope; give it a fresh callback block or actively watch it. Do not blindly
+resubmit unchanged work or automatically reply to every callback. Stop when the same failure recurs
+without new evidence, proposed fixes expand scope, or review reaches the existing convergence gate.
+Stop at the agreed outcome or a genuine decision, authorization boundary, or blocker; report your
+conclusion and propose a useful next increment rather than waiting for Martin to ask what is next.
+When pausing for Martin's decision, ask him to answer in the parent conversation so you can relay it
+with a fresh callback block or resume watching. If he answers directly in the delegate's pane, ask
+him to tell the parent to resume collecting; that interaction cannot automatically wake the parent.
+Callbacks grant no new authority. Callback delivery retries keep their separate limits in the recipe.
+
+A delegate that crashes before calling back cannot wake the parent. Naming its pane aids recovery;
+these instructions do not add crash detection or guaranteed delivery.
 
 ## Deterministic intent matrix
 
@@ -184,7 +235,7 @@ A label says what a child is; the parent workspace already names the repository.
 
 Start the TUI with its initial prompt in the created terminal. Focus the new pane, tab, or workspace for direct interaction unless Martin asks to keep the current focus. Report the semantic workspace, tab, and pane label after launch; IDs may be included only as current routing handles.
 
-Do not replace direct interaction with coordinator polling. The session must remain visible so Martin can inspect, interrupt, and continue it. If Martin asks to stay in the current pane, launch with no focus, report the location immediately, and leave the new terminal visible and focusable.
+Keep direct interaction available without making Martin the coordinator. The parent follows [completion ownership](#completion-ownership), not a busy polling loop. The session must remain visible so Martin can inspect, interrupt, and continue it. If Martin asks to stay in the current pane, launch with no focus, report the location immediately, and leave the new terminal visible and focusable.
 
 ## Checkpoints and previews
 
@@ -234,4 +285,4 @@ against this skill directory and uses that absolute path as `WORK_HELPER`.
 
 [Templates](references/templates.md) has the handoff block a delegate receives in its initial prompt
 and the completion block it must return before its work is accepted. Fill in every field; write
-"none" rather than leaving one out.
+"none" only where it is allowed. `Report back` must name a completion path, never bare "none".
