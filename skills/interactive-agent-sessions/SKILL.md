@@ -257,8 +257,11 @@ herdr pane rename "$PREVIEW" 'Preview · dev server'
 herdr pane run "$PREVIEW" '<start command documented by the target repository>'
 ```
 
-Run installs, migrations, and fixture seeding before the checkpoint opens, in the same visible
-placement. Then open the route yourself and confirm it rendered before asking.
+Before any data or service writes, including migrations and fixture seeding, apply the shared
+policy's [effective-target check](../_shared/github-workflow.md#safety) in the writer's execution
+context. Run setup before the checkpoint opens, in the same visible placement. Then verify the
+actual route and decision-relevant behavior under the [preview contract](../_shared/github-workflow.md#previews)
+before asking.
 
 Ask the question in your own session so Herdr can classify it: Herdr reports `blocked` when it
 recognizes an approval or question UI. Whether a Claude Code question reliably raises it has not been

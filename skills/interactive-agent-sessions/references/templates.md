@@ -10,9 +10,10 @@ just the command name. A follow-up gets a fresh block or an active wait.
 Handoff, sent as part of the delegate's initial prompt:
 
 ```text
-Task: <one sentence>
+Task: <the intended outcome and why it matters; link the issue or brief for scope>
 Repository and revision: <owner/repo> at <git SHA>, branch <branch>, worktree <path>
 Write scope: <paths you may change>. You are the only writer in this worktree while you run. Do not touch <paths off limits>.
+Write targets: <authorized database, service or environment and read-only identity check; verify in your own execution context before writes> | <none>
 Design: <approved Opus direction and where it is recorded> | <none; stop and request an Opus handoff if design is needed>
 Tests to run: <exact commands>
 Acceptance criteria: <numbered, testable>
@@ -40,6 +41,24 @@ Keep it within one screen and link evidence instead of pasting it. The coordinat
 needed for the next action, and reconcile disagreements. Required checks still apply; unchanged
 validation is not repeated merely because it crossed an agent boundary. Its own report to Martin
 uses the same shape and states its conclusions, not the delegates' blocks again.
+
+## Resume notes
+
+When unfinished work will continue in another session, update one compact resume note before a
+planned handoff, session end or compaction. A routine checkpoint in the same session needs no new
+file. Use the task's existing brief or session-note location outside the source checkout unless
+the task names an in-repo record, and give its path. Publishing still needs the applicable
+authorization.
+
+Keep the broader goal and decisions that still constrain the work, including their reasons.
+State the verified current state, next action, unresolved decisions and pending authorizations.
+Name active delegates and who owns collecting them; preserve a live completion path or arrange a
+fresh one when the parent session changes.
+
+Reference completed issues, commits, checks and other artifacts instead of copying them. Keep
+secrets out. On pickup, read the note and references needed for the next action, recheck live state
+and effective targets, and verify inherited claims needed for that action. Do not repeat completed
+work merely to reconstruct context.
 
 ## Freeze and lift notices
 

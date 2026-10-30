@@ -39,9 +39,11 @@ Search for duplicates with `gh issue list --search` on meaningful words from the
 ## Create an issue
 
 Where a planning configuration exists (`github-planning.mjs config` succeeds), draft the issue as JSON and run `validate-draft` before publishing: its result shows the repository's issue-form expectations, label findings, plausible duplicates, and the complete `proposedMutation`. Without one the CLI exits with `CONFIG_NOT_FOUND`; then check labels and duplicates with the `gh` commands above, and do not treat the missing configuration as a blocker. Follow the repository's issue form where present.
-A useful issue states the outcome, the next useful increment and where it stops, how to check it,
-and what is left out, plus any constraints, dependencies, and risks. Link existing context and
-evidence instead of repeating it. For example:
+A useful issue starts with the need and why it matters, then states the intended outcome, how to
+check it, and where this increment stops. Keep constraints, dependencies and risks that change the
+work. User stories explain value; do not expand them into exhaustive interaction lists. Keep the
+outcome, boundaries and acceptance criteria self-contained. Link supporting agent detail in
+accessible references instead of restating the need. For example:
 
 ```markdown
 ## Outcome
