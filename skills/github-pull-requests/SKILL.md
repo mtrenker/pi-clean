@@ -25,12 +25,14 @@ Run the repository's required validation. Push only the branch you are publishin
 or one layer branch of a stack. Draft a PR using the local pull request template and include:
 
 - linked issue (`Closes #N` only for complete resolution);
-- concise explanation of behavior and design decisions;
+- delivered behavior and its value, not a file-by-file change log;
+- meaningful deviations from the linked issue or accepted design, without retelling either;
 - each validation command and its result on one short line, including failures, linking lengthy output;
-- risks, limitations, migrations, or screenshots where relevant.
+- relevant risks, limitations and unverified behavior; screenshots when they prove a claim.
 
-Keep the body within one screen: what changed and why, one line per validation command with its
-result, and links to evidence rather than pasted output. Open it without showing it first when
+Aim for one screen, not a word quota. Link the issue for intent and scope, and evidence for detail.
+Keep information that changes a review or merge decision; omit empty sections and boilerplate
+unless the repository requires them. Open it without showing it first when
 [routine delivery](../_shared/github-workflow.md#routine-delivery) covers the task or the request
 authorized it (`push it`, `create the PR`): commit, push, and open it without another question.
 Otherwise show the final title, body, base, and head before `gh pr create`. Prefer `--body-file`.
@@ -72,7 +74,11 @@ test quality, and issue acceptance criteria. Judge tests with the questions in
 [Test what earns its place](../agile-engineering/SKILL.md#test-what-earns-its-place): a request
 for a test names the failure it would catch, and a finding against a test names its concrete
 defect or cost, such as that it cannot fail, pins nothing depended on, or duplicates other evidence.
-Neither is a default finding. Hypothetical future needs do not expand scope.
+Neither is a default finding. Check that the change completes the agreed behavior, including
+affected callers and configuration, without adding speculative capabilities. Check that the PR
+makes the value, deviations and unverified behavior clear without repeating the issue. A report
+that names tests but leaves its claimed outcome unverified needs that gap stated. Hypothetical
+future needs do not expand scope.
 For a pull request in a stack, that diff is the
 layer's own diff against its base branch, with the stack map for context, not the whole stack. Run focused validation when practical. Lead the report with the verdict and the decision it needs, then distinguish:
 

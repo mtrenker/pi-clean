@@ -1,25 +1,14 @@
 ## Summary
 
-<!-- What changed and why? -->
-
-## Linked issue
-
-<!-- Use `Closes #N` only when this PR fully resolves the issue; otherwise use `Refs #N`. -->
+<!-- What can the user or operator now do, and why does it matter? Link the issue rather than repeat its specification. -->
+<!-- Use `Closes #N` only for complete resolution; otherwise use `Refs #N`. -->
 
 Refs #
 
 ## Validation
 
-<!-- List exact commands and relevant manual checks. -->
+<!-- Each relevant command or hands-on check and its result, including failures. Link lengthy evidence. -->
 
-- [ ] Focused tests pass
-- [ ] Type checking passes, or existing unrelated failures are documented
-- [ ] Documentation is updated where needed
+## Deviations and limitations
 
-## Risks and limitations
-
-<!-- Note compatibility concerns, migrations, security implications, and known follow-up work. -->
-
-## Review guidance
-
-<!-- Point independent reviewers to the highest-risk behavior or design decisions. -->
+<!-- Keep meaningful differences from the issue, risks and unverified behavior. Omit this section when there are none. -->

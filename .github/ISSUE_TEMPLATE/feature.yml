@@ -7,16 +7,14 @@ body:
     id: outcome
     attributes:
       label: Desired outcome
-      description: Describe the user or operator outcome rather than only an implementation.
+      description: Who needs this, what should they be able to do, and why? A short explanation is enough.
     validations:
       required: true
   - type: textarea
     id: context
     attributes:
       label: Context
-      description: Why is this needed, and what existing alternatives were considered?
-    validations:
-      required: true
+      description: Link supporting context or rejected alternatives only when they change the work. Do not repeat the outcome.
   - type: textarea
     id: scope
     attributes:

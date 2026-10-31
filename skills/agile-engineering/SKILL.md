@@ -13,10 +13,16 @@ Working software over comprehensive documentation. Feedback over big plans.
 Iterate rather than trying to get everything perfect the first time. Optimize for
 what the user can try, learn or decide, not how much work the agent can produce.
 
+Required checks, security, privacy, independent review and authorization still
+apply. This skill scales optional work; it does not waive repository rules. Follow
+[the shared workflow policy](../_shared/github-workflow.md) for GitHub delivery.
+
 ## Build the next useful thing
 
-- Identify the current need and the smallest end-to-end change that serves it.
-  For obvious work, do it; a formal plan is not a prerequisite.
+- Identify the current need and the smallest complete end-to-end change that serves it.
+  Include affected callers, tests, fixtures and configuration. These complete the
+  agreed behavior; speculative features expand it. For obvious work, do it; a
+  formal plan is not a prerequisite.
 - Plan only to the next useful feedback point. Later possibilities can stay one
   sentence, not phases, speculative child issues or a production roadmap.
 - Resolve uncertainty with a small experiment, not an architecture for every
@@ -40,6 +46,8 @@ These are judgments, not modes to declare or forms to fill out.
   broken authorization, hard-to-reverse changes or reachable concurrency failures.
   Investigate and check those paths. Record recovery steps when undoing is not
   trivial. A small diff can be risky; a large prototype need not be production work.
+  Before database, service or shared-environment writes, the writer follows the
+  [effective-target check](../_shared/github-workflow.md#safety) in its own execution context.
 
 ## Test what earns its place
 
@@ -82,8 +90,12 @@ finding.
 
 ## Write for the person who must act
 
-- An issue needs the behavior or problem, the next deliverable, how to check it,
-  and where it stops. Put the point first. Link context instead of repeating it.
+- An issue explains who needs the change and why, the intended outcome, how to
+  check it, and where it stops. A user story communicates value, not a walkthrough
+  or implementation plan. Link supporting agent context instead of repeating it.
+- A pull request explains the delivered outcome, meaningful deviations from the
+  linked issue, validation and limitations. Do not retell the specification or
+  report every action taken.
 - Aim for one screen, not a word quota. Keep constraints, blockers and acceptance
   details that change the work. Omit empty sections and boilerplate unless the
   repository requires them. A cold agent needs actionable context, not a transcript.
@@ -91,6 +103,8 @@ finding.
   Do not manufacture a parent and children for one small change.
 - Docs explain use, non-obvious decisions and operational facts a future reader
   needs. Do not narrate code, duplicate evidence or create a report to prove effort.
+- When unfinished work will continue in another session, use [resume notes](../interactive-agent-sessions/references/templates.md#resume-notes)
+  to preserve decisions and pending work without copying completed artifacts.
 
 A small issue can be four lines; use repository-required headings where applicable:
 
@@ -106,6 +120,12 @@ read is a reason to ask: "Which current need does this serve?" It is not an auto
 ban. Simplify what adds no value. Reviewers must name a reachable failure or current
 maintenance cost, not turn hypothetical future needs into blockers.
 
-Required checks, security, privacy, independent review and authorization still
-apply. This skill scales optional work; it does not waive repository rules. Follow
-[the shared workflow policy](../_shared/github-workflow.md) for GitHub delivery.
+## When guidance fails repeatedly
+
+Start with an observed failure and check whether the relevant guidance was available
+and followed. Repair missing access or conflicting instructions before adding rules.
+Prefer an existing deterministic check for a mechanical failure; add a focused check
+when the risk warrants it. Put judgment about scope and outcome clarity in the parent
+or independent review. Replace ineffective or duplicate instructions rather than
+append another warning. Judge the change on subsequent work, not on the presence of
+new guidance.

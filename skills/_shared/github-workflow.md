@@ -25,6 +25,16 @@ authorizes that exact action, including an explicit advance authorization for a 
 Merging always requires explicit confirmation. Reviewable delivery below separates the kinds of
 authorization and states what design acceptance does not grant.
 
+Before writing to a database, remote service or shared environment, verify the effective target
+matches the authorized one from the execution context and effective client configuration that
+will perform the write. Use a read-only identity check, such as the resolved database, account,
+tenant or endpoint; the presence of an environment variable is not proof. The writer rechecks
+after an execution-context or configuration change, including a new pane or service process.
+Delegates verify in their own context rather than trusting the parent's check; inherited
+environment is not guaranteed. If the target is ambiguous or
+wrong, stop before writing; never use a test write to discover it. Keep credentials and connection
+strings out of reports. Target verification does not grant authorization.
+
 Never expose authentication output, secrets, environment dumps, prompts, raw file contents, or
 full command output in telemetry. Never use `rm -rf` to remove a worktree. Never remove a dirty
 worktree. Force-delete a branch only with explicit authorization; `merged` gives it for the task's
@@ -192,10 +202,11 @@ can now do, or what was found and what it means, in plain words. Translate measu
 names, and mechanisms into their consequence. A reader who has to ask "what does that mean in plain
 English?" was given the mechanism instead of the outcome.
 
-The increment also bounds the diff. When a change starts pulling in surrounding code, new
-abstractions, or fixes for things the increment did not name, stop, keep the increment's scope, and
-list the rest in the update as a proposed next increment. Growth beyond the increment is Martin's
-decision, not a side effect of momentum.
+The increment also bounds the diff. Complete affected callers, tests, fixtures and configuration
+needed for the agreed behavior; a small diff that leaves them broken is unfinished. When work adds
+capabilities or abstractions beyond that behavior, stop, keep the increment's scope, and propose
+the extra work separately. Growth beyond the increment is Martin's decision, not a side effect of
+momentum.
 
 ### Checkpoints
 
@@ -240,9 +251,12 @@ may change the tree, so re-check state when work resumes instead of assuming you
 ### Previews
 
 A UI/UX checkpoint without a running instance you loaded yourself is incomplete. Give the URL, the
-exact route or story to open, the viewports and themes worth checking, and confirmation that you saw
-it render. Run it in a visible Herdr pane or named tab in this worktree's existing workspace, never
-as a background job and never in a second workspace for this checkout.
+exact route or story to open, the viewports and themes worth checking, and what you verified there.
+Exercise the behavior needed for the decision with representative content on that instance.
+Rendering alone is not proof of a working interaction. A visual prototype may use fixtures or fake
+behavior; state those limits and what remains unverified rather than implying product readiness.
+Run it in a visible Herdr pane or named tab in this worktree's existing workspace, never as a
+background job and never in a second workspace for this checkout.
 
 Every process the surface needs runs the same way. An API, database, worker, or watcher it depends on
 gets its own visible pane or tab, started from the repository's documented commands, in the
