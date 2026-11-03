@@ -46,7 +46,7 @@ The example contains placeholders only. The contract is versioned with top-level
 - `options.status` maps repository-specific option names to normalized states. `options.priority` and `options.size` define deterministic ordering.
 - `labels.agentReady` and `labels.needsHuman` contain repository-specific readiness aliases.
 - `limits.inProgress` is a non-negative WIP limit (default: 3).
-- `limits.inReview` is a non-negative review warning threshold, or `null` for no limit (the default). Explicit numeric settings still apply; set an inherited threshold to `null` to remove it. Counts remain visible with no limit. These findings do not block Ready candidates or requested work.
+- `limits.inReview` is a non-negative review threshold, or `null` for no limit (the default). Explicit numeric settings still apply; set an inherited threshold to `null` to remove it. Counts remain visible with no limit. These findings do not block Ready candidates or requested work.
 - `staleDays` is a positive inspection threshold reserved for stale evidence.
 - `requiredDraftSections` maps `outcome`, `scope`, `nonGoals`, `acceptance`, `dependencies`, and `validation` to accepted Markdown headings.
 
