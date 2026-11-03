@@ -52,9 +52,8 @@ because a nested name is impossible while the parent branch ref exists. On git 2
 `git branch issue/43-slug/layer2` fails with `cannot lock ref`, while `issue/43-slug--layer2`
 succeeds.
 
-**Do not let layers buy review capacity.** A layer awaiting review counts as a pull request awaiting
-review, so splitting one issue into more layers does not widen the repository's WIP or admission
-gates.
+**Keep the review backlog visible.** Include each layer awaiting review. There is no default PR-count
+cap; splitting an issue into layers does not bypass explicit repository limits or admission gates.
 
 **Keep one author worktree and one Herdr workspace per issue.** Layer branches live inside that
 worktree, and independent review keeps using detached review worktrees. No helper behavior changed;

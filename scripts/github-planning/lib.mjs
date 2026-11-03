@@ -30,7 +30,7 @@ export const BUILTIN_DEFAULTS = Object.freeze({
     agentReady: ["agent-ready"],
     needsHuman: ["needs-human"],
   },
-  limits: { inProgress: 3, inReview: 2 },
+  limits: { inProgress: 3, inReview: null },
   staleDays: 30,
   requiredDraftSections: {
     outcome: ["Desired outcome", "Outcome"],
@@ -129,8 +129,9 @@ function validateSettings(value, path, errors) {
     if (!isObject(value.limits)) errors.push(`${path}.limits must be an object`);
     else {
       for (const key of ["inProgress", "inReview"]) {
+        if (key === "inReview" && value.limits[key] === null) continue;
         if (value.limits[key] !== undefined && (!Number.isInteger(value.limits[key]) || value.limits[key] < 0)) {
-          errors.push(`${path}.limits.${key} must be a non-negative integer`);
+          errors.push(`${path}.limits.${key} must be a non-negative integer${key === "inReview" ? " or null" : ""}`);
         }
       }
     }
@@ -549,7 +550,7 @@ export function analyzeSnapshot(snapshot) {
       requiresHumanDecision: true,
     }));
   }
-  if (inReview.length > settings.limits.inReview) {
+  if (settings.limits.inReview !== null && inReview.length > settings.limits.inReview) {
     findings.push(finding(FINDING_CODES.REVIEW_LIMIT_EXCEEDED, `Review WIP is ${inReview.length}; configured limit is ${settings.limits.inReview}`, {
       severity: "error",
       evidence: { count: inReview.length, limit: settings.limits.inReview, items: inReview.map((item) => item.id).sort() },
@@ -605,7 +606,7 @@ export function buildDaily(snapshot) {
     portfolio: snapshot.portfolio,
     limits: {
       inProgress: { count: inProgressCount, limit: snapshot.settings.limits.inProgress, exceeded: inProgressCount > snapshot.settings.limits.inProgress },
-      inReview: { count: inReviewCount, limit: snapshot.settings.limits.inReview, exceeded: inReviewCount > snapshot.settings.limits.inReview },
+      inReview: { count: inReviewCount, limit: snapshot.settings.limits.inReview, exceeded: snapshot.settings.limits.inReview !== null && inReviewCount > snapshot.settings.limits.inReview },
     },
     sections: { attention, continuation, blockersAndDecisions, readyCandidates },
     findings: analysis.findings,
@@ -1018,7 +1019,7 @@ export function dailyToMarkdown(daily) {
     if (heading === "Continue current work") {
       const inProgress = daily.limits.inProgress;
       const inReview = daily.limits.inReview;
-      lines.push(`WIP: In progress ${inProgress.count}/${inProgress.limit}${inProgress.exceeded ? " (limit exceeded)" : ""}; In review ${inReview.count}/${inReview.limit}${inReview.exceeded ? " (limit exceeded)" : ""}.`, "");
+      lines.push(`WIP: In progress ${inProgress.count}/${inProgress.limit}${inProgress.exceeded ? " (limit exceeded)" : ""}; In review ${inReview.count}${inReview.limit === null ? " (no limit)" : `/${inReview.limit}`}${inReview.exceeded ? " (limit exceeded)" : ""}.`, "");
     }
     lines.push(...(items.length ? items.map((item) => `- ${dailyItem(item)}`) : ["- None"]));
   }

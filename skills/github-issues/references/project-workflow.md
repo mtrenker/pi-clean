@@ -44,7 +44,7 @@ Parent outcome
 └── independently deliverable child issues
 ```
 
-Parent issues describe success and collect sub-issue progress. Do not create implementation branches or PRs for parent issues. Child issues should normally map to one worktree, which delivers one PR or a stack of layer PRs when the change is worth reading in several units. Layers do not change the limits below: each layer awaiting review counts as a PR awaiting review.
+Parent issues describe success and collect sub-issue progress. Do not create implementation branches or PRs for parent issues. Child issues should normally map to one worktree, which delivers one PR or a stack of layer PRs when the change is worth reading in several units. Include each layer awaiting review in the review backlog; layers do not bypass explicit repository limits.
 
 Use native issue dependencies for ordering. Do not model blocked work with a status or label when a dependency relationship expresses it accurately.
 
@@ -65,12 +65,13 @@ A Ready issue has:
 
 ## Cognitive budget and agent admission
 
-Treat human review capacity as the bottleneck:
+Keep work reviewable without a default PR-count cap:
 
 - one human implementation in progress;
 - one active agent issue by default;
-- no more than two PRs waiting for human review, counting each stack layer separately;
-- start another agent issue only when it is unblocked, has low expected file overlap, and the operator can still review both changes coherently.
+- flag a growing review backlog, including stack layers, without blocking requested work solely on PR count;
+- keep one writer per checkout; start another agent issue only when it is unblocked, has low expected file overlap, and remains independently reviewable;
+- respect explicitly configured repository limits.
 
 Agent work should come from approximately:
 
@@ -92,7 +93,7 @@ Keep the default view focused:
 | Roadmap | `is:issue is:open label:"type:epic"` | Table with sub-issue progress |
 | Recently Done | `is:issue status:Done updated:>@today-30d` | Table |
 
-Suggested column limits are three items In progress and two In review. Avoid timeline views until target dates are trustworthy.
+The suggested In progress limit is three items. In review has no default limit; keep its count visible and configure a limit only when the repository needs one. Avoid timeline views until target dates are trustworthy.
 
 ## Minimal automation
 
