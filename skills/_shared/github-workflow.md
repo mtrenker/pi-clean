@@ -53,7 +53,7 @@ git status --short --branch
 
 Read the repository's `AGENTS.md`, `.github/ISSUE_TEMPLATE/`, and pull request template. Inspect its relevant GitHub Project when planning, prioritizing, or selecting work. Local repository policy overrides generic formatting guidance in these skills.
 
-When a repository defines Ready and agent-ready states, start implementation only from unblocked child issues that satisfy those gates. Parent outcomes, Inbox items, and Backlog items are not implementation work. Human review capacity bounds active agent work and review concurrency.
+When a repository defines Ready and agent-ready states, start implementation only from unblocked child issues that satisfy those gates. Parent outcomes, Inbox items, and Backlog items are not implementation work. Flag a growing review backlog, but do not infer a numerical cap or block requested work solely on PR count. Respect explicitly configured repository limits.
 
 ## Delegated design ownership
 
@@ -132,8 +132,8 @@ branch, grants in advance everything routine about delivering it:
 - commit coherent steps on the task's branch as you go, honest work-in-progress commits included;
 - push that branch;
 - open its pull request, ready for review, once the increment is validated and every checkpoint it
-  needed has been answered; open a draft only when you judge it not yet reviewable or review
-  capacity is full, and mark it ready yourself when that clears;
+  needed has been answered; open a draft only when it is not yet reviewable or an explicit
+  repository limit requires waiting, and mark it ready yourself when that clears;
 - push further commits and update the pull request's body within the task's scope.
 
 Martin reviews the code in the pull request, so ordinary steps get no terminal review. A failing test
@@ -274,10 +274,11 @@ per-worktree data is a separate step, and a destructive one.
 
 ### Review capacity
 
-A pull request layer awaiting human review counts as a pull request awaiting review. Splitting one
-issue into more layers creates no extra capacity and does not bypass the repository's admission
-gates or WIP limits. Keep later layers unpublished, or as drafts with no review requested, until
-capacity frees.
+There is no default numerical cap on pull requests awaiting human review. Keep the backlog visible,
+including each stack layer, and flag growth without automatically blocking requested work or keeping
+reviewable changes in draft. Keep changes independently reviewable, one writer per checkout, and avoid
+parallel work likely to change the same boundary. Explicit repository limits and readiness gates
+still apply; splitting an issue into layers does not bypass them.
 
 ## Isolated work
 

@@ -24,7 +24,7 @@
     },
     "limits": {
       "inProgress": 3,
-      "inReview": 2
+      "inReview": null
     },
     "staleDays": 30
   },

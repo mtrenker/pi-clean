@@ -18,8 +18,8 @@ git switch -c issue/<number>-<slug>--<layer-slug>
 
 Nested layer names are impossible: Git refuses `issue/<number>-<slug>/<layer>` while the parent
 branch ref exists. Never check out a layer branch outside the managed worktree. One issue keeps one
-worktree and one Herdr workspace however many layers it has, and a layer awaiting review counts
-against review capacity like any other pull request.
+worktree and one Herdr workspace however many layers it has. Include each layer in the review backlog
+under the shared policy's [review capacity](../../_shared/github-workflow.md#review-capacity) rules.
 
 Open a layer as you would any pull request, under routine delivery or the request's authorization,
 with its base set to the branch below:

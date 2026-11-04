@@ -53,8 +53,9 @@ that code or tests are correct.
 One pull request per issue is the default, and no consuming repository has used a stack yet. When a
 change is worth reading in several units, [stacked pull requests](references/stacked-pull-requests.md)
 has the layer branch naming, the operator steps on GitHub, the rules for changing a lower layer, and
-merge and cleanup. A layer awaiting review counts against review capacity like any other pull
-request, and `finish-issue --delete-branch` removes only the branch attached to the worktree.
+merge and cleanup. Include each layer in the review backlog under the shared policy's
+[review capacity](../_shared/github-workflow.md#review-capacity) rules, and
+`finish-issue --delete-branch` removes only the branch attached to the worktree.
 
 ## Independent review
 

@@ -96,7 +96,7 @@ active, in-review, or blocked-near-Ready item; summarize the healthy rest by cou
 
 ## Select work
 
-When a repository uses the recommended Project workflow, implementation candidates come from unblocked Ready issues. Agent work additionally requires the repository's agent-readiness marker. Respect Project WIP and human review limits; do not start parent issues, Backlog items, or multiple tasks likely to edit the same boundary.
+When a repository uses the recommended Project workflow, implementation candidates come from unblocked Ready issues. Agent work additionally requires the repository's agent-readiness marker. Respect explicitly configured Project limits; flag a growing review backlog without inferring a PR-count cap or blocking requested work solely on that count; do not start parent issues, Backlog items, or multiple tasks likely to edit the same boundary.
 
 ## Start implementation
 
@@ -116,8 +116,8 @@ an existing issue worktree when the helper reports one.
 
 One issue keeps one managed worktree and one Herdr workspace. That worktree delivers one pull
 request, or a stack of layer pull requests when the change is worth reading in several units; see
-[`github-pull-requests`](../github-pull-requests/SKILL.md) for the layer workflow. Layers create no
-extra capacity, because each layer awaiting review counts as a pull request awaiting review.
+[`github-pull-requests`](../github-pull-requests/SKILL.md) for the layer workflow. Layers do not
+bypass explicit repository limits; include each layer awaiting review in the backlog.
 
 Implementation also follows the increment, checkpoint, and preview contract in
 [the shared workflow policy](../_shared/github-workflow.md): carry the issue's next increment through

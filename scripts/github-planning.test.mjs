@@ -10,6 +10,7 @@ import {
   buildDaily,
   collectDraftContext,
   collectPortfolio,
+  dailyToMarkdown,
   getPortfolio,
   loadConfig,
   normalizeSnapshot,
@@ -106,6 +107,42 @@ test("daily report puts attention and continuation first and excludes inadmissib
   });
   assert.deepEqual(daily.sections.readyCandidates.map((item) => item.id), ["octo-org/service-alpha#10:ISSUE"]);
   assert.match(daily.decisionRequired, /operator must choose/i);
+});
+
+test("review counts stay visible without a default cap or after clearing an inherited cap", () => {
+  for (const clearInherited of [false, true]) {
+    const unlimited = structuredClone(config);
+    if (clearInherited) unlimited.portfolios.example.settings = { limits: { inReview: null } };
+    else delete unlimited.defaults.limits.inReview;
+    assert.deepEqual(validateConfig(unlimited), { valid: true, errors: [] });
+    const snapshot = normalizeSnapshot(unlimited, "example", source);
+    const reviewItem = snapshot.items.find((item) => item.projectStatus === "inReview");
+    assert.ok(reviewItem);
+    snapshot.items.push({ ...reviewItem, id: "octo-org/service-alpha#99:ISSUE", number: 99 });
+    const daily = buildDaily(snapshot);
+    assert.deepEqual(daily.limits.inReview, { count: 3, limit: null, exceeded: false });
+    assert.equal(daily.findings.some((finding) => finding.code === FINDING_CODES.REVIEW_LIMIT_EXCEEDED), false);
+    assert.equal(daily.sections.continuation.length, 5);
+    assert.deepEqual(daily.sections.readyCandidates.map((item) => item.id), ["octo-org/service-alpha#10:ISSUE"]);
+    assert.match(dailyToMarkdown(daily), /In review 3 \(no limit\)/);
+  }
+});
+
+test("explicit review thresholds still report excess, including a zero threshold", () => {
+  for (const limit of [0, 1, 2]) {
+    const explicit = structuredClone(config);
+    explicit.defaults.limits.inReview = limit;
+    assert.equal(validateConfig(explicit).valid, true);
+    const daily = buildDaily(normalizeSnapshot(explicit, "example", source));
+    assert.equal(daily.limits.inReview.exceeded, limit < 2);
+    assert.equal(daily.findings.some((finding) => finding.code === FINDING_CODES.REVIEW_LIMIT_EXCEEDED), limit < 2);
+    assert.ok(dailyToMarkdown(daily).includes(`In review 2/${limit}${limit < 2 ? " (limit exceeded)" : ""}`));
+  }
+  for (const limit of [-1, 1.5, "2"]) {
+    const invalid = structuredClone(config);
+    invalid.defaults.limits.inReview = limit;
+    assert.equal(validateConfig(invalid).valid, false);
+  }
 });
 
 test("validates structured drafts, labels, issue-form fields, and duplicate candidates without mutation", async () => {
