@@ -22,7 +22,9 @@ apply. This skill scales optional work; it does not waive repository rules. Foll
 - Identify the current need and the smallest complete end-to-end change that serves it.
   Include affected callers, tests, fixtures and configuration. These complete the
   agreed behavior; speculative features expand it. For obvious work, do it; a
-  formal plan is not a prerequisite.
+  formal plan is not a prerequisite. Incidental cleanup is not automatic: only an
+  explicit invocation of `boyscout` enables the shared policy's
+  [narrow ticketless exception](../_shared/github-workflow.md#opt-in-boy-scout-cleanup).
 - Plan only to the next useful feedback point. Later possibilities can stay one
   sentence, not phases, speculative child issues or a production roadmap.
 - Resolve uncertainty with a small experiment, not an architecture for every

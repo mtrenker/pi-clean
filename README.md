@@ -81,9 +81,15 @@ settings names the checkout, so a skill shows up as `pi-clean:<name>` in every C
 - `interactive-agent-sessions` for visible, focusable Claude, Codex, and Fable sessions with deterministic models, effort, permissions, prompts, and Herdr placement.
 - `github-issues` for Projects, issue hierarchy, dependencies, milestones, grooming, and human/agent readiness.
 - `github-pull-requests` for opening PRs, independent reviews, checks, merge preparation, and cleanup.
+- `boyscout` for explicitly requested cleanup of one related finding during an existing task, without a separate ticket.
 - `prose-quality` for direct, natural human-facing prose that keeps technical meaning exact.
 - `proton` for Proton Pass CLI (`pass-cli`) work that keeps secrets out of agent context: session isolation, `run` and `inject` secret delivery, items, sharing, agent tokens, and the SSH agent. It covers pass-cli only.
 - `react-composition-quality` for maintainable React composition, render-ready data, and simple UI contracts.
+
+Invoke `/skill:boyscout` in Pi during an authorized task (`/reload` first in an already-running
+session); it is never automatic. It reads the working repository's root `boyscout.md`, whose
+entries need only a problem, affected paths and a validation check; see the
+[entry example](skills/boyscout/SKILL.md#keep-findings-local).
 
 The package also provides deterministic, read-only cross-repository issue grooming. User portfolio configuration lives in `~/.pi/agent/github-workflow.json` (override with `PI_GITHUB_WORKFLOW_CONFIG`); the package never creates it during inspection. Use `/github-add`, `/github-groom`, or `/github-daily`, or run:
 

@@ -55,6 +55,9 @@ Read the repository's `AGENTS.md`, `.github/ISSUE_TEMPLATE/`, and pull request t
 
 When a repository defines Ready and agent-ready states, start implementation only from unblocked child issues that satisfy those gates. Parent outcomes, Inbox items, and Backlog items are not implementation work. Flag a growing review backlog, but do not infer a numerical cap or block requested work solely on PR count. Respect explicitly configured repository limits.
 
+The [opt-in Boy Scout exception](#opt-in-boy-scout-cleanup) needs no separate cleanup
+issue; the host task still satisfies these admission gates.
+
 ## Delegated design ownership
 
 Any delegated work that establishes or materially changes a solution direction must assign the
@@ -203,10 +206,32 @@ names, and mechanisms into their consequence. A reader who has to ask "what does
 English?" was given the mechanism instead of the outcome.
 
 The increment also bounds the diff. Complete affected callers, tests, fixtures and configuration
-needed for the agreed behavior; a small diff that leaves them broken is unfinished. When work adds
-capabilities or abstractions beyond that behavior, stop, keep the increment's scope, and propose
-the extra work separately. Growth beyond the increment is Martin's decision, not a side effect of
-momentum.
+needed for the agreed behavior; a small diff that leaves them broken is unfinished. Apart from the
+[explicitly invoked cleanup exception](#opt-in-boy-scout-cleanup), when work adds capabilities or
+abstractions beyond that behavior, stop, keep the increment's scope, and propose the extra work
+separately. Growth beyond the increment is Martin's decision, not a side effect of momentum.
+
+### Opt-in Boy Scout cleanup
+
+Explicit invocation of the [boyscout skill](../boyscout/SKILL.md) permits at most one
+coherent, related cleanup from the target repository's `boyscout.md` during the current
+authorized task and its PR, without a separate issue. Zero is fine. Repeated invocation,
+new sessions and PR layers do not reset the allowance; it does not carry into future tasks.
+Reading the list, loading these instructions or noticing a problem grants no permission.
+A coordinator may pass that same grant to the task's one writer in an explicit handoff
+that names the user's invocation and the host task. This transfers the allowance; it
+does not create another one or let a worker infer permission from a skill reference.
+
+The cleanup must address a concrete problem near code, tests or docs already being changed,
+be low-risk and cheap to verify and review, and need no redesign, broader investigation or
+consequential decision. Necessary corrections to the main task are already in scope.
+Follow the skill's selection, validation, same-commit list removal and PR reporting steps;
+do not invent a cleanup when none fits or automatically create follow-up issues.
+
+This is only an exception to separate-ticket and scope-expansion requirements for that bounded
+cleanup. The host task's admission gates, stricter repository rules, required checks, independent
+review, and authorization boundaries still apply. Commit and publication use the host task's
+existing grant; merge, deployment and destructive operations gain no new permission.
 
 ### Checkpoints
 
