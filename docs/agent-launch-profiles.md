@@ -37,7 +37,7 @@ A recipe that hand-writes `claude --model ...` is a defect, not a shortcut.
 | Profile | Program | Model | Default effort | Execution | Native delegation |
 | --- | --- | --- | --- | --- | --- |
 | `claude-opus` | `claude` | `claude-opus-5-5` | `high` | `--permission-mode bypassPermissions` | disabled |
-| `claude-fable` | `claude` | `claude-fable-5-1` | `high` | `--permission-mode bypassPermissions` | disabled |
+| `claude-fable` | `claude` | `claude-fable-5-2` | `high` | `--permission-mode bypassPermissions` | disabled |
 | `codex-sol-write` | `codex` | `gpt-6-sol` | `high` | `--ask-for-approval never --sandbox workspace-write` | disabled |
 | `codex-sol-read` | `codex` | `gpt-6-sol` | `medium` | `--ask-for-approval never --sandbox read-only` | disabled |
 | `codex-astra-write` | `codex` | `gpt-6-astra` | `medium` | `--ask-for-approval never --sandbox workspace-write` | disabled |
@@ -59,7 +59,7 @@ OpenAI's frontier model for a task Sol has already failed or is plainly unsuited
 and `--reviewer codex` still resolve to Sol. See [Model selection](model-selection.md) for why Astra
 is a profile rather than a default, and why its effort starts at `medium`.
 
-Model and effort are pinned per launch. Fable is pinned to `claude-fable-5-1`; the bare `fable`
+Model and effort are pinned per launch. Fable is pinned to `claude-fable-5-2`; the bare `fable`
 alias is rejected because it resolves differently through the apps gateway.
 
 ## Effort

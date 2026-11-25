@@ -37,7 +37,7 @@ export const AGENT_PROFILES = {
   },
   "claude-fable": {
     program: "claude",
-    model: "claude-fable-5-1",
+    model: "claude-fable-5-2",
     efforts: CLAUDE_EFFORTS,
     defaultEffort: "high",
     execution: "bypassPermissions",
