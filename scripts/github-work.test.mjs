@@ -849,7 +849,7 @@ test("profiles reports the pinned models, defaults, and verified CLI versions", 
   assert.equal(listed.defaults.reviewer, "claude");
   const model = (id) => listed.profiles.find((profile) => profile.id === id).model;
   assert.equal(model("claude-opus"), "claude-opus-5-5");
-  assert.equal(model("claude-fable"), "claude-fable-5-1");
+  assert.equal(model("claude-fable"), "claude-fable-5-2");
   assert.equal(model("codex-sol-write"), "gpt-6-sol");
   assert.equal(model("codex-sol-read"), "gpt-6-sol");
   assert.equal(model("codex-astra-write"), "gpt-6-astra");

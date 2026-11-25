@@ -23,7 +23,7 @@ at which effort, and which were assumed.
 1. Refresh the existing pins in place. `claude-opus` names `claude-opus-5-5`; `codex-sol-write` and
    `codex-sol-read` name `gpt-6-sol`. Profile IDs, agent routing, default efforts, sandbox and
    permission settings, and the native-delegation controls do not change.
-2. Keep `claude-fable` on `claude-fable-5-1`. Fable stays the coordinator, reachable through
+2. Pin `claude-fable` to `claude-fable-5-2` at Martin's request. Fable stays the coordinator, reachable through
    `launch-command` only, and no helper command routes coding or design to it.
 3. Add exactly one opt-in Astra profile, `codex-astra-write`, on `gpt-6-astra`. It is reachable
    through `launch-command` only, and it is not the default for anything.
@@ -82,6 +82,11 @@ Opus 5.5's own default. This is the current profile's setting, carried over unch
 claim about what any earlier pin was one step above.
 
 ## Evidence
+
+Fable pin updated at Martin's request on 2026-11-25. The [models overview](https://platform.claude.com/docs/en/about-claude/models/overview),
+checked that day, lists `claude-fable-5-2` with default effort `high` and still recommends
+`claude-opus-5-5` for most workloads, so the Opus pin stays unchanged. This is not a local
+benchmark-based promotion; the dated Fable 5.1 evidence below does not apply to Fable 5.2.
 
 Fetched 2026-09-24. Artificial Analysis articles are dated 2026-09-22.
 
@@ -157,7 +162,7 @@ controls, or authorization boundaries.
 ## Acceptance criteria
 
 1. `scripts/agent-profiles.mjs` is the only file naming a model ID for execution, and it names
-   `claude-opus-5-5`, `claude-fable-5-1`, `gpt-6-sol`, and `gpt-6-astra`.
+   `claude-opus-5-5`, `claude-fable-5-2`, `gpt-6-sol`, and `gpt-6-astra`.
 2. `AGENT_PROFILE_IDS`, `DEFAULT_ISSUE_AGENT`, `DEFAULT_REVIEWER`, every default effort, every
    execution value, and every `nativeDelegation` value are unchanged from the previous revision.
 3. `codex-astra-write` renders a command carrying `gpt-6-astra`, `model_reasoning_effort="medium"`,

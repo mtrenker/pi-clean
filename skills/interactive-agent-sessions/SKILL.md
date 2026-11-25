@@ -163,7 +163,7 @@ herdr pane run "$PANE" "$LAUNCH"
 
 `node "$WORK_HELPER" profiles` prints the pinned models, supported efforts, defaults, and verified CLI versions. `scripts/agent-profiles.mjs` holds the values; [Agent launch profiles](../../docs/agent-launch-profiles.md) explains the design.
 
-Profiles: `claude-opus`, `claude-fable`, `codex-sol-write`, `codex-sol-read`, `pi-ambient`. Fable is pinned to `claude-fable-5-1`; the bare `fable` alias resolves differently through the apps gateway, so it is never used. `pi-ambient` takes its model, effort, and tool policy from personal settings and is therefore not reproducible from this repository; prefer a pinned profile.
+Profiles: `claude-opus`, `claude-fable`, `codex-sol-write`, `codex-sol-read`, `pi-ambient`. Fable is pinned to `claude-fable-5-2`; the bare `fable` alias resolves differently through the apps gateway, so it is never used. `pi-ambient` takes its model, effort, and tool policy from personal settings and is therefore not reproducible from this repository; prefer a pinned profile.
 
 An unsupported profile or effort exits non-zero and names the supported values. Never work around that by writing the command by hand: a silent fallback to a different model, effort, or permission mode is the failure this helper exists to prevent.
 
